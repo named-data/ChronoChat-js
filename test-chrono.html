@@ -3,10 +3,10 @@
     <meta charset="utf-8">
     <title>NDN publishing test</title>
 	
-    <script src="../ndn.js"></script>
-    <script src="../digest_log.js"></script>
-    <script src="../digest_tree.js"></script>
-    <script src="../chatmsg.js"></script>
+    <script src="../ChronoChat-javascript/ndn.js"></script>
+    <script src="../ChronoChat-javascript/digest_log.js"></script>
+    <script src="../ChronoChat-javascript/digest_tree.js"></script>
+    <script src="../ChronoChat-javascript/chatmsg.js"></script>
 
     <script>
 var dbName = "ChronoChat_db";
@@ -56,7 +56,7 @@ function testPublish () {
         digest_tree.initial();
         addlog([{name:usrname,seqno:usrseq}]);
         //heartbeat();
-        var myVar = setInterval(function(){heartbeat()},6000);
+        //var myVar = setInterval(function(){heartbeat()},6000);
     };
  
     roster[0] = {"name":usrname,"chat_count":0};

@@ -53,6 +53,12 @@ var heart_timeout = function(interest) {
         console.log('Hearbeat Interest name: ' + interest.name.to_uri());
                                   
     };
+
+var sync_timeout = function(interest) {
+        console.log("Sync Interest time out.");
+        console.log('Sync Interest name: ' + interest.name.to_uri());
+                                  
+    };
     
 function heartbeat(){
     usrseq++;
@@ -86,7 +92,7 @@ function SendMessage(){
     var template = new Interest();
     template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
     template.interestLifetime = 1000;
-    ndn.expressInterest(n, template, onSyncData, heart_timeout);                
+    ndn.expressInterest(n, template, onSyncData, sync_timeout);              
     console.log('Sync Interest expressed.');
     var d = new Date();//get time
     var t = d.toLocaleTimeString();
