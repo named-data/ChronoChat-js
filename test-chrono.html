@@ -1,0 +1,105 @@
+<!DOCTYPE HTML>
+<head>
+    <meta charset="utf-8">
+    <title>NDN publishing test</title>
+	
+    <script src="../ndn.js"></script>
+    <script src="../digest_log.js"></script>
+    <script src="../digest_tree.js"></script>
+    <script src="../chatmsg.js"></script>
+
+    <script>
+var dbName = "ChronoChat_db";
+var maxmsgcachelength = 100;
+var usrdigest = {};
+var usrname = "qiuhan";
+var usrseq = 0;
+var max_wait = 10;
+var roster = new Array();
+var db;
+var chatroom = "chat_dqh";
+var msgcache = [];
+var digest_tree;
+var leaveflag = 0;
+var ndn;
+var mykey;
+var synckeyname;
+var logseq = 0;
+
+function testPublish () {
+   
+    var onData = function(inst,co){
+        
+        if(co.name.components[1] == "broadcast"){
+          onSyncData(inst,co);
+        }
+        else {
+            onChatData(inst,co);
+            
+            //show msg on screen with their receive time
+        }
+        
+    };
+    
+    var chat_timeout = function(interest){
+        console.log("no chat data coming back");
+        var n = rosterfind(interest.name.components[1]);
+        roster[n].chat_count++;
+        if(roster[n].chat_count == max_wait){
+            roster.splice(n,1);
+        }
+    };
+
+    var initial_timeout = function(interest){
+        console.log("no other people");
+        //addlog([{name:usrname,seqno:usrseq}]);
+        digest_tree.initial();
+        addlog([{name:usrname,seqno:usrseq}]);
+        //heartbeat();
+        var myVar = setInterval(function(){heartbeat()},6000);
+    };
+ 
+    roster[0] = {"name":usrname,"chat_count":0};
+    InitialLog(usrname);
+    console.log(db);
+    digest_tree = new Digest_Tree();
+    ndn = new NDN();
+    mykey = ndn.getDefaultKey();
+    synckeyname= new Name('/ndn/'+usrname+'/'+'chronos/'+chatroom+'/key/').appendKeyID(mykey).appendVersion().appendSegment(0);
+
+    ndn.onopen = function () {
+        console.log("ndn open");
+        msgcache.push({seqno:1,msgtype:"join",msg:"xxx"});
+        var n1 = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
+        ndn.registerPrefix(n1,onSyncInterest);
+        console.log('sync prefix registered.');
+        var n2 = new Name('/ndn/'+usrname+'/chronos/'+chatroom+'/');
+        ndn.registerPrefix(n2,onChatInterest);
+        console.log('data prefix registered.');
+        var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/'+digest_tree.root);
+        var template = new Interest();
+        template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
+        template.interestLifetime = 1000;
+        ndn.expressInterest(n, template, onSyncData, initial_timeout);
+        
+    };
+
+    
+    ndn.connect();
+    
+    console.log('Started...');
+}
+
+    </script>
+
+</head>
+
+<body onload="testPublish()">
+<div><textarea id = "txt" style="overflow:auto;width:600px;height:300px;font-size:20px"  disabled></textarea></div>
+<dib><textarea id="fname"
+style="width:600px;height:100px;font-size:10px"></textarea></div>
+<div><button style="font-size:20px" onclick="SendMessage()">send</button></div>
+<div><button style="font-size:20px" onclick="Leave()">leave</button></div>
+
+</body>
+</html>
