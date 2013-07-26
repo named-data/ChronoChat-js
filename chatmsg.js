@@ -96,7 +96,7 @@ function SendMessage(){
     console.log('Sync Interest expressed.');
     var d = new Date();//get time
     var t = d.toLocaleTimeString();
-    document.getElementById('txt').innerHTML += usrname+'-'+t+':'+chatmsg;          
+    document.getElementById('txt').innerHTML += '<p>'+ usrname+'-'+t+':'+chatmsg + '</p>';          
 }
 
 function Leave(){
