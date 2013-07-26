@@ -53,12 +53,6 @@ var heart_timeout = function(interest) {
         console.log('Hearbeat Interest name: ' + interest.name.to_uri());
                                   
     };
-
-var sync_timeout = function(interest) {
-        console.log("Sync Interest time out.");
-        console.log('Sync Interest name: ' + interest.name.to_uri());
-                                  
-    };
     
 function heartbeat(){
     usrseq++;

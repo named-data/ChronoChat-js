@@ -99,7 +99,11 @@ function addlog(content){
 var sync_timeout = function(interest) {
         console.log("Sync Interest time out.");
         console.log('Sync Interest name: ' + interest.name.to_uri());
-                                  
+	var n = new Name(interest.name);
+	var template = new Interest();
+	template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
+	template.interestLifetime = 1000;
+	ndn.expressInterest(n, template, onSyncData, sync_timeout);                  
 };
 
 function onSyncData(inst,co){
