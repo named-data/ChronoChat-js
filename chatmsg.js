@@ -3,15 +3,20 @@ function onChatInterest(inst){
     console.log('Chat Interest received in callback.');
     console.log(inst.name.to_uri());
     var content;
-    var seq = parseInt(inst.name.compunents[inst.name.components.length-1]);
+    var seq = parseInt(DataUtils.toString(inst.name.components[4]),16);/////
+    console.log("seq");
+    console.log(seq)
     for(var i = msgcache.length-1;i>=0;i--){
-        if(msgcathche[i].seqno ==seq){
+	console.log("msgseq:"+msgcache[i].seqno);
+        if(msgcache[i].seqno ==seq){
             content = {msg:msgcache[i].msg,type:msgcache[i].msgtype};
             JSON.stringify(content);
             break;
         }
     }
-    var co = new ContentObject(inst.name,content);
+    console.log(content);
+    var str = JSON.stringify(content);
+    var co = new ContentObject(inst.name,str);
     co.sign(mykey,{'keyName':mykeyname});
     
     try {
@@ -25,17 +30,16 @@ function onChatInterest(inst){
 function onChatData(inst,co){
     console.log("ContentObject received in callback");
     console.log('name'+co.name.to_uri());
-    var content = co.content.toString();
-    JSON.parse(content);
-    var name = co.name.components[1];
+    var content = JSON.parse(DataUtils.toString(co.content));
+    var name = DataUtils.toString(co.name.components[1]);
     if (content.type =="chat"){
         //display on the screen
         var d = new Date();//get time
         var t = d.toLocaleTimeString();
-        document.getElementById('txt').innerHTML += name+'-'+t+':'+content.msg;
+        document.getElementById('txt').innerHTML +='<p>'+ name+'-'+t+':'+content.msg+'</p>';
     }
     else if(content.type == "leave"){
-        var n = rosterfind(inst.name.components[1]);
+        var n = rosterfind(name);
         roster.splice(n,1);
     }
 }

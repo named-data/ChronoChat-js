@@ -32,6 +32,6 @@ var chat_timeout = function(interest){
         //addlog([{name:usrname,seqno:usrseq}]);
         digest_tree.initial();
         addlog([{name:usrname,seqno:usrseq}]);
-        //heartbeat();
+        heartbeat();
         //var myVar = setInterval(function(){heartbeat()},6000);
     };
