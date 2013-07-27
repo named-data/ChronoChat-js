@@ -3175,8 +3175,9 @@ var CSEntry = function CSEntry(name, closure) {
 
 var getEntryForRegisteredPrefix = function (/* Name */ name) {
     for (var i = 0; i < NDN.CSTable.length; i++) {
-	if (NDN.CSTable[i].name.isPrefixOf(name) != null)
+	if (NDN.CSTable[i].name.isPrefixOf(name)) {
 	    return NDN.CSTable[i];
+	}
     }
     return null;
 };
