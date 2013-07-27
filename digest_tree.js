@@ -4,9 +4,9 @@
 //the digest_tree input is the new information to put into it
 
 var Digest_Tree = function Digest_Tree() {
-	this.digestnode = [];
-    this.root = {};
-	var root_d = [];
+    this.digestnode = [];
+    this.root = '';
+    var root_d = '';
 };
 
 Digest_Tree.prototype.initial = function() {
@@ -21,16 +21,18 @@ Digest_Tree.prototype.initial = function() {
 };
 
 Digest_Tree.prototype.newcomer = function(name){
-	var digest_t = new KJUR.crypto.MessageDigest({alg: "sha256", prov: "cryptojs"});
-    digest_t.upstateString(name+1);
-	var temp = {"prefix_name":name,"depno":1,"digest":digest_t.digest()};
-	this.digestnode.push(temp);
-	this.digestnode.sort(sortdigestnode);
-	var root_d = [];
-	for(var i = 0;i<this.digestnode.length;i++){
-		root_d = root_d+this.digestnode[i].digest;
-	}
-	var md = new KJUR.crypto.MessageDigest({alg: "sha256", prov: "cryptojs"});
+    console.log("name");
+    console.log(name);
+    var digest_t = new KJUR.crypto.MessageDigest({alg: "sha256", prov: "cryptojs"});
+    digest_t.updateString(name+1);
+    var temp = {"prefix_name":name,"seqno":1,"digest":digest_t.digest()};
+    this.digestnode.push(temp);
+    this.digestnode.sort(sortdigestnode);
+    var root_d = '';
+    for(var i = 0;i<this.digestnode.length;i++){
+	root_d = root_d+this.digestnode[i].digest;
+    }
+    var md = new KJUR.crypto.MessageDigest({alg: "sha256", prov: "cryptojs"});
     md.updateString(root_d);
     this.root = md.digest();
     roster.push({"name":name,"chat_count":0});
@@ -39,8 +41,11 @@ Digest_Tree.prototype.newcomer = function(name){
 
 Digest_Tree.prototype.update = function (content) {
     //console.log(content[0].seqno);////////
+    console.log("tree update content:");
+    console.log(content);
     for(var i = 0;i<content.length;i++){
 	var n_index = this.find(content[i].name);
+	console.log("n_index:"+n_index);
         if( n_index != -1){
 	    if(content[i].seqno == "unavailable"){
 		this.remove(content[i].name);
@@ -56,10 +61,10 @@ Digest_Tree.prototype.update = function (content) {
             this.newcomer(content[i].name);
         }
     }
-	var root_d = [];
-	for(var i = 0;i<this.digestnode.length;i++){
-		root_d = root_d+this.digestnode[i].digest;
-	}
+    var root_d = '';
+    for(var i = 0;i<this.digestnode.length;i++){
+	root_d = root_d+this.digestnode[i].digest;
+    }
     var md = new KJUR.crypto.MessageDigest({alg: "sha256", prov: "cryptojs"});
     md.updateString(root_d);
     //console.log("update"+md.digest());
@@ -68,7 +73,7 @@ Digest_Tree.prototype.update = function (content) {
 };
 
 function sortdigestnode(node1,node2){
-	return(node1.prefix_name>node2.prefix_name);
+    return(node1.prefix_name>node2.prefix_name);
 }
 
 Digest_Tree.prototype.find = function (name) {
@@ -77,6 +82,8 @@ Digest_Tree.prototype.find = function (name) {
             return i;
         }
     }
+    if(i == this.digestnode.length)
+	return -1;
 };
 
 Digest_Tree.prototype.remove = function(name){

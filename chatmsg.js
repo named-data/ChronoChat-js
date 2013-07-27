@@ -1,6 +1,6 @@
 function onChatInterest(inst){
 //need msgcache
-    console.log('Interest received in callback.');
+    console.log('Chat Interest received in callback.');
     console.log(inst.name.to_uri());
     var content;
     var seq = parseInt(inst.name.compunents[inst.name.components.length-1]);
@@ -64,11 +64,12 @@ function heartbeat(){
         msgcache.shift();
     digest_tree.update(content);
     addlog(content);
-    var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/'+digest_tree.root+'/');
+    var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
+    n.append(DataUtils.toNumbers(digest_tree.root));
     var template = new Interest();
     template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
     template.interestLifetime = 1000;
-    ndn.expressInterest(n, template, onSyncData, heart_timeout);                
+    ndn.expressInterest(n, template, onSyncData, sync_timeout);                
     console.log('Heartbeat Interest expressed.');          
 }
 
