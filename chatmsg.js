@@ -4,17 +4,17 @@ function onChatInterest(inst){
     console.log(inst.name.to_uri());
     var content;
     var seq = parseInt(DataUtils.toString(inst.name.components[4]),16);/////
-    console.log("seq");
-    console.log(seq)
+    //console.log("seq");
+    //console.log(seq)
     for(var i = msgcache.length-1;i>=0;i--){
-	console.log("msgseq:"+msgcache[i].seqno);
+	//console.log("msgseq:"+msgcache[i].seqno);
         if(msgcache[i].seqno ==seq){
             content = {msg:msgcache[i].msg,type:msgcache[i].msgtype};
             JSON.stringify(content);
             break;
         }
     }
-    console.log(content);
+    //console.log(content);
     var str = JSON.stringify(content);
     var co = new ContentObject(inst.name,str);
     co.sign(mykey,{'keyName':mykeyname});
@@ -72,7 +72,7 @@ function heartbeat(){
     n.append(DataUtils.toNumbers(digest_tree.root));
     var template = new Interest();
     template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
-    template.interestLifetime = 1000;
+    template.interestLifetime = 60000;
     ndn.expressInterest(n, template, onSyncData, sync_timeout);                
     console.log('Heartbeat Interest expressed.');          
 }
@@ -87,12 +87,14 @@ function SendMessage(){
         msgcache.shift();
     digest_tree.update(content);
     addlog(content);
-    var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/'+digest_tree.root);
+    var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
+    n.append(DataUtils.toNumbers(digest_tree.root));
     var template = new Interest();
     template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
-    template.interestLifetime = 1000;
+    template.interestLifetime = 10000;
     ndn.expressInterest(n, template, onSyncData, sync_timeout);              
     console.log('Sync Interest expressed.');
+    //console.log(template.name.to_uri());
     var d = new Date();//get time
     var t = d.toLocaleTimeString();
     document.getElementById('txt').innerHTML += '<p>'+ usrname+'-'+t+':'+chatmsg + '</p>';          

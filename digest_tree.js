@@ -12,7 +12,7 @@ var Digest_Tree = function Digest_Tree() {
 Digest_Tree.prototype.initial = function() {
     var md = new KJUR.crypto.MessageDigest({alg: "sha256", prov: "cryptojs"});
     md.updateString(usrname+1);
-    this.digestnode[0] = {"prefix_name":usrname,"seqno":0,"digest":md.digest()};
+    this.digestnode[0] = {"prefix_name":usrname,"seqno":1,"digest":md.digest()};
     md = new KJUR.crypto.MessageDigest({alg: "sha256", prov: "cryptojs"});
     md.updateString(this.digestnode[0].digest);
     this.root = md.digest();
@@ -21,8 +21,8 @@ Digest_Tree.prototype.initial = function() {
 };
 
 Digest_Tree.prototype.newcomer = function(name){
-    console.log("name");
-    console.log(name);
+    //console.log("name");
+    //console.log(name);
     var digest_t = new KJUR.crypto.MessageDigest({alg: "sha256", prov: "cryptojs"});
     digest_t.updateString(name+1);
     var temp = {"prefix_name":name,"seqno":1,"digest":digest_t.digest()};
@@ -41,11 +41,11 @@ Digest_Tree.prototype.newcomer = function(name){
 
 Digest_Tree.prototype.update = function (content) {
     //console.log(content[0].seqno);////////
-    console.log("tree update content:");
-    console.log(content);
+    //console.log("tree update content:");
+    //console.log(content);
     for(var i = 0;i<content.length;i++){
 	var n_index = this.find(content[i].name);
-	console.log("n_index:"+n_index);
+	//console.log("n_index:"+n_index);
         if( n_index != -1){
 	    if(content[i].seqno == "unavailable"){
 		this.remove(content[i].name);

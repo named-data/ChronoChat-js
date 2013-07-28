@@ -30,8 +30,8 @@ function onSyncInterest(inst){
     }
     else
 	syncdigest = DataUtils.toHex(inst.name.components[4]);
-    console.log(syncdigest);
-    console.log(digest_tree.root);
+    //console.log(syncdigest);
+    //console.log(digest_tree.root);
     if(syncdigest != digest_tree.root){
 	var ob_store = db.transaction(usrname).objectStore(usrname);
 	var index = ob_store.index("digest");
@@ -40,7 +40,7 @@ function onSyncInterest(inst){
 	    //console.log(event.target.result);
 	    if(event.target.result!=null){
 		var logseq_t = event.target.result.key;//var logseq_t = event.target.result;
-		console.log("logseq_t:"+logseq_t);
+		//console.log("logseq_t:"+logseq_t);
 		var range = IDBKeyRange.lowerBound(logseq_t, true);
 		var data_name = [];
 		var data_seq = [];
@@ -135,7 +135,7 @@ function onSyncData(inst,co){
         var n = new Name('/ndn/'+content[i].name+'/chronos/'+chatroom+'/'+content[i].seqno);
         var template = new Interest();
         template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
-        template.interestLifetime = 1000;
+        template.interestLifetime = 10000;
         ndn.expressInterest(n, template, onChatData, chat_timeout);
         console.log(n.to_uri());
         console.log('Chat Interest expressed.');
@@ -143,17 +143,19 @@ function onSyncData(inst,co){
     if(usrseq == 0){
 	usrseq++;
 	var content = [{name:usrname,seqno:usrseq}];
-	console.log(digest_tree.root);
+	//console.log(digest_tree.root);
 	digest_tree.update(content);
-	console.log(digest_tree.root);
+	//console.log(digest_tree.root);
 	addlog(content);
+    }
 	var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
 	n.append(DataUtils.toNumbers(digest_tree.root));
 	var template = new Interest();
 	template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
-	template.interestLifetime = 1000;
+	template.interestLifetime = 10000;
 	ndn.expressInterest(n, template, onSyncData, sync_timeout);
+	console.log("Syncinterest expressed:");
+	//console.log(template.name.to_url());
 	//assume that the everyone except the new comer is in the static state
-	var myVar = setInterval(function(){heartbeat()},2000);
-    }
+	//var myVar = setInterval(function(){heartbeat()},2000);
 }

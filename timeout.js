@@ -9,12 +9,15 @@ var sync_timeout = function(interest) {
 		component = DataUtils.toHex(interest.name.components[4]);
 	}
 	a++;
-	if(component == digest_tree.root&&a<5){
+	console.log(component);
+	if(component == digest_tree.root){
 	  	var n = new Name(interest.name);
 	  	var template = new Interest();
 	  	template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
-	  	template.interestLifetime = 1000;
+	  	template.interestLifetime = 10000;
 	  	ndn.expressInterest(n, template, onSyncData, sync_timeout);
+		console.log("Syncinterest expressed:");
+	        //console.log(template.name.to_uri());
 	}                  
 };
 
@@ -32,6 +35,14 @@ var chat_timeout = function(interest){
         //addlog([{name:usrname,seqno:usrseq}]);
         digest_tree.initial();
         addlog([{name:usrname,seqno:usrseq}]);
-        heartbeat();
+	var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
+	n.append(DataUtils.toNumbers(digest_tree.root));
+	var template = new Interest();
+	template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
+	template.interestLifetime = 10000;
+	ndn.expressInterest(n, template, onSyncData, sync_timeout);
+	console.log("Syncinterest expressed:");
+	//console.log(template.name.to_uri());
+        //heartbeat();
         //var myVar = setInterval(function(){heartbeat()},6000);
     };
