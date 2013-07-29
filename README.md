@@ -1,0 +1,1 @@
+This application need the user to install ndn.js
