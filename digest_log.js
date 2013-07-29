@@ -124,22 +124,26 @@ function onSyncData(inst,co){
     console.log("ContentObject received in callback");
     console.log('name:'+co.name.to_uri());
     var content = JSON.parse(DataUtils.toString(co.content));
+    console.log(content);
     digest_tree.update(content);
     for(var i = 0; i<content.length;i++){
 	if(content[i].seqno == "unavailable"){
 	    content.splice(i,1);
 	    i=i-1;
 	}
-    }	
-    addlog(content);
-    for(var i = 0; i<content.length;i++){
-        var n = new Name('/ndn/'+content[i].name+'/chronos/'+chatroom+'/'+content[i].seqno);
-        var template = new Interest();
-        template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
-        template.interestLifetime = 10000;
-        ndn.expressInterest(n, template, onChatData, chat_timeout);
-        console.log(n.to_uri());
-        console.log('Chat Interest expressed.');
+    }
+    console.log(content);
+    if(content.length!=0){
+	addlog(content);
+	for(var i = 0; i<content.length;i++){
+            var n = new Name('/ndn/'+content[i].name+'/chronos/'+chatroom+'/'+content[i].seqno);
+            var template = new Interest();
+            template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
+            template.interestLifetime = 10000;
+            ndn.expressInterest(n, template, onChatData, chat_timeout);
+            console.log(n.to_uri());
+            console.log('Chat Interest expressed.');
+	}
     }
     if(usrseq == 0){
 	usrseq++;
