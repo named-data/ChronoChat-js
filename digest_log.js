@@ -148,7 +148,7 @@ function onSyncData(inst,co){
 	digest_tree.update(content);
 	//console.log(digest_tree.root);
 	addlog(content);
-	var myVar = setInterval(function(){heartbeat();},120000);
+	var myVar = setInterval(function(){heartbeat();},60000);
 	//setTimeout(function(){heartbeat();},60000);
     }
 	var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');

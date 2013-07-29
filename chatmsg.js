@@ -3,9 +3,9 @@ function onChatInterest(inst){
     console.log('Chat Interest received in callback.');
     console.log(inst.name.to_uri());
     var content;
-    var seq = parseInt(DataUtils.toString(inst.name.components[4]),16);/////
-    //console.log("seq");
-    //console.log(seq)
+    var seq = parseInt(DataUtils.toString(inst.name.components[4]));/////
+    console.log("seq");
+    console.log(seq)
     for(var i = msgcache.length-1;i>=0;i--){
 	//console.log("msgseq:"+msgcache[i].seqno);
         if(msgcache[i].seqno ==seq){
@@ -14,7 +14,8 @@ function onChatInterest(inst){
             break;
         }
     }
-    //console.log(content);
+    console.log("msg find:");
+    console.log(content);
     var str = JSON.stringify(content);
     var co = new ContentObject(inst.name,str);
     co.sign(mykey,{'keyName':mykeyname});

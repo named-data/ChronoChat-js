@@ -44,5 +44,5 @@ var chat_timeout = function(interest){
 	console.log("Syncinterest expressed:");
 	//console.log(template.name.to_uri());
         //setTimeout(function(){heartbeat();},60000);
-        var myVar = setInterval(function(){heartbeat();},120000);
+        var myVar = setInterval(function(){heartbeat();},60000);
     };
