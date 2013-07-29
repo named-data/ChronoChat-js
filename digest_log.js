@@ -92,6 +92,7 @@ function onSyncInterest(inst){
 	    }
 	    else{
 		console.log("unknown interest");
+		
 	    }
 	};
 	index.get(syncdigest).onerror = function(event){
@@ -147,6 +148,8 @@ function onSyncData(inst,co){
 	digest_tree.update(content);
 	//console.log(digest_tree.root);
 	addlog(content);
+	var myVar = setInterval(function(){heartbeat();},120000);
+	//setTimeout(function(){heartbeat();},60000);
     }
 	var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
 	n.append(DataUtils.toNumbers(digest_tree.root));
@@ -157,5 +160,5 @@ function onSyncData(inst,co){
 	console.log("Syncinterest expressed:");
 	//console.log(template.name.to_url());
 	//assume that the everyone except the new comer is in the static state
-	//var myVar = setInterval(function(){heartbeat()},2000);
+	//var myVar = setInterval(function(){heartbeat()},60000);
 }

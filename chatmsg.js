@@ -66,13 +66,25 @@ function heartbeat(){
     msgcache.push({seqno:usrseq,msgtype:"heartbeat",msg:"xxx"});
     while (msgcache.length>maxmsgcachelength)
         msgcache.shift();
+    var str = JSON.stringify(content);
+    var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
+    n.append(DataUtils.toNumbers(digest_tree.root));
+    var co = new ContentObject(n, str);
+    co.sign(mykey, {'keyName':mykeyname});
+    try {
+	    ndn.send(co);
+	    if(digest_tree.root == "unavailable")
+		leaveflag = 1;
+    } catch (e) {
+	    console.log(e.toString());
+    }
     digest_tree.update(content);
     addlog(content);
     var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
     n.append(DataUtils.toNumbers(digest_tree.root));
     var template = new Interest();
     template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
-    template.interestLifetime = 60000;
+    template.interestLifetime = 10000;
     ndn.expressInterest(n, template, onSyncData, sync_timeout);                
     console.log('Heartbeat Interest expressed.');          
 }
@@ -85,6 +97,18 @@ function SendMessage(){
     msgcache.push({seqno:usrseq,msgtype:"chat",msg:chatmsg});
     while (msgcache.length>maxmsgcachelength)
         msgcache.shift();
+    var str = JSON.stringify(content);
+    var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
+    n.append(DataUtils.toNumbers(digest_tree.root));
+    var co = new ContentObject(n, str);
+    co.sign(mykey, {'keyName':mykeyname});
+    try {
+	    ndn.send(co);
+	    if(digest_tree.root == "unavailable")
+		leaveflag = 1;
+    } catch (e) {
+	    console.log(e.toString());
+    }
     digest_tree.update(content);
     addlog(content);
     var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');

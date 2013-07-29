@@ -43,6 +43,6 @@ var chat_timeout = function(interest){
 	ndn.expressInterest(n, template, onSyncData, sync_timeout);
 	console.log("Syncinterest expressed:");
 	//console.log(template.name.to_uri());
-        //heartbeat();
-        //var myVar = setInterval(function(){heartbeat()},6000);
+        //setTimeout(function(){heartbeat();},60000);
+        var myVar = setInterval(function(){heartbeat();},120000);
     };
