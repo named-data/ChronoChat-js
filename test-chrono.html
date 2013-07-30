@@ -13,7 +13,7 @@ var dbName = "ChronoChat_db";
 var maxmsgcachelength = 100;
 var usrdigest = {};
 var usrname = "qiuhan";
-var usrseq = 0;
+var usrseq = -1;
 var max_wait = 10;
 var roster = new Array();
 var db;
@@ -53,7 +53,7 @@ function testPublish () {
 	var objectStore = db0.createObjectStore(usrname,{keyPath:"key"});
 	objectStore.createIndex("digest","digest",{unique:true});
 	objectStore.createIndex("data","data",{unique:false});
-	objectStore.add({key:0,digest:"",data:[{name:usrname,seqno:0}]});
+	objectStore.add({key:0,digest:"",data:[]});////////////////////
     };
     request.onsuccess = function(event){
 	db = request.result;
@@ -64,7 +64,7 @@ function testPublish () {
         mykeyname= new Name('/ndn/'+usrname+'/'+'chronos/'+chatroom+'/key/').appendKeyID(mykey).appendVersion().appendSegment(0);
 
         ndn.onopen = function () {
-            msgcache.push({seqno:1,msgtype:"join",msg:"xxx"});
+            msgcache.push({seqno:0,msgtype:"join",msg:"xxx"});
             var n1 = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
             ndn.registerPrefix(n1,onSyncInterest);
             console.log('sync prefix registered.');

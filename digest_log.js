@@ -12,7 +12,7 @@ function InitialLog(usrname){
 	var objectStore = db0.createObjectStore(usrname,{keyPath:"key"});
 	objectStore.createIndex("digest","digest",{unique:true});
 	objectStore.createIndex("data","data",{unique:false});
-	objectStore.add({key:0,digest:"",data:[{name:usrname,seqno:0}]});
+	objectStore.add({key:0,digest:"",data:[]});
     };
     request.onsuccess = function(event){
 	db = request.result;
@@ -22,7 +22,7 @@ function InitialLog(usrname){
 
 function onSyncInterest(inst){
     //search if the digest is already exist in the digest log
-    console.log('Interest received in callback.');
+    console.log('Sync Interest received in callback.');
     console.log(inst.name.to_uri());
     if(inst.name.components.length == 6){/////////start recovery
 	syncdigest = DataUtils.toHex(inst.name.components[5]);
@@ -55,8 +55,8 @@ function onSyncInterest(inst){
 	}
 	else
 	    syncdigest = DataUtils.toHex(inst.name.components[4]);
-	//console.log(syncdigest);
-	//console.log(digest_tree.root);
+	console.log("syncdigest: "+syncdigest);
+	console.log("root: "+digest_tree.root);
 	if(syncdigest != digest_tree.root){
 	    var ob_store = db.transaction(usrname).objectStore(usrname);
 	    var index = ob_store.index("digest");
@@ -77,8 +77,10 @@ function onSyncInterest(inst){
 			    for(var i = 0;i<temp.length;i++){
 				var n = data_name.indexOf(temp[i].name);
 				if(n == -1){
-				    data_name.push(temp[i].name);
-				    data_seq.push(temp[i].seqno);
+				    if(roster.indexOf(temp[i].name)!=-1){//the people who leave will not be included in to data packet
+				        data_name.push(temp[i].name);
+				        data_seq.push(temp[i].seqno);
+				    }
 				}
 				else
 				    data_seq[n] = temp[i].seqno;
@@ -86,29 +88,19 @@ function onSyncInterest(inst){
 			    cursor.continue();
 			}
 			else{
-			    if(digest_tree.root == "unavailable"){
-				var n = data_name.indexOf(usrname);
-				if(n==-1){
-				    data_name.push(usrname);
-				    data_seq.push("unavailable");
-				}
-				else{
-				    data_seq[n] = "unavailable";
-				}
-			    }
-			    for(var i = 0;i<data_name.length;i++){
-				content[i] = { name:data_name[i],seqno:data_seq[i]};
-			    }
-			    var str = JSON.stringify(content);
-			    var co = new ContentObject(inst.name, str);
-			    co.sign(mykey, {'keyName':mykeyname});
-			    try {
-				ndn.send(co);
-				if(digest_tree.root == "unavailable")
-				    leaveflag = 1;
-			    } catch (e) {
-				console.log(e.toString());
-			    }
+			    	console.log("search finished");
+			    	for(var i = 0;i<data_name.length;i++){
+					content[i] = { name:data_name[i],seqno:data_seq[i]};
+			    	}
+			    	var str = JSON.stringify(content);
+			    	var co = new ContentObject(inst.name, str);
+			    	co.sign(mykey, {'keyName':mykeyname});
+			    	try {
+					ndn.send(co);
+					console.log("Sync Data send");
+			    	} catch (e) {
+					console.log(e.toString());
+			    	}
 			}
 		    }
 		    ob_store.openCursor(range).onerror = function(event){
@@ -158,6 +150,7 @@ function onSyncInterest(inst){
 }
 
 function addlog(content){
+    console.log("usrseq before adding log:"+usrseq);
     //digest_tree.update(content);
     var newlog = {key:logseq,digest:digest_tree.root, data:content};
     logseq++;
@@ -174,20 +167,14 @@ function addlog(content){
 }
 
 function onSyncData(inst,co){
-    console.log("ContentObject received in callback");
+    console.log("Sync ContentObject received in callback");
     console.log('name:'+co.name.to_uri());
     var content = JSON.parse(DataUtils.toString(co.content));
     //console.log(content);
     digest_tree.update(content);
-    for(var i = 0; i<content.length;i++){
-	if(content[i].seqno == "unavailable"){
-	    content.splice(i,1);
-	    i=i-1;
-	}
-    }
     //console.log(content);
-    if(content.length!=0){
-	addlog(content);
+    console.log("sync log add");
+    addlog(content);
 	for(var i = 0; i<content.length;i++){
             var n = new Name('/ndn/ucla.edu/'+content[i].name+'/'+chatroom+'/'+content[i].seqno);
             var template = new Interest();
@@ -197,13 +184,14 @@ function onSyncData(inst,co){
             console.log(n.to_uri());
             console.log('Chat Interest expressed.');
 	}
-    }
-    if(usrseq == 0){
-	usrseq++;
+    if(usrseq <0){
+	console.log("initial state")
+	usrseq = 0;
 	var content = [{name:usrname,seqno:usrseq}];
 	//console.log(digest_tree.root);
 	digest_tree.update(content);
 	//console.log(digest_tree.root);
+	console.log("initial log add");
 	addlog(content);
 	var myVar = setInterval(function(){heartbeat();},60000);
 	//setTimeout(function(){heartbeat();},60000);

@@ -29,7 +29,7 @@ function onChatInterest(inst){
 }
 
 function onChatData(inst,co){
-    console.log("ContentObject received in callback");
+    console.log("Chat ContentObject received in callback");
     console.log('name'+co.name.to_uri());
 
     var content = JSON.parse(DataUtils.toString(co.content));
@@ -40,11 +40,12 @@ function onChatData(inst,co){
         var t = d.toLocaleTimeString();
         document.getElementById('txt').innerHTML +='<p>'+ name+'-'+t+':'+content.msg+'</p>';
     }
-    else if(content.type == "leave"){//////////maybe no need
+    else if(content.type == "leave"){
         var n = rosterfind(name);
         roster.splice(n,1);
+        console.log(name+" leave");
     }
-    else if(content.type == "heartbeat"){
+    else{
 	var temp_seq = parseInt(DataUtils.toString(inst.name.components[4]));
 	setTimeout(function(){alive(temp_seq,name);},120000);
 	console.log("set timer");//functions only after the another user anounce his arrival
@@ -67,7 +68,7 @@ var rosterfind = function (name) {
     */
 function heartbeat(){
     usrseq++;
-    //console.log(usrseq);//////
+    console.log("heartbeat:"+usrseq);//////
     var content = [{name:usrname,seqno:usrseq}];
     //console.log(content);
     msgcache.push({seqno:usrseq,msgtype:"heartbeat",msg:"xxx"});
@@ -86,6 +87,7 @@ function heartbeat(){
 	    console.log(e.toString());
     }
     digest_tree.update(content);
+    console.log("heartbeat log add");
     addlog(content);
     var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
     n.append(DataUtils.toNumbers(digest_tree.root));
@@ -100,6 +102,7 @@ function SendMessage(){
     var chatmsg = document.getElementById('fname').value;
     document.getElementById('fname').value = "";
     usrseq++;
+    console.log("sendmessage:"+usrseq);
     var content = [{name:usrname,seqno:usrseq}];
     msgcache.push({seqno:usrseq,msgtype:"chat",msg:chatmsg});
     while (msgcache.length>maxmsgcachelength)
@@ -111,12 +114,11 @@ function SendMessage(){
     co.sign(mykey, {'keyName':mykeyname});
     try {
 	    ndn.send(co);
-	    if(digest_tree.root == "unavailable")
-		leaveflag = 1;
     } catch (e) {
 	    console.log(e.toString());
     }
     digest_tree.update(content);
+    console.log("message log add");
     addlog(content);
     var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
     n.append(DataUtils.toNumbers(digest_tree.root));
@@ -134,32 +136,38 @@ function SendMessage(){
 function Leave(){
     alert("Leaving the Chatroom...");
     var i = 0;
-    var content = [{name:usrname,seqno:"unavailable"}]
+    usrseq++;
+    var content = [{name:usrname,seqno:usrseq}];
+    msgcache.push({seqno:usrseq,msgtype:"leave",msg:"xxx"});
+    while (msgcache.length>maxmsgcachelength)
+        msgcache.shift();
     var str = JSON.stringify(content);
     var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
     n.append(DataUtils.toNumbers(digest_tree.root));
-    digest_tree.root = "unavailable";
     var co = new ContentObject(n, str);
     co.sign(mykey, {'keyName':mykeyname});
     try {
 	ndn.send(co);
-	leaveflag = 1;
     } catch (e) {
 	console.log(e.toString());
     }
+    digest_tree.update(content);
+    console.log("leave log add");
+    addlog(content);
     setTimeout(function(){window.close();},2000);	
     //window.close();
 }
 
 function alive(temp_seq,name){
     var index_n = digest_tree.find(name);
-    console.log("name:"+name);
-    console.log("seqno"+temp_seq);
+    var n = roster.indexOf(name);
+    //console.log("name:"+name);
+    //console.log("seqno"+temp_seq);
     if (index_n != -1){
 	var seq = digest_tree.digestnode[index_n].seqno;
 	if(temp_seq == seq){
-	    digest_tree.remove(name);
-	    //console.log(name+"leave");
+	    roster.splice(n,1);
+	    console.log(name+" leave");
 	}
     }
 }
