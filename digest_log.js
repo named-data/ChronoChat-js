@@ -63,11 +63,12 @@ function onSyncInterest(inst){
 	    index.get(syncdigest).onsuccess = function(event){
 		var content = [];
 		
-		function process_syncdata(event,ob_store){
+		function process_syncdata(event){
 		    var logseq_t = event.target.result.key;
 		    var range = IDBKeyRange.lowerBound(logseq_t, true);
 		    var data_name = [];
 		    var data_seq = [];
+		    var ob_store =  db.transaction(usrname).objectStore(usrname);
 		    ob_store.openCursor(range).onsuccess = function(event){
 			var cursor = event.target.result;
 			if(cursor){
