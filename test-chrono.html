@@ -43,32 +43,49 @@ function testPublish () {
     };
  
     //roster[0] = {"name":usrname,"chat_count":0};
-    InitialLog(usrname);
-    digest_tree = new Digest_Tree();
-    ndn = new NDN();
-    mykey = ndn.getDefaultKey();
-    mykeyname= new Name('/ndn/'+usrname+'/'+'chronos/'+chatroom+'/key/').appendKeyID(mykey).appendVersion().appendSegment(0);
-
-    ndn.onopen = function () {
-        msgcache.push({seqno:1,msgtype:"join",msg:"xxx"});
-        var n1 = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
-        ndn.registerPrefix(n1,onSyncInterest);
-        console.log('sync prefix registered.');
-        var n2 = new Name('/ndn/ucla.edu/'+usrname+'/'+chatroom+'/');
-        ndn.registerPrefix(n2,onChatInterest);
-        console.log('data prefix registered.');
-        var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
-        var template = new Interest();
-        template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
-        template.interestLifetime = 1000;
-        ndn.expressInterest(n, template, onSyncData, initial_timeout);
-        
+    window.indexedDB.deleteDatabase(dbName);
+    var request = window.indexedDB.open(dbName);
+    request.onerror = function(event){
+	console.log('database open error');
     };
+    request.onupgradeneeded = function(event){
+	var db0 = event.target.result;
+	var objectStore = db0.createObjectStore(usrname,{keyPath:"key"});
+	objectStore.createIndex("digest","digest",{unique:true});
+	objectStore.createIndex("data","data",{unique:false});
+	objectStore.add({key:0,digest:"",data:[{name:usrname,seqno:0}]});
+    };
+    request.onsuccess = function(event){
+	db = request.result;
+	console.log("open database");
+        digest_tree = new Digest_Tree();
+        ndn = new NDN();
+        mykey = ndn.getDefaultKey();
+        mykeyname= new Name('/ndn/'+usrname+'/'+'chronos/'+chatroom+'/key/').appendKeyID(mykey).appendVersion().appendSegment(0);
+
+        ndn.onopen = function () {
+            msgcache.push({seqno:1,msgtype:"join",msg:"xxx"});
+            var n1 = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
+            ndn.registerPrefix(n1,onSyncInterest);
+            console.log('sync prefix registered.');
+            var n2 = new Name('/ndn/ucla.edu/'+usrname+'/'+chatroom+'/');
+            ndn.registerPrefix(n2,onChatInterest);
+            console.log('data prefix registered.');
+            var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
+            var template = new Interest();
+            template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
+            template.interestLifetime = 1000;
+            ndn.expressInterest(n, template, onSyncData, initial_timeout);
+        
+        };
 
     
-    ndn.connect();
+        ndn.connect();
     
-    console.log('Started...');
+        console.log('Started...');
+    };
+    //InitialLog(usrname);
+    
 }
 
     </script>
