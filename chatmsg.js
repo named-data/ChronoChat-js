@@ -3,9 +3,9 @@ function onChatInterest(inst){
     console.log('Chat Interest received in callback.');
     console.log(inst.name.to_uri());
     var content;
-    var seq = parseInt(DataUtils.toString(inst.name.components[4]));/////
-    //console.log("seq");
-    //console.log(seq)
+    var seq = parseInt(DataUtils.toString(inst.name.components[5]));/////
+    console.log("seq");
+    console.log(seq)
     for(var i = msgcache.length-1;i>=0;i--){
 	//console.log("msgseq:"+msgcache[i].seqno);
         if(msgcache[i].seqno ==seq){
@@ -14,8 +14,8 @@ function onChatInterest(inst){
             break;
         }
     }
-    //console.log("msg find:");
-    //console.log(content);
+    console.log("msg find:");
+    console.log(content);
     var str = JSON.stringify(content);
     var co = new ContentObject(inst.name,str);
     co.sign(mykey,{'keyName':mykeyname});
@@ -33,7 +33,7 @@ function onChatData(inst,co){
     console.log('name'+co.name.to_uri());
 
     var content = JSON.parse(DataUtils.toString(co.content));
-    var name = DataUtils.toString(co.name.components[2]);
+    var name = DataUtils.toString(co.name.components[3]);
     if (content.type =="chat"){
         //display on the screen
         var d = new Date();//get time
@@ -46,7 +46,7 @@ function onChatData(inst,co){
         console.log(name+" leave");
     }
     else{
-	var temp_seq = parseInt(DataUtils.toString(inst.name.components[4]));
+	var temp_seq = parseInt(DataUtils.toString(inst.name.components[5]));
 	setTimeout(function(){alive(temp_seq,name);},120000);
 	console.log("set timer");//functions only after the another user anounce his arrival
     }

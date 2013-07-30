@@ -54,7 +54,7 @@ Digest_Tree.prototype.update = function (content) {
         if( n_index != -1){
 	    //only update the newer status
 		if(this.digestnode[n_index].seqno<content[i].seqno){
-		    if(content[i].name == usrname){
+		    if(content[i].name == usrname && this.root == ""){
 		    	this.digestnode[n_index].seqno = content[i].seqno+1;
                     }
 		    else{
