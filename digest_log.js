@@ -24,85 +24,137 @@ function onSyncInterest(inst){
     //search if the digest is already exist in the digest log
     console.log('Interest received in callback.');
     console.log(inst.name.to_uri());
-    var syncdigest;
-    if(inst.name.components.length<5){
-	syncdigest = "";
-    }
-    else
-	syncdigest = DataUtils.toHex(inst.name.components[4]);
-    //console.log(syncdigest);
-    //console.log(digest_tree.root);
-    if(syncdigest != digest_tree.root){
+    if(inst.name.components.length == 6){/////////start recovery
+	syncdigest = DataUtils.toHex(inst.name.components[5]);
 	var ob_store = db.transaction(usrname).objectStore(usrname);
 	var index = ob_store.index("digest");
 	index.get(syncdigest).onsuccess = function(event){
-	    var content = [];
-	    //console.log(event.target.result);
 	    if(event.target.result!=null){
-		var logseq_t = event.target.result.key;//var logseq_t = event.target.result;
-		//console.log("logseq_t:"+logseq_t);
-		var range = IDBKeyRange.lowerBound(logseq_t, true);
-		var data_name = [];
-		var data_seq = [];
-		ob_store.openCursor(range).onsuccess = function(event){
-		    var cursor = event.target.result;
-		    if(cursor){
-			var temp = cursor.value.data;
-		    //getting the latest seqno of usrs who update after that digest
-			for(var i = 0;i<temp.length;i++){
-			    var n = data_name.indexOf(temp[i].name);
-			    if(n == -1){
-				data_name.push(temp[i].name);
-				data_seq.push(temp[i].seqno);
-			    }
-			    else
-				data_seq[n] = temp[i].seqno;
-			}
-			cursor.continue();
-		    }
-		    else{
-			if(digest_tree.root == "unavailable"){
-			    var n = data_name.indexOf(usrname);
-			    if(n==-1){
-				data_name.push(usrname);
-				data_seq.push("unavailable");
-			    }
-			    else{
-				data_seq[n] = "unavailable";
-			    }
-			}
-			for(var i = 0;i<data_name.length;i++){
-			    content[i] = { name:data_name[i],seqno:data_seq[i]};
-			}
-			var str = JSON.stringify(content);
-			var co = new ContentObject(inst.name, str);
-			co.sign(mykey, {'keyName':mykeyname});
-			try {
-			    ndn.send(co);
-			    if(digest_tree.root == "unavailable")
-				leaveflag = 1;
-			} catch (e) {
-			    console.log(e.toString());
-			}
-		    }
+		var content = [];
+		for(var i = 0;i<digest_tree.digestnode.length;i++){
+		    content[i] = {name:digest_tree.digestnode[i].prefix_name,seqno:digest_tree.digestnode[i].seqno};
 		}
-		ob_store.openCursor(range).onerror = function(event){
-		    console.log("openCursor error");
+		var str = JSON.stringify(content);
+		var co = new ContentObject(inst.name, str);
+		co.sign(mykey, {'keyName':mykeyname});
+		try {
+		    ndn.send(co);
+		} catch (e) {
+		    console.log(e.toString());
 		}
-	    }
-	    else{
-		console.log("unknown interest");
-		
 	    }
 	};
 	index.get(syncdigest).onerror = function(event){
 	    console.log("search error");
-		//code to fill!!!! recovery!!!!
 	};
+    }
+    else{
+	var syncdigest;
+	if(inst.name.components.length<5){
+	    syncdigest = "";
+	}
+	else
+	    syncdigest = DataUtils.toHex(inst.name.components[4]);
+	//console.log(syncdigest);
+	//console.log(digest_tree.root);
+	if(syncdigest != digest_tree.root){
+	    var ob_store = db.transaction(usrname).objectStore(usrname);
+	    var index = ob_store.index("digest");
+	    index.get(syncdigest).onsuccess = function(event){
+		var content = [];
 		
+		function process_syncdata(event,ob_store){
+		    var logseq_t = event.target.result.key;
+		    var range = IDBKeyRange.lowerBound(logseq_t, true);
+		    var data_name = [];
+		    var data_seq = [];
+		    ob_store.openCursor(range).onsuccess = function(event){
+			var cursor = event.target.result;
+			if(cursor){
+			    var temp = cursor.value.data;
+			    //getting the latest seqno of usrs who update after that digest
+			    for(var i = 0;i<temp.length;i++){
+				var n = data_name.indexOf(temp[i].name);
+				if(n == -1){
+				    data_name.push(temp[i].name);
+				    data_seq.push(temp[i].seqno);
+				}
+				else
+				    data_seq[n] = temp[i].seqno;
+			    }
+			    cursor.continue();
+			}
+			else{
+			    if(digest_tree.root == "unavailable"){
+				var n = data_name.indexOf(usrname);
+				if(n==-1){
+				    data_name.push(usrname);
+				    data_seq.push("unavailable");
+				}
+				else{
+				    data_seq[n] = "unavailable";
+				}
+			    }
+			    for(var i = 0;i<data_name.length;i++){
+				content[i] = { name:data_name[i],seqno:data_seq[i]};
+			    }
+			    var str = JSON.stringify(content);
+			    var co = new ContentObject(inst.name, str);
+			    co.sign(mykey, {'keyName':mykeyname});
+			    try {
+				ndn.send(co);
+				if(digest_tree.root == "unavailable")
+				    leaveflag = 1;
+			    } catch (e) {
+				console.log(e.toString());
+			    }
+			}
+		    }
+		    ob_store.openCursor(range).onerror = function(event){
+			console.log("openCursor error");
+		    }
+		}
+
+
+		function recovery(){
+		    var ob_store2 = db.transaction(usrname).objectStore(usrname);
+		    var index2 = ob_store2.index("digest");
+		    index2.get(syncdigest).onsuccess = function(event2){
+			if(event2.target.result!=null){
+			    process_syncdata(event2,ob_store2);
+			}
+			else{
+			    console.log("unknown digest");
+			    var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/recovery/');
+			    n.append(DataUtils.toNumbers(syncdigest));
+			    var template = new Interest();
+			    template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
+			    template.interestLifetime = 10000;
+			    ndn.expressInterest(n, template, onSyncData, sync_timeout);
+			    console.log("Recovery Syncinterest expressed:");
+			}
+		    };
+		    index2.get(syncdigest).onerror = function(event2){
+			console.log("search error");
+		    };
+		}
+
+		//console.log(event.target.result);
+		if(event.target.result==null){
+		    setTimeout(function(){recovery();},2000)///the waiting time can be random
+		}
+		else{
+		    process_syncdata(event);
+		    
+		}
+	    };
+	    index.get(syncdigest).onerror = function(event){
+		console.log("search error");
+	    };
+	    
+	}
     }
 }
-
 
 function addlog(content){
     //digest_tree.update(content);
@@ -124,7 +176,7 @@ function onSyncData(inst,co){
     console.log("ContentObject received in callback");
     console.log('name:'+co.name.to_uri());
     var content = JSON.parse(DataUtils.toString(co.content));
-    console.log(content);
+    //console.log(content);
     digest_tree.update(content);
     for(var i = 0; i<content.length;i++){
 	if(content[i].seqno == "unavailable"){
@@ -132,7 +184,7 @@ function onSyncData(inst,co){
 	    i=i-1;
 	}
     }
-    console.log(content);
+    //console.log(content);
     if(content.length!=0){
 	addlog(content);
 	for(var i = 0; i<content.length;i++){

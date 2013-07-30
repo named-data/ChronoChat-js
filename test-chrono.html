@@ -57,8 +57,7 @@ function testPublish () {
         var n2 = new Name('/ndn/'+usrname+'/chronos/'+chatroom+'/');
         ndn.registerPrefix(n2,onChatInterest);
         console.log('data prefix registered.');
-        var n = new
-        Name('/ndn/broadcast/chronos/'+chatroom+'/');
+        var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
         var template = new Interest();
         template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
         template.interestLifetime = 1000;

@@ -51,11 +51,13 @@ Digest_Tree.prototype.update = function (content) {
 	    if(content[i].seqno == "unavailable"){
 		this.remove(content[i].name);
 	    }
-	    else{
-		this.digestnode[n_index].seqno =content[i].seqno;
-		var md = new KJUR.crypto.MessageDigest({alg: "sha256", prov: "cryptojs"});
-		md.updateString(this.digestnode[n_index].prefix_name+this.digestnode[n_index].seqno);
-		this.digestnode[n_index].digest =md.digest();
+	    else{//only update the newer status
+		if(this.digestnode[n_index].seqno<content[i].seqno){
+		    this.digestnode[n_index].seqno =content[i].seqno;
+		    var md = new KJUR.crypto.MessageDigest({alg: "sha256", prov: "cryptojs"});
+		    md.updateString(this.digestnode[n_index].prefix_name+this.digestnode[n_index].seqno);
+		    this.digestnode[n_index].digest =md.digest();
+		}
             }
 	}
         else{
