@@ -189,7 +189,7 @@ function onSyncData(inst,co){
     if(content.length!=0){
 	addlog(content);
 	for(var i = 0; i<content.length;i++){
-            var n = new Name('/ndn/'+content[i].name+'/chronos/'+chatroom+'/'+content[i].seqno);
+            var n = new Name('/ndn/ucla.edu/'+content[i].name+'/'+chatroom+'/'+content[i].seqno);
             var template = new Interest();
             template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
             template.interestLifetime = 10000;

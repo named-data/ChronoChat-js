@@ -33,7 +33,7 @@ function onChatData(inst,co){
     console.log('name'+co.name.to_uri());
 
     var content = JSON.parse(DataUtils.toString(co.content));
-    var name = DataUtils.toString(co.name.components[1]);
+    var name = DataUtils.toString(co.name.components[2]);
     if (content.type =="chat"){
         //display on the screen
         var d = new Date();//get time
