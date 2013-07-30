@@ -11,25 +11,29 @@ var Digest_Tree = function Digest_Tree() {
 
 Digest_Tree.prototype.initial = function() {
     var md = new KJUR.crypto.MessageDigest({alg: "sha256", prov: "cryptojs"});
-    md.updateString(usrname+1);
-    this.digestnode[0] = {"prefix_name":usrname,"seqno":1,"digest":md.digest()};
+    md.updateString(usrname+0);
+    this.digestnode[0] = {"prefix_name":usrname,"seqno":0,"digest":md.digest()};
     md = new KJUR.crypto.MessageDigest({alg: "sha256", prov: "cryptojs"});
     md.updateString(this.digestnode[0].digest);
     this.root = md.digest();
-    roster[0] = {"name":usrname,"chat_count":0};
+    roster[0] = usrname;
     //usrdigest = md.digest();
-    usrseq = 1;
+    usrseq = 0;
 };
 
-Digest_Tree.prototype.newcomer = function(name){
-    //console.log("name");
-    //console.log(name);
+Digest_Tree.prototype.newcomer = function(name,seqno){
+    console.log("new comer name seqno"+name+seqno);
     var digest_t = new KJUR.crypto.MessageDigest({alg: "sha256", prov: "cryptojs"});
-    digest_t.updateString(name+1);
-    var temp = {"prefix_name":name,"seqno":1,"digest":digest_t.digest()};
+    /*if(name == usrname){
+    	seqno++;
+        usrseq = seqno;
+    }*/
+    digest_t.updateString(name+seqno);
+    var temp = {"prefix_name":name,"seqno":seqno,"digest":digest_t.digest()};
     this.digestnode.push(temp);
     this.digestnode.sort(sortdigestnode);
-    roster.push({"name":name,"chat_count":0});
+    roster.push(name);
+    roster.sort();
     var root_d = '';
     for(var i = 0;i<this.digestnode.length;i++){
 	root_d = root_d+this.digestnode[i].digest;
@@ -48,20 +52,21 @@ Digest_Tree.prototype.update = function (content) {
 	var n_index = this.find(content[i].name);
 	//console.log("n_index:"+n_index);
         if( n_index != -1){
-	    if(content[i].seqno == "unavailable"){
-		this.remove(content[i].name);
-	    }
-	    else{//only update the newer status
+	    //only update the newer status
 		if(this.digestnode[n_index].seqno<content[i].seqno){
-		    this.digestnode[n_index].seqno =content[i].seqno;
+		    if(content[i].name == usrname){
+		    	this.digestnode[n_index].seqno = content[i].seqno+1;
+                    }
+		    else{
+		        this.digestnode[n_index].seqno =content[i].seqno;
+		    }
 		    var md = new KJUR.crypto.MessageDigest({alg: "sha256", prov: "cryptojs"});
 		    md.updateString(this.digestnode[n_index].prefix_name+this.digestnode[n_index].seqno);
 		    this.digestnode[n_index].digest =md.digest();
-		}
             }
 	}
         else{
-            this.newcomer(content[i].name);
+            this.newcomer(content[i].name,content[i].seqno);
         }
     }
     var root_d = '';
@@ -89,7 +94,7 @@ Digest_Tree.prototype.find = function (name) {
 	return -1;
 };
 
-Digest_Tree.prototype.remove = function(name){
+/*Digest_Tree.prototype.remove = function(name){
     var n = this.find(name);
     this.digestnode.splice(n,1);
     var root_d;
@@ -101,4 +106,4 @@ Digest_Tree.prototype.remove = function(name){
     this.root = md.digest();
     roster.splice(n,1);
     console.log(name+" leave");
-};
+};*/
