@@ -39,6 +39,8 @@ function onChatData(inst,co){
         var d = new Date();//get time
         var t = d.toLocaleTimeString();
         document.getElementById('txt').innerHTML +='<p>'+ name+'-'+t+':'+content.msg+'</p>';
+	var objDiv = document.getElementById("txt");      
+	objDiv.scrollTop = objDiv.scrollHeight;
     }
     else if(content.type == "leave"){
         var n = rosterfind(name);
@@ -131,6 +133,8 @@ function SendMessage(){
     var d = new Date();//get time
     var t = d.toLocaleTimeString();
     document.getElementById('txt').innerHTML += '<p>'+ usrname+'-'+t+':'+chatmsg + '</p>';          
+    var objDiv = document.getElementById("txt");      
+    objDiv.scrollTop = objDiv.scrollHeight;
 }
 
 function Leave(){
