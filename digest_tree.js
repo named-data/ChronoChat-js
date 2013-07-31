@@ -27,6 +27,9 @@ Digest_Tree.prototype.newcomer = function(name,seqno){
     if(name == usrname && seqno>0){
     	seqno++;
         usrseq = seqno;
+	msgcache.push({seqno:usrseq,msgtype:"new",msg:"xxx"});
+   	while (msgcache.length>maxmsgcachelength)
+             msgcache.shift();
     }
     digest_t.updateString(name+seqno);
     var temp = {"prefix_name":name,"seqno":seqno,"digest":digest_t.digest()};
@@ -56,6 +59,10 @@ Digest_Tree.prototype.update = function (content) {
 		if(this.digestnode[n_index].seqno<content[i].seqno){
 		    if(content[i].name == usrname && this.root.length == 0){
 		    	this.digestnode[n_index].seqno = content[i].seqno+1;
+			usrseq = content[i].seqno+1;
+			msgcache.push({seqno:usrseq,msgtype:"new",msg:"xxx"});
+   			while (msgcache.length>maxmsgcachelength)
+        		    msgcache.shift();
                     }
 		    else{
 		        this.digestnode[n_index].seqno =content[i].seqno;
