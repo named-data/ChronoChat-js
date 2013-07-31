@@ -117,7 +117,9 @@ function onSyncInterest(inst){
 			    process_syncdata(event2,ob_store2);
 			}
 			else{
-			    console.log("unknown digest");
+			    console.log("unknown digest:")
+			    console.log(syncdigest);
+			    console.log(digest_tree.root);
 			    var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/recovery/');
 			    n.append(DataUtils.toNumbers(syncdigest));
 			    var template = new Interest();
@@ -176,13 +178,15 @@ function onSyncData(inst,co){
     console.log("sync log add");
     addlog(content2);
 	for(var i = 0; i<content.length;i++){
-            var n = new Name('/ndn/ucla.edu/irl/'+content[i].name+'/'+chatroom+'/'+content[i].seqno);
-            var template = new Interest();
-            template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
-            template.interestLifetime = 10000;
-            ndn.expressInterest(n, template, onChatData, chat_timeout);
-            console.log(n.to_uri());
-            console.log('Chat Interest expressed.');
+	    if(content[i].name!=usrname){
+		var n = new Name('/ndn/ucla.edu/irl/'+content[i].name+'/'+chatroom+'/'+content[i].seqno);
+		var template = new Interest();
+		template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
+		template.interestLifetime = 10000;
+		ndn.expressInterest(n, template, onChatData, chat_timeout);
+		console.log(n.to_uri());
+		console.log('Chat Interest expressed.');
+	    }
 	}
     if(usrseq <0){
 	console.log("initial state")
