@@ -171,10 +171,10 @@ function onSyncData(inst,co){
     console.log('name:'+co.name.to_uri());
     var content = JSON.parse(DataUtils.toString(co.content));
     //console.log(content);
-    digest_tree.update(content);
+    var content2 = digest_tree.update(content);
     //console.log(content);
     console.log("sync log add");
-    addlog(content);
+    addlog(content2);
 	for(var i = 0; i<content.length;i++){
             var n = new Name('/ndn/ucla.edu/irl/'+content[i].name+'/'+chatroom+'/'+content[i].seqno);
             var template = new Interest();
