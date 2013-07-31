@@ -24,12 +24,15 @@ Digest_Tree.prototype.initial = function() {
 Digest_Tree.prototype.newcomer = function(name,seqno){
     console.log("new comer name seqno"+name+seqno);
     var digest_t = new KJUR.crypto.MessageDigest({alg: "sha256", prov: "cryptojs"});
-    if(name == usrname && seqno>0){
+    /*if(name == usrname && seqno>0){
     	seqno++;
         usrseq = seqno;
 	msgcache.push({seqno:usrseq,msgtype:"new",msg:"xxx"});
    	while (msgcache.length>maxmsgcachelength)
              msgcache.shift();
+    }*/
+    if(name == usrname){
+    	usrseq = seqno;
     }
     digest_t.updateString(name+seqno);
     var temp = {"prefix_name":name,"seqno":seqno,"digest":digest_t.digest()};
@@ -44,7 +47,7 @@ Digest_Tree.prototype.newcomer = function(name,seqno){
     var md = new KJUR.crypto.MessageDigest({alg: "sha256", prov: "cryptojs"});
     md.updateString(root_d);
     this.root = md.digest();
-    return seqno;
+    //return seqno;
 };
 
 Digest_Tree.prototype.update = function (content) {
@@ -57,7 +60,7 @@ Digest_Tree.prototype.update = function (content) {
         if( n_index != -1){
 	    //only update the newer status
 		if(this.digestnode[n_index].seqno<content[i].seqno){
-		    if(content[i].name == usrname && this.root.length == 0){
+		    /*if(content[i].name == usrname && this.root.length == 0){
 			content[i].seqno++;
 		    	this.digestnode[n_index].seqno = content[i].seqno;
 			usrseq = content[i].seqno;
@@ -65,16 +68,19 @@ Digest_Tree.prototype.update = function (content) {
    			while (msgcache.length>maxmsgcachelength)
         		    msgcache.shift();
                     }
-		    else{
+		    else{*/
+                        if(content[i].name == usrname){
+			     usrseq = content[i].seqno;
+            	  	}
 		        this.digestnode[n_index].seqno =content[i].seqno;
-		    }
+		    //}
 		    var md = new KJUR.crypto.MessageDigest({alg: "sha256", prov: "cryptojs"});
 		    md.updateString(this.digestnode[n_index].prefix_name+this.digestnode[n_index].seqno);
 		    this.digestnode[n_index].digest =md.digest();
             }
 	}
         else{
-            content[i].seqno = this.newcomer(content[i].name,content[i].seqno);
+            /*content[i].seqno = */this.newcomer(content[i].name,content[i].seqno);
         }
     }
     var root_d = '';
@@ -86,7 +92,7 @@ Digest_Tree.prototype.update = function (content) {
     //console.log("update"+md.digest());
     this.root = md.digest();
     usrdigest = this.root;
-    return content;
+    //return content;
 };
 
 function sortdigestnode(node1,node2){

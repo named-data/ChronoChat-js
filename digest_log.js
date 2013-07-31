@@ -173,10 +173,28 @@ function onSyncData(inst,co){
     console.log('name:'+co.name.to_uri());
     var content = JSON.parse(DataUtils.toString(co.content));
     //console.log(content);
-    var content2 = digest_tree.update(content);
+    if(digest_tree.root.length == 0){
+    	digest_tree.update(content);
     //console.log(content);
-    console.log("sync log add");
-    addlog(content2);
+    	console.log("sync log add");
+    	addlog(content);
+        for(var i = 0;i<content.length;i++){
+	    if(content[i].name == usrname){
+		var content_t = [{name:content[i].name,seqno:content[i].seqno+1}];
+                console.log(content_t);
+		digest_tree.update(content_t);
+		addlog(content_t);
+		msgcache.push({seqno:usrseq,msgtype:"join",msg:"xxx"});
+      		while (msgcache.length>maxmsgcachelength)
+        	    msgcache.shift();
+	    }        
+	}
+    }
+    else{
+        digest_tree.update(content);
+        //console.log(content);
+    	console.log("sync log add");
+    	addlog(content);
 	for(var i = 0; i<content.length;i++){
 	    if(content[i].name!=usrname){
 		var n = new Name('/ndn/ucla.edu/irl/'+content[i].name+'/'+chatroom+'/'+content[i].seqno);
@@ -188,6 +206,7 @@ function onSyncData(inst,co){
 		console.log('Chat Interest expressed.');
 	    }
 	}
+    }
     if(usrseq <0){
 	console.log("initial state")
 	usrseq = 0;
