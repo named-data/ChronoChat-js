@@ -123,7 +123,7 @@ function onSyncInterest(inst){
 			    var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/recovery/');
 			    n.append(DataUtils.toNumbers(syncdigest));
 			    var template = new Interest();
-			    template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
+			    //template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
 			    template.interestLifetime = 10000;
 			    ndn.expressInterest(n, template, onSyncData, sync_timeout);
 			    console.log("Recovery Syncinterest expressed:");
@@ -199,7 +199,7 @@ function onSyncData(inst,co){
 	    if(content[i].name!=usrname){
 		var n = new Name('/ndn/ucla.edu/irl/'+content[i].name+'/'+chatroom+'/'+content[i].seqno);
 		var template = new Interest();
-		template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
+		//template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
 		template.interestLifetime = 10000;
 		ndn.expressInterest(n, template, onChatData, chat_timeout);
 		console.log(n.to_uri());
@@ -222,7 +222,7 @@ function onSyncData(inst,co){
 	var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
 	n.append(DataUtils.toNumbers(digest_tree.root));
 	var template = new Interest();
-	template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
+	//template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
 	template.interestLifetime = 10000;
 	ndn.expressInterest(n, template, onSyncData, sync_timeout);
 	console.log("Syncinterest expressed:");

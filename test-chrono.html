@@ -12,7 +12,7 @@
 var dbName = "ChronoChat_db";
 var maxmsgcachelength = 100;
 var usrdigest = {};
-var usrname = "qiuhan";
+var usrname = "qiuhanc";
 var usrseq = -1;
 var max_wait = 10;
 var roster = new Array();
@@ -73,7 +73,7 @@ function testPublish () {
             console.log('data prefix registered.');
             var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
             var template = new Interest();
-            template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
+            //template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
             template.interestLifetime = 1000;
             ndn.expressInterest(n, template, onSyncData, initial_timeout);
         

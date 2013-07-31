@@ -94,7 +94,7 @@ function heartbeat(){
     var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
     n.append(DataUtils.toNumbers(digest_tree.root));
     var template = new Interest();
-    template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
+    //template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
     template.interestLifetime = 10000;
     ndn.expressInterest(n, template, onSyncData, sync_timeout);                
     console.log('Heartbeat Interest expressed.');          
@@ -125,7 +125,7 @@ function SendMessage(){
     var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
     n.append(DataUtils.toNumbers(digest_tree.root));
     var template = new Interest();
-    template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
+    //template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
     template.interestLifetime = 10000;
     ndn.expressInterest(n, template, onSyncData, sync_timeout);              
     console.log('Sync Interest expressed.');
