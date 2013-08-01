@@ -7,17 +7,17 @@
     <script src="../ChronoChat-javascript/digest_tree.js"></script>
     <script src="../ChronoChat-javascript/chatmsg.js"></script>
     <script src="../ChronoChat-javascript/timeout.js"></script>
+    <script src="http://code.jquery.com/jquery-1.10.1.min.js"></script>
 
     <script>
-var dbName = "ChronoChat_db";
 var maxmsgcachelength = 100;
 var usrdigest = {};
-var usrname = "qiuhanc";
+var usrname;
 var usrseq = -1;
 var max_wait = 10;
 var roster = new Array();
 var db;
-var chatroom = "chat_dqh0";
+var chatroom;
 var msgcache = [];
 var digest_tree;
 var leaveflag = 0;
@@ -27,6 +27,30 @@ var mykeyname;
 //var logseq = 1;
 var a = 0;
 var digest_log = [];
+
+$(document).ready(function(){
+    $("#txt").hide();
+    $("#fname").hide();
+    $("#send").hide();
+    $("#leave").hide();
+    $("#login").click(function(){
+        usrname = document.getElementById('name').value;
+        chatroom = document.getElementById('chatroom').value;
+        if(usrname==""||chatroom==""){
+            alert("input usrname and chatroom");
+        }
+        else{
+            $("#log").hide();
+            $("#login").hide();
+            $("#txt").show();
+    	    $("#fname").show();
+    	    $("#send").show();
+    	    $("#leave").show();
+            testPublish();
+        }
+    });
+});
+
 
 function testPublish () {
    
@@ -107,14 +131,24 @@ function testPublish () {
 
 </head>
 
-<body onload="testPublish()">
-<div id="txt"
-  style="border-style:solid;border-width:2px;overflow:auto;width:600px;height:300px;font-size:20px"></div>
+<body>
+<div id = "log">
+<form action = "">
+<input type="text" id="name"
+style="width:100px;height:20px;font-size:15px">username
+<br /><br />
+<input type="text" id="chatroom"
+style="width:100px;height:20px;font-size:15px">chatroom
+<br /><br /></div>
+</form>
+<button id = "login" > login </button>
+
+<div id = "txt" style="border-style:solid;border-width:2px;overflow:auto;width:600px;height:300px;font-size:20px"></div>
   <br />
-<dib><textarea id="fname"
+<div><textarea id="fname"
 style="width:600px;height:100px;font-size:10px"></textarea></div>
-<div><button style="font-size:20px" onclick="SendMessage()">send</button></div>
-<div><button style="font-size:20px" onclick="Leave()">leave</button></div>
+<div><button id = "send" style="font-size:20px" onclick="SendMessage()">send</button></div>
+<div><button id = "leave" style="font-size:20px" onclick="Leave()">leave</button></div>
 
 </body>
 </html>
