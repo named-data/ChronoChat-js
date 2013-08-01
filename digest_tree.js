@@ -60,27 +60,17 @@ Digest_Tree.prototype.update = function (content) {
         if( n_index != -1){
 	    //only update the newer status
 		if(this.digestnode[n_index].seqno<content[i].seqno){
-		    /*if(content[i].name == usrname && this.root.length == 0){
-			content[i].seqno++;
-		    	this.digestnode[n_index].seqno = content[i].seqno;
+                    if(content[i].name == usrname){
 			usrseq = content[i].seqno;
-			msgcache.push({seqno:usrseq,msgtype:"new",msg:"xxx"});
-   			while (msgcache.length>maxmsgcachelength)
-        		    msgcache.shift();
-                    }
-		    else{*/
-                        if(content[i].name == usrname){
-			     usrseq = content[i].seqno;
-            	  	}
-		        this.digestnode[n_index].seqno =content[i].seqno;
-		    //}
+            	    }
+		    this.digestnode[n_index].seqno =content[i].seqno;
 		    var md = new KJUR.crypto.MessageDigest({alg: "sha256", prov: "cryptojs"});
 		    md.updateString(this.digestnode[n_index].prefix_name+this.digestnode[n_index].seqno);
 		    this.digestnode[n_index].digest =md.digest();
             }
 	}
         else{
-            /*content[i].seqno = */this.newcomer(content[i].name,content[i].seqno);
+            this.newcomer(content[i].name,content[i].seqno);
         }
     }
     var root_d = '';
@@ -89,8 +79,8 @@ Digest_Tree.prototype.update = function (content) {
     }
     var md = new KJUR.crypto.MessageDigest({alg: "sha256", prov: "cryptojs"});
     md.updateString(root_d);
-    //console.log("update"+md.digest());
     this.root = md.digest();
+    console.log("update root to: "+this.root);
     usrdigest = this.root;
     //return content;
 };

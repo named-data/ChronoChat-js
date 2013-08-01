@@ -12,30 +12,25 @@ function onSyncInterest(inst){
     console.log(inst.name.to_uri());
     var digest = DataUtils.toHex(inst.name.components[4])
     if(inst.name.components.length == 6 || digest == "0000"){/////////start recovery
+	var syncdigest;
 	if(inst.name.components.length == 6)
-	    var syncdigest = DataUtils.toHex(inst.name.components[5]);
+	    syncdigest = DataUtils.toHex(inst.name.components[5]);
 	else
 	    syncdigest = "0000";
-//	var index = logfind(syncdigest);
-	//if(index!=-1){
-	    var content = [];
-	    for(var i = 0;i<digest_tree.digestnode.length;i++){
-		content[i] = {name:digest_tree.digestnode[i].prefix_name,seqno:digest_tree.digestnode[i].seqno};
+	var content = [];
+	for(var i = 0;i<digest_tree.digestnode.length;i++){
+	    content[i] = {name:digest_tree.digestnode[i].prefix_name,seqno:digest_tree.digestnode[i].seqno};
+	}
+	if(content.length!=0){
+	    var str = JSON.stringify(content);
+	    var co = new ContentObject(inst.name, str);
+	    co.sign(mykey, {'keyName':mykeyname});
+	    try {
+		ndn.send(co);
+	    } catch (e) {
+		console.log(e.toString());
 	    }
-	    if(content.length!=0){
-		var str = JSON.stringify(content);
-		var co = new ContentObject(inst.name, str);
-		co.sign(mykey, {'keyName':mykeyname});
-		try {
-		    ndn.send(co);
-		} catch (e) {
-		    console.log(e.toString());
-		}
-	    }
-	//}
-	//else{
-	//    console.log("no such digest");
-	//}
+	}
     }
     else{
 	var syncdigest = DataUtils.toHex(inst.name.components[4]);
@@ -80,7 +75,6 @@ function onSyncInterest(inst){
 	    }
 	    
 	    function recovery(){
-		console.log('recover with ' + syncdigest);
 		var index2 = logfind(syncdigest);
 		console.log(index2);
 		console.log(digest_log);
@@ -103,7 +97,8 @@ function onSyncInterest(inst){
 	    }
 
 	    if(index == -1){
-		setTimeout(function(){recovery();},2000);  
+		setTimeout(function(){recovery();},2000);
+		console.log("set timer recover");
 	    }
 	    else{
 		process_syncdata(index);
