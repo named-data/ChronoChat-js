@@ -3,91 +3,63 @@
     <meta charset="utf-8">
 	
     <script src="../ChronoChat-javascript/ndn.js"></script>
-    <script src="../ChronoChat-javascript/digest_log.js"></script>
+    <script src="../ChronoChat-javascript/digestlog.js"></script>
     <script src="../ChronoChat-javascript/digest_tree.js"></script>
     <script src="../ChronoChat-javascript/chatmsg.js"></script>
     <script src="../ChronoChat-javascript/timeout.js"></script>
 
     <script>
-var dbName = "ChronoChata_db";
+var dbName = "ChronoChat_db";
 var maxmsgcachelength = 100;
 var usrdigest = {};
-var usrname = "qiuhana";
+var usrname = "qiuhan";
 var usrseq = -1;
 var max_wait = 10;
 var roster = new Array();
 var db;
-var chatroom = "chat_dqh";
+var chatroom = "chat_dqh0";
 var msgcache = [];
 var digest_tree;
 var leaveflag = 0;
 var ndn;
 var mykey;
 var mykeyname;
-var logseq = 1;
+//var logseq = 1;
 var a = 0;
+var digest_log = [];
 
 function testPublish () {
+
+    digest_log.push({digest:"0000",data:[]});
+    digest_tree = new Digest_Tree();
+    ndn = new NDN();
+    mykey = ndn.getDefaultKey();
+    mykeyname= new Name('/ndn/'+usrname+'/'+'chronos/'+chatroom+'/key/').appendKeyID(mykey).appendVersion().appendSegment(0);
+
+    ndn.onopen = function () {
+        msgcache.push({seqno:0,msgtype:"join",msg:"xxx"});
+        var n1 = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
+        ndn.registerPrefix(n1,onSyncInterest);
+        console.log('sync prefix registered.');
+        var n2 = new Name('/ndn/ucla.edu/irl/'+usrname+'/'+chatroom+'/');
+        ndn.registerPrefix(n2,onChatInterest);
+        console.log('data prefix registered.');
+        var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/').append(DataUtils.toNumbers('0000'));
+        var template = new Interest();
+        //template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
+        template.interestLifetime = 1000;
+        ndn.expressInterest(n, template, onSyncData, initial_timeout);
+        console.log("initial sync express");
+    };
+
+    
+    ndn.connect();
+    
+    console.log('Started...');
    
-    var onData = function(inst,co){
-        var components = DataUtils.toHex(co.name.components[1]);
-        if(components == "broadcast"){
-          onSyncData(inst,co);
-        }
-        else {
-            onChatData(inst,co);
-            
-            //show msg on screen with their receive time
-        }
-        
-    };
- 
-    //roster[0] = {"name":usrname,"chat_count":0};
-    window.indexedDB.deleteDatabase(dbName);
-    var request = window.indexedDB.open(dbName);
-    request.onerror = function(event){
-	console.log('database open error');
-    };
-    request.onupgradeneeded = function(event){
-	var db0 = event.target.result;
-	var objectStore = db0.createObjectStore(usrname,{keyPath:"key"});
-	objectStore.createIndex("digest","digest",{unique:true});
-	objectStore.createIndex("data","data",{unique:false});
-	objectStore.add({key:0,digest:"",data:[]});////////////////////
-    };
-    request.onsuccess = function(event){
-	db = request.result;
-	console.log("open database");
-        digest_tree = new Digest_Tree();
-        ndn = new NDN();
-        mykey = ndn.getDefaultKey();
-        mykeyname= new Name('/ndn/'+usrname+'/'+'chronos/'+chatroom+'/key/').appendKeyID(mykey).appendVersion().appendSegment(0);
-
-        ndn.onopen = function () {
-            msgcache.push({seqno:0,msgtype:"join",msg:"xxx"});
-            var n1 = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
-            ndn.registerPrefix(n1,onSyncInterest);
-            console.log('sync prefix registered.');
-            var n2 = new Name('/ndn/ucla.edu/irl/'+usrname+'/'+chatroom+'/');
-            ndn.registerPrefix(n2,onChatInterest);
-            console.log('data prefix registered.');
-            var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
-            var template = new Interest();
-            //template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
-            template.interestLifetime = 1000;
-            ndn.expressInterest(n, template, onSyncData, initial_timeout);
-	    console.log("sync interest expressed");
-        
-        };
-
-    
-        ndn.connect();
-    
-        console.log('Started...');
-    };
-    //InitialLog(usrname);
     
 }
+
     </script>
 
 </head>

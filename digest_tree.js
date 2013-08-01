@@ -5,7 +5,7 @@
 
 var Digest_Tree = function Digest_Tree() {
     this.digestnode = [];
-    this.root = '';
+    this.root = '0000';
     var root_d = '';
 };
 

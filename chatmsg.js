@@ -2,7 +2,7 @@ function onChatInterest(inst){
 //need msgcache
     console.log('Chat Interest received in callback.');
     console.log(inst.name.to_uri());
-    var content;
+    var content = {};
     var seq = parseInt(DataUtils.toString(inst.name.components[5]));/////
     console.log("seq");
     console.log(seq)
@@ -16,16 +16,19 @@ function onChatInterest(inst){
     }
     console.log("msg find:");
     console.log(content);
-    var str = JSON.stringify(content);
-    var co = new ContentObject(inst.name,str);
-    co.sign(mykey,{'keyName':mykeyname});
-    
-    try {
-        ndn.send(co);
+    if(content.msg != null){
+	var str = JSON.stringify(content);
+	var co = new ContentObject(inst.name,str);
+	co.sign(mykey,{'keyName':mykeyname});
+	
+	try {
+            ndn.send(co);
 	} 
-    catch (e) {
-        console.log(e.toString());
-    }    
+	catch (e) {
+            console.log(e.toString());
+	}
+    }
+    console.log('end');
 }
 
 function onChatData(inst,co){
@@ -83,58 +86,68 @@ function heartbeat(){
     co.sign(mykey, {'keyName':mykeyname});
     try {
 	    ndn.send(co);
-	    if(digest_tree.root == "unavailable")
-		leaveflag = 1;
     } catch (e) {
 	    console.log(e.toString());
     }
     digest_tree.update(content);
-    console.log("heartbeat log add");
-    addlog(content);
-    var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
-    n.append(DataUtils.toNumbers(digest_tree.root));
-    var template = new Interest();
-    //template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
-    template.interestLifetime = 10000;
-    ndn.expressInterest(n, template, onSyncData, sync_timeout);                
-    console.log('Heartbeat Interest expressed.');          
+    if(logfind(digest_tree.root)==-1){
+	console.log("heartbeat log add");
+	var newlog = {digest:digest_tree.root, data:content};
+	digest_log.push(newlog);
+	console.log("addlog:"+digest_tree.root);
+	var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
+	n.append(DataUtils.toNumbers(digest_tree.root));
+	var template = new Interest();
+	//template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
+	template.interestLifetime = 10000;
+	ndn.expressInterest(n, template, onSyncData, sync_timeout);                
+	console.log('Heartbeat Interest expressed.');
+    }         
 }
 
 function SendMessage(){
     var chatmsg = document.getElementById('fname').value;
-    document.getElementById('fname').value = "";
-    usrseq++;
-    console.log("sendmessage:"+usrseq);
-    var content = [{name:usrname,seqno:usrseq}];
-    msgcache.push({seqno:usrseq,msgtype:"chat",msg:chatmsg});
-    while (msgcache.length>maxmsgcachelength)
-        msgcache.shift();
-    var str = JSON.stringify(content);
-    var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
-    n.append(DataUtils.toNumbers(digest_tree.root));
-    var co = new ContentObject(n, str);
-    co.sign(mykey, {'keyName':mykeyname});
-    try {
+    if(chatmsg != ""){
+	document.getElementById('fname').value = "";
+	usrseq++;
+	console.log("sendmessage:"+usrseq);
+	var content = [{name:usrname,seqno:usrseq}];
+	msgcache.push({seqno:usrseq,msgtype:"chat",msg:chatmsg});
+	while (msgcache.length>maxmsgcachelength)
+            msgcache.shift();
+	var str = JSON.stringify(content);
+	var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
+	n.append(DataUtils.toNumbers(digest_tree.root));
+	var co = new ContentObject(n, str);
+	co.sign(mykey, {'keyName':mykeyname});
+	try {
 	    ndn.send(co);
-    } catch (e) {
+	} catch (e) {
 	    console.log(e.toString());
+	}
+	digest_tree.update(content);
+	if(logfind(digest_tree.root)==-1){
+	    console.log("message log add");
+	    var newlog = {digest:digest_tree.root, data:content};
+	    digest_log.push(newlog);
+	    console.log("addlog:"+digest_tree.root);
+	    var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
+	    n.append(DataUtils.toNumbers(digest_tree.root));
+	    var template = new Interest();
+	    //template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
+	    template.interestLifetime = 10000;
+	    ndn.expressInterest(n, template, onSyncData, sync_timeout);              
+	    console.log('Sync Interest expressed.');
+	    //console.log(template.name.to_uri());
+	    var d = new Date();//get time
+	    var t = d.toLocaleTimeString();
+	    document.getElementById('txt').innerHTML += '<p>'+ usrname+'-'+t+':'+chatmsg + '</p>';          
+	    var objDiv = document.getElementById("txt");      
+	    objDiv.scrollTop = objDiv.scrollHeight;
+	}
     }
-    digest_tree.update(content);
-    console.log("message log add");
-    addlog(content);
-    var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
-    n.append(DataUtils.toNumbers(digest_tree.root));
-    var template = new Interest();
-    //template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
-    template.interestLifetime = 10000;
-    ndn.expressInterest(n, template, onSyncData, sync_timeout);              
-    console.log('Sync Interest expressed.');
-    //console.log(template.name.to_uri());
-    var d = new Date();//get time
-    var t = d.toLocaleTimeString();
-    document.getElementById('txt').innerHTML += '<p>'+ usrname+'-'+t+':'+chatmsg + '</p>';          
-    var objDiv = document.getElementById("txt");      
-    objDiv.scrollTop = objDiv.scrollHeight;
+    else
+	alert("message cannot be empty");
 }
 
 function Leave(){
@@ -157,7 +170,9 @@ function Leave(){
     }
     digest_tree.update(content);
     console.log("leave log add");
-    addlog(content);
+    var newlog = {digest:digest_tree.root, data:content};
+    digest_log.push(newlog);
+    console.log("addlog:"+digest_tree.root);
     setTimeout(function(){window.close();},2000);	
     //window.close();
 }
