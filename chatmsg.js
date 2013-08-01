@@ -187,6 +187,10 @@ function alive(temp_seq,name){
 	if(temp_seq == seq){
 	    roster.splice(n,1);
 	    console.log(name+" leave");
+	    document.getElementById('menu').innerHTML = '<p><b>Member</b></p>';
+	    for(var i = 0;i<roster.length;i++){
+		document.getElementById('menu').innerHTML += '<p>'+roster[i]+'</p>';
+	    }
 	}
     }
 }

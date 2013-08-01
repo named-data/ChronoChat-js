@@ -1,4 +1,5 @@
 <!DOCTYPE HTML>
+<html>
 <head>
     <meta charset="utf-8">
 	
@@ -33,6 +34,7 @@ $(document).ready(function(){
     $("#fname").hide();
     $("#send").hide();
     $("#leave").hide();
+    $("#menu").hide();
     $("#login").click(function(){
         usrname = document.getElementById('name').value;
         chatroom = document.getElementById('chatroom').value;
@@ -40,12 +42,14 @@ $(document).ready(function(){
             alert("input usrname and chatroom");
         }
         else{
+            alert(usrname+", welcome to chatroom "+chatroom+"!");
             $("#log").hide();
             $("#login").hide();
             $("#txt").show();
     	    $("#fname").show();
     	    $("#send").show();
     	    $("#leave").show();
+            $("#menu").show();
             testPublish();
         }
     });
@@ -128,27 +132,54 @@ function testPublish () {
 }
 
     </script>
-
+<style>
+h1{text-align:center;}
+button{text-align:center;}
+div{text-align:center;}
+.center
+{
+margin:auto;
+}
+</style>
 </head>
 
-<body>
-<div id = "log">
-<form action = "">
-<input type="text" id="name"
-style="width:100px;height:20px;font-size:15px">username
-<br /><br />
-<input type="text" id="chatroom"
-style="width:100px;height:20px;font-size:15px">chatroom
-<br /><br /></div>
-</form>
-<button id = "login" > login </button>
 
-<div id = "txt" style="border-style:solid;border-width:2px;overflow:auto;width:600px;height:300px;font-size:20px"></div>
-  <br />
-<div><textarea id="fname"
-style="width:600px;height:100px;font-size:10px"></textarea></div>
-<div><button id = "send" style="font-size:20px" onclick="SendMessage()">send</button></div>
-<div><button id = "leave" style="font-size:20px" onclick="Leave()">leave</button></div>
+
+<body>
+
+
+<div id = "title" style = "width:700px" class="center">
+<h1 style="margin-bottom:0;">Web ChronoChat</h1></div>
+
+
+<div id = "log" style="width:700px" class="center">
+username:<input type="text" id="name"
+style="width:100px;height:20px;font-size:15px" value="qiuhan" autocomplete="on">
+<br /><br />
+chatroom:<input type="text" id="chatroom"
+style="width:100px;height:20px;font-size:15px" value="qiu" autocomplete="on">
+<br /><br />
+<button id = "login" > login </button>
+</div>
+
+<div style="width:710px" class="center">
+  
+<div id="menu" style="height:600px;width:100px;float:left;">
+<b>Member</b><br>
+</div>
+<div id = "txt" style="border-style:solid;border-width:2px;overflow:auto;width:600px;height:300px;font-size:20px;float:left;"></div>
+
+<div>
+  <textarea id="fname" style="width:600px;height:100px;font-size:10px;float:left;margin-top:10px;margin-bottom:10px"></textarea>
+</div>
+
+<div>
+<button id = "send" style="font-size:20px;float:left" onclick="SendMessage()">send</button>
+<button id = "leave" style="font-size:20px;float:left;" onclick="Leave()">leave</button>
+</div>
+
+</div>
+
 
 </body>
 </html>

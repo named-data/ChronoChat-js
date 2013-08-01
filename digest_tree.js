@@ -36,6 +36,10 @@ Digest_Tree.prototype.newcomer = function(name,seqno){
     console.log("sort digest");
     roster.push(name);
     roster.sort();
+    document.getElementById('menu').innerHTML = '<p><b>Member</b></p>';
+    for(var i = 0;i<roster.length;i++){
+	document.getElementById('menu').innerHTML += '<p>'+roster[i]+'</p>';
+    }
     var root_d = '';
     for(var i = 0;i<this.digestnode.length;i++){
 	root_d = root_d+this.digestnode[i].digest;
