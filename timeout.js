@@ -13,7 +13,7 @@ var sync_timeout = function(interest) {
 	if(component == digest_tree.root){
 	  	var n = new Name(interest.name);
 	  	var template = new Interest();
-	  	template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
+	  	//template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
 	  	template.interestLifetime = 10000;
 	  	ndn.expressInterest(n, template, onSyncData, sync_timeout);
 		console.log("Syncinterest expressed:");
@@ -33,14 +33,17 @@ var chat_timeout = function(interest){
 };
 
 var initial_timeout = function(interest){
+    console.log("initial timeout");
     console.log("no other people");
     //addlog([{name:usrname,seqno:usrseq}]);
     digest_tree.initial();
-    addlog([{name:usrname,seqno:usrseq}]);
+    var newlog = {digest:digest_tree.root, data:[{name:usrname,seqno:usrseq}]};
+    digest_log.push(newlog);
+    console.log("addlog:"+digest_tree.root);
     var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
     n.append(DataUtils.toNumbers(digest_tree.root));
     var template = new Interest();
-    template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
+    //template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
     template.interestLifetime = 10000;
     ndn.expressInterest(n, template, onSyncData, sync_timeout);
     console.log("Syncinterest expressed:");
