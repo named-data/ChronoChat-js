@@ -24,20 +24,16 @@ Digest_Tree.prototype.initial = function() {
 Digest_Tree.prototype.newcomer = function(name,seqno){
     console.log("new comer name seqno"+name+seqno);
     var digest_t = new KJUR.crypto.MessageDigest({alg: "sha256", prov: "cryptojs"});
-    /*if(name == usrname && seqno>0){
-    	seqno++;
-        usrseq = seqno;
-	msgcache.push({seqno:usrseq,msgtype:"new",msg:"xxx"});
-   	while (msgcache.length>maxmsgcachelength)
-             msgcache.shift();
-    }*/
     if(name == usrname){
     	usrseq = seqno;
     }
     digest_t.updateString(name+seqno);
     var temp = {"prefix_name":name,"seqno":seqno,"digest":digest_t.digest()};
     this.digestnode.push(temp);
+    console.log(digest_tree);
     this.digestnode.sort(sortdigestnode);
+    console.log(digest_tree);
+    console.log("sort digest");
     roster.push(name);
     roster.sort();
     var root_d = '';
@@ -86,7 +82,10 @@ Digest_Tree.prototype.update = function (content) {
 };
 
 function sortdigestnode(node1,node2){
-    return(node1.prefix_name>node2.prefix_name);
+    if(node1.prefix_name>node2.prefix_name)
+	return 1;
+    else
+	return -1;
 }
 
 Digest_Tree.prototype.find = function (name) {

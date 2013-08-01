@@ -195,13 +195,14 @@ function onSyncData(inst,co){
 	//setTimeout(function(){heartbeat();},60000);
 	}
     }
-	var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
-	n.append(DataUtils.toNumbers(digest_tree.root));
-	var template = new Interest();
-	//template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
-	template.interestLifetime = 10000;
-	ndn.expressInterest(n, template, onSyncData, sync_timeout);
-	console.log("Syncinterest expressed:");
+    var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
+    n.append(DataUtils.toNumbers(digest_tree.root));
+    var template = new Interest();
+    //template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
+    template.interestLifetime = 10000;
+    ndn.expressInterest(n, template, onSyncData, sync_timeout);
+    console.log("Syncinterest expressed:");
+    console.log(n.to_uri());
 	//console.log(template.name.to_url());
 	//assume that the everyone except the new comer is in the static state
 	//var myVar = setInterval(function(){heartbeat()},60000);
