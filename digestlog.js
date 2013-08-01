@@ -132,11 +132,13 @@ function onSyncData(inst,co){
 		    var newlog = {digest:digest_tree.root, data:content};
 		    digest_log.push(newlog);
 		    console.log("addlog:"+digest_tree.root);
-		    msgcache.push({seqno:usrseq,msgtype:"join",msg:"xxx"});
+		    var d = new Date();
+		    var t = d.toLocaleTimeString();
+		    msgcache.push({seqno:usrseq,msgtype:"join",msg:"xxx",time:t});
       		    while (msgcache.length>maxmsgcachelength)
         		msgcache.shift();
 		}
-	    }        
+	    }
 	}
 	var content_t =[]
 	if(usrseq>=0){

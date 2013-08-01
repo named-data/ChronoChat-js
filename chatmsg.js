@@ -9,7 +9,8 @@ function onChatInterest(inst){
     for(var i = msgcache.length-1;i>=0;i--){
 	//console.log("msgseq:"+msgcache[i].seqno);
         if(msgcache[i].seqno ==seq){
-            content = {msg:msgcache[i].msg,type:msgcache[i].msgtype};
+	    
+            content = {msg:msgcache[i].msg,type:msgcache[i].msgtype,time:msgcache[i].time};
             JSON.stringify(content);
             break;
         }
@@ -39,22 +40,26 @@ function onChatData(inst,co){
     var name = DataUtils.toString(co.name.components[3]);
     if (content.type =="chat"){
         //display on the screen
-        var d = new Date();//get time
-        var t = d.toLocaleTimeString();
-        document.getElementById('txt').innerHTML +='<p>'+ name+'-'+t+':'+content.msg+'</p>';
+        //var d = new Date();//get time
+        //var t = d.toLocaleTimeString();
+        document.getElementById('txt').innerHTML +='<p>'+ name+'-'+content.time+':'+content.msg+'</p>';
 	var objDiv = document.getElementById("txt");      
 	objDiv.scrollTop = objDiv.scrollHeight;
     }
     else if(content.type == "leave"){
         var n = rosterfind(name);
         roster.splice(n,1);
+	document.getElementById('menu').innerHTML = '<p><b>Member</b></p>';
+	for(var i = 0;i<roster.length;i++){
+	    document.getElementById('menu').innerHTML += '<p>'+roster[i]+'</p>';
+	}
         console.log(name+" leave");
     }
-    else{
+    /*else{
 	var temp_seq = parseInt(DataUtils.toString(inst.name.components[5]));
 	setTimeout(function(){alive(temp_seq,name);},120000);
 	console.log("set timer");//functions only after the another user anounce his arrival
-    }
+    }*/
 }
 
 var rosterfind = function (name) {
@@ -65,18 +70,14 @@ var rosterfind = function (name) {
     }
 };
 
-/*var heart_timeout = function(interest) {
-        console.log("Hearbeat Interest time out.");
-        console.log('Hearbeat Interest name: ' + interest.name.to_uri());
-                                  
-    };
-    */
 function heartbeat(){
     usrseq++;
     console.log("heartbeat:"+usrseq);//////
     var content = [{name:usrname,seqno:usrseq}];
     //console.log(content);
-    msgcache.push({seqno:usrseq,msgtype:"heartbeat",msg:"xxx"});
+    var d = new Date();
+    var t = d.toLocaleTimeString();
+    msgcache.push({seqno:usrseq,msgtype:"heartbeat",msg:"xxx",time:t});
     while (msgcache.length>maxmsgcachelength)
         msgcache.shift();
     var str = JSON.stringify(content);
@@ -112,7 +113,9 @@ function SendMessage(){
 	usrseq++;
 	console.log("sendmessage:"+usrseq);
 	var content = [{name:usrname,seqno:usrseq}];
-	msgcache.push({seqno:usrseq,msgtype:"chat",msg:chatmsg});
+	var d = new Date();
+	var t = d.toLocaleTimeString();
+	msgcache.push({seqno:usrseq,msgtype:"chat",msg:chatmsg,time:t});
 	while (msgcache.length>maxmsgcachelength)
             msgcache.shift();
 	var str = JSON.stringify(content);
@@ -155,7 +158,9 @@ function Leave(){
     var i = 0;
     usrseq++;
     var content = [{name:usrname,seqno:usrseq}];
-    msgcache.push({seqno:usrseq,msgtype:"leave",msg:"xxx"});
+    var d = new Date();
+    var t = d.toLocaleTimeString();
+    msgcache.push({seqno:usrseq,msgtype:"leave",msg:"xxx",time:t});
     while (msgcache.length>maxmsgcachelength)
         msgcache.shift();
     var str = JSON.stringify(content);
@@ -178,6 +183,7 @@ function Leave(){
 }
 
 function alive(temp_seq,name){
+    console.log("check alive");
     var index_n = digest_tree.find(name);
     var n = roster.indexOf(name);
     //console.log("name:"+name);
