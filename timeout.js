@@ -8,7 +8,6 @@ var sync_timeout = function(interest) {
 	else{
 		component = DataUtils.toHex(interest.name.components[4]);
 	}
-	a++;
 	console.log(component);
 	if(component == digest_tree.root){
 	  	var n = new Name(interest.name);
