@@ -1,6 +1,12 @@
 <!DOCTYPE HTML>
 <html>
 <head>
+<link rel="stylesheet" type="text/css" href="page.css" />
+<link href='http://fonts.googleapis.com/css?family=Sonsie+One' rel='stylesheet' type='text/css'>
+<link href='http://fonts.googleapis.com/css?family=Autour+One' rel='stylesheet' type='text/css'>
+<link href='http://fonts.googleapis.com/css?family=Architects+Daughter' rel='stylesheet' type='text/css'>
+<link href='http://fonts.googleapis.com/css?family=Quintessential' rel='stylesheet' type='text/css'>
+<link href='http://fonts.googleapis.com/css?family=Alegreya' rel='stylesheet' type='text/css'>
     <meta charset="utf-8">
 	
     <script src="../ChronoChat-javascript/ndn.js"></script>
@@ -25,8 +31,6 @@ var leaveflag = 0;
 var ndn;
 var mykey;
 var mykeyname;
-//var logseq = 1;
-var a = 0;
 var digest_log = [];
 
 $(document).ready(function(){
@@ -50,6 +54,7 @@ $(document).ready(function(){
     	    $("#send").show();
     	    $("#leave").show();
             $("#menu").show();
+	    document.getElementById('room').innerHTML = '<grey>Chatroom: </grey>'+'<b><green>'+chatroom+'</green></b>';
             testPublish();
         }
     });
@@ -75,7 +80,6 @@ function testPublish () {
         console.log('data prefix registered.');
         var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/').append(DataUtils.toNumbers('0000'));
         var template = new Interest();
-        //template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
         template.interestLifetime = 1000;
         ndn.expressInterest(n, template, onSyncData, initial_timeout);
         console.log("initial sync express");
@@ -90,16 +94,7 @@ function testPublish () {
 }
 
     </script>
-<style>
-h1{text-align:center;}
-button{text-align:center;}
-div{text-align:center;}
-#txt {text-align:left;}
-.center
-{
-margin:auto;
-}
-</style>
+
 </head>
 
 
@@ -107,36 +102,38 @@ margin:auto;
 <body>
 
 
-<div id = "title" style = "width:700px" class="center">
-<h1 style="margin-bottom:0;">Web ChronoChat</h1></div>
+<div id = "title" class="center">
+<h1><blue>Web</blue> ChronoChat</h1></div>
 
 
-<div id = "log" style="width:700px" class="center">
-username:<input type="text" id="name"
-style="width:100px;height:20px;font-size:15px" value="qiuhan" autocomplete="on">
+<div id = "log" class="center">
+<div id = "info">
+     username: <input type="text" id="name" value="qiuhan">
 <br /><br />
-chatroom:<input type="text" id="chatroom"
-style="width:100px;height:20px;font-size:15px" value="qiu" autocomplete="on">
-<br /><br />
+     chatroom: <input type="text" id="chatroom" value="abc">
+</div>
 <button id = "login" > login </button>
 </div>
 
-<div style="width:710px" class="center">
-  
-<div id="menu" style="height:600px;width:100px;float:left;">
+<div style="width:750px" class="center">
+<div style="width:750px">
+<div id="room"></div>
+<button id = "leave" onclick="Leave()"><blue><b>leave</b></blue></button>
+</div>
+<div style="width:750px">
+<div id="menu">
 <b>Member</b><br>
+<hr />
 </div>
-<div id = "txt" style="border-style:solid;border-width:2px;overflow:auto;width:600px;height:300px;font-size:20px;float:left;"></div>
+<div id = "txt"></div>
 
 <div>
-  <textarea id="fname" style="width:600px;height:100px;font-size:10px;float:left;margin-top:10px;margin-bottom:10px"></textarea>
+  <textarea id="fname"></textarea>
 </div>
-
 <div>
-<button id = "send" style="font-size:20px;float:left" onclick="SendMessage()">send</button>
-<button id = "leave" style="font-size:20px;float:left;" onclick="Leave()">leave</button>
+<button id = "send" onclick="SendMessage()">send</button>
 </div>
-
+</div>
 </div>
 
 

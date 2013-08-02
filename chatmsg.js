@@ -42,24 +42,20 @@ function onChatData(inst,co){
         //display on the screen
         //var d = new Date();//get time
         //var t = d.toLocaleTimeString();
-        document.getElementById('txt').innerHTML +='<p>'+ name+'-'+content.time+':'+content.msg+'</p>';
+        document.getElementById('txt').innerHTML +='<p><grey>'+ name+'-'+content.time+':</grey><br />'+content.msg+'</p>';
 	var objDiv = document.getElementById("txt");      
 	objDiv.scrollTop = objDiv.scrollHeight;
     }
     else if(content.type == "leave"){
         var n = rosterfind(name);
         roster.splice(n,1);
-	document.getElementById('menu').innerHTML = '<p><b>Member</b></p>';
+	document.getElementById('menu').innerHTML = '<p><b>Member</b></p><ul>';
 	for(var i = 0;i<roster.length;i++){
-	    document.getElementById('menu').innerHTML += '<p>'+roster[i]+'</p>';
+	    document.getElementById('menu').innerHTML += '<li>'+roster[i]+'</li>';
 	}
+        document.getElementById('menu').innerHTML += '</ul>';
         console.log(name+" leave");
     }
-    /*else{
-	var temp_seq = parseInt(DataUtils.toString(inst.name.components[5]));
-	setTimeout(function(){alive(temp_seq,name);},120000);
-	console.log("set timer");//functions only after the another user anounce his arrival
-    }*/
 }
 
 var rosterfind = function (name) {
@@ -99,7 +95,6 @@ function heartbeat(){
 	var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
 	n.append(DataUtils.toNumbers(digest_tree.root));
 	var template = new Interest();
-	//template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
 	template.interestLifetime = 10000;
 	ndn.expressInterest(n, template, onSyncData, sync_timeout);                
 	console.log('Heartbeat Interest expressed.');
@@ -137,14 +132,12 @@ function SendMessage(){
 	    var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
 	    n.append(DataUtils.toNumbers(digest_tree.root));
 	    var template = new Interest();
-	    //template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
 	    template.interestLifetime = 10000;
 	    ndn.expressInterest(n, template, onSyncData, sync_timeout);              
 	    console.log('Sync Interest expressed.');
-	    //console.log(template.name.to_uri());
 	    var d = new Date();//get time
 	    var t = d.toLocaleTimeString();
-	    document.getElementById('txt').innerHTML += '<p>'+ usrname+'-'+t+':'+chatmsg + '</p>';          
+	    document.getElementById('txt').innerHTML += '<p><grey>'+ usrname+'-'+t+':</grey><br />'+chatmsg + '</p>';          
 	    var objDiv = document.getElementById("txt");      
 	    objDiv.scrollTop = objDiv.scrollHeight;
 	}

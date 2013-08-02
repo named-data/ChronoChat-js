@@ -19,6 +19,9 @@ Digest_Tree.prototype.initial = function() {
     roster[0] = usrname;
     //usrdigest = md.digest();
     usrseq = 0;
+    document.getElementById('menu').innerHTML = '<p><b>Member</b></p>';
+    document.getElementById('menu').innerHTML += '<ul><li>'+roster[0]+'</li></ul>';
+    
 };
 
 Digest_Tree.prototype.newcomer = function(name,seqno){
@@ -36,10 +39,11 @@ Digest_Tree.prototype.newcomer = function(name,seqno){
     console.log("sort digest");
     roster.push(name);
     roster.sort();
-    document.getElementById('menu').innerHTML = '<p><b>Member</b></p>';
+    document.getElementById('menu').innerHTML = '<p><b>Member</b></p><ul>';
     for(var i = 0;i<roster.length;i++){
-	document.getElementById('menu').innerHTML += '<p>'+roster[i]+'</p>';
+	document.getElementById('menu').innerHTML += '<li>'+roster[i]+'</li>';
     }
+    document.getElementById('menu').innerHTML += '</ul>';
     var root_d = '';
     for(var i = 0;i<this.digestnode.length;i++){
 	root_d = root_d+this.digestnode[i].digest;
