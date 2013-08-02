@@ -133,7 +133,7 @@ function onSyncData(inst,co){
 		    digest_log.push(newlog);
 		    console.log("addlog:"+digest_tree.root);
 		    var d = new Date();
-		    var t = d.toLocaleTimeString();
+		    var t = d.getTime();
 		    msgcache.push({seqno:usrseq,msgtype:"join",msg:"xxx",time:t});
       		    while (msgcache.length>maxmsgcachelength)
         		msgcache.shift();

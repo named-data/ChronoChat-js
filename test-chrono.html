@@ -70,7 +70,7 @@ function testPublish () {
 
     ndn.onopen = function () {
         var d = new Date();
-	var t = d.toLocaleTimeString();
+	var t = d.getTime();
         msgcache.push({seqno:0,msgtype:"join",msg:"xxx",time:t});
         var n1 = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
         ndn.registerPrefix(n1,onSyncInterest);

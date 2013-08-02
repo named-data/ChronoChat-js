@@ -9,7 +9,6 @@ function onChatInterest(inst){
     for(var i = msgcache.length-1;i>=0;i--){
 	//console.log("msgseq:"+msgcache[i].seqno);
         if(msgcache[i].seqno ==seq){
-	    
             content = {msg:msgcache[i].msg,type:msgcache[i].msgtype,time:msgcache[i].time};
             JSON.stringify(content);
             break;
@@ -42,7 +41,9 @@ function onChatData(inst,co){
         //display on the screen
         //var d = new Date();//get time
         //var t = d.toLocaleTimeString();
-        document.getElementById('txt').innerHTML +='<p><grey>'+ name+'-'+content.time+':</grey><br />'+content.msg+'</p>';
+        var d = new Date(content.time);
+        var t = d.toLocaleTimeString();
+        document.getElementById('txt').innerHTML +='<p><grey>'+ name+'-'+t+':</grey><br />'+content.msg+'</p>';
 	var objDiv = document.getElementById("txt");      
 	objDiv.scrollTop = objDiv.scrollHeight;
     }
@@ -72,7 +73,7 @@ function heartbeat(){
     var content = [{name:usrname,seqno:usrseq}];
     //console.log(content);
     var d = new Date();
-    var t = d.toLocaleTimeString();
+    var t = d.getTime();
     msgcache.push({seqno:usrseq,msgtype:"heartbeat",msg:"xxx",time:t});
     while (msgcache.length>maxmsgcachelength)
         msgcache.shift();
@@ -109,7 +110,7 @@ function SendMessage(){
 	console.log("sendmessage:"+usrseq);
 	var content = [{name:usrname,seqno:usrseq}];
 	var d = new Date();
-	var t = d.toLocaleTimeString();
+	var t = d.getTime();
 	msgcache.push({seqno:usrseq,msgtype:"chat",msg:chatmsg,time:t});
 	while (msgcache.length>maxmsgcachelength)
             msgcache.shift();
@@ -135,9 +136,8 @@ function SendMessage(){
 	    template.interestLifetime = 10000;
 	    ndn.expressInterest(n, template, onSyncData, sync_timeout);              
 	    console.log('Sync Interest expressed.');
-	    var d = new Date();//get time
-	    var t = d.toLocaleTimeString();
-	    document.getElementById('txt').innerHTML += '<p><grey>'+ usrname+'-'+t+':</grey><br />'+chatmsg + '</p>';          
+	    var tt = d.toLocaleTimeString();
+	    document.getElementById('txt').innerHTML += '<p><grey>'+ usrname+'-'+tt+':</grey><br />'+chatmsg + '</p>';          
 	    var objDiv = document.getElementById("txt");      
 	    objDiv.scrollTop = objDiv.scrollHeight;
 	}
@@ -152,7 +152,7 @@ function Leave(){
     usrseq++;
     var content = [{name:usrname,seqno:usrseq}];
     var d = new Date();
-    var t = d.toLocaleTimeString();
+    var t = d.getTime();
     msgcache.push({seqno:usrseq,msgtype:"leave",msg:"xxx",time:t});
     while (msgcache.length>maxmsgcachelength)
         msgcache.shift();
