@@ -1,13 +1,7 @@
 var sync_timeout = function(interest) {
         console.log("Sync Interest time out.");
         console.log('Sync Interest name: ' + interest.name.to_uri());
-	var component;
-	if(interest.name.components.length<5){
-		component = "";
-	}
-	else{
-		component = DataUtils.toHex(interest.name.components[4]);
-	}
+	var component = DataUtils.toHex(interest.name.components[4]);
 	console.log(component);
 	if(component == digest_tree.root){
 	  	var n = new Name(interest.name);

@@ -52,13 +52,16 @@ function onSyncInterest(inst){
 		for(var j = index+1;j<digest_log.length;j++){
 		    var temp = digest_log[j].data;
 		    for(var i = 0;i<temp.length;i++){
-			var n = data_name.indexOf(temp[i].name);
-			if(n = -1){
-			    data_name.push(temp[i].name);
-			    data_seq.push(temp[i].seqno);
+  			if(digest_tree.find(temp[i].name)!=-1){
+				var n = data_name.indexOf(temp[i].name);
+				if(n = -1){
+			    	data_name.push(temp[i].name);
+			    	data_seq.push(temp[i].seqno);
+				}
+				else{
+			    	data_seq[n] = temp[i].seqno;
+  				}
 			}
-			else
-			    data_seq[n] = temp[i].seqno;
 		    }
 		}
 		console.log("search log finished");
@@ -136,8 +139,12 @@ function onSyncData(inst,co){
 	}
 	var digest_t = digest_tree.root;
         for(var i = 0;i<content.length;i++){
-	    if(content[i].name == usrname){
-		var content_t = [{name:content[i].name,seqno:content[i].seqno+1}];
+	    var content_name = content[i].name.substring(0,content[i].name.length-13);
+            //usr_name = usrname.substring(0,usrname.length-13);
+	    console.log(content_name);
+            console.log(screen_name);
+	    if(content_name == screen_name){
+		var content_t = [{name:usrname,seqno:content[i].seqno+1}];
 		digest_tree.update(content_t);
                 console.log(content_t);
 		if(logfind(digest_tree.root)==-1){
@@ -183,10 +190,12 @@ function onSyncData(inst,co){
 	    digest_log.push(newlog);
 	    console.log("addlog:"+digest_tree.root);
 	    for(var i = 0; i<content.length;i++){
-		if(content[i].name!=usrname){
+		var content_name = content[i].name.substring(0,content[i].name.length-13);
+            	//usr_name = usrname.substring(0,usrname.length-13);
+		if(content_name!=screen_name){
 		    var n = new Name('/ndn/ucla.edu/irl/'+content[i].name+'/'+chatroom+'/'+content[i].seqno);
 		    var template = new Interest();
-		    template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
+		    //template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
 		    template.interestLifetime = 10000;
 		    ndn.expressInterest(n, template, onChatData, chat_timeout);
 		    console.log(n.to_uri());

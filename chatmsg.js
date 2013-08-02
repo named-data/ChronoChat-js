@@ -37,25 +37,28 @@ function onChatData(inst,co){
 
     var content = JSON.parse(DataUtils.toString(co.content));
     var name = DataUtils.toString(co.name.components[3]);
+    var name_t = name.substring(0,name.length-13);
     if (content.type =="chat"){
         //display on the screen
         //var d = new Date();//get time
         //var t = d.toLocaleTimeString();
         var d = new Date(content.time);
         var t = d.toLocaleTimeString();
-        document.getElementById('txt').innerHTML +='<p><grey>'+ name+'-'+t+':</grey><br />'+content.msg+'</p>';
+        document.getElementById('txt').innerHTML +='<p><grey>'+ name_t+'-'+t+':</grey><br />'+content.msg+'</p>';
 	var objDiv = document.getElementById("txt");      
 	objDiv.scrollTop = objDiv.scrollHeight;
     }
     else if(content.type == "leave"){
-        var n = rosterfind(name);
-        roster.splice(n,1);
-	document.getElementById('menu').innerHTML = '<p><b>Member</b></p><ul>';
-	for(var i = 0;i<roster.length;i++){
-	    document.getElementById('menu').innerHTML += '<li>'+roster[i]+'</li>';
+        var n = rosterfind(name_t);
+	if(n!=-1){
+            roster.splice(n,1);
+	    document.getElementById('menu').innerHTML = '<p><b>Member</b></p><ul>';
+	    for(var i = 0;i<roster.length;i++){
+	        document.getElementById('menu').innerHTML += '<li>'+roster[i]+'</li>';
+	    }
+            document.getElementById('menu').innerHTML += '</ul>';
+            console.log(name_t+" leave");
 	}
-        document.getElementById('menu').innerHTML += '</ul>';
-        console.log(name+" leave");
     }
 }
 
@@ -139,7 +142,7 @@ function SendMessage(){
 	    console.log('Sync Interest expressed.');
             console.log(n.to_uri());
 	    var tt = d.toLocaleTimeString();
-	    document.getElementById('txt').innerHTML += '<p><grey>'+ usrname+'-'+tt+':</grey><br />'+chatmsg + '</p>';          
+	    document.getElementById('txt').innerHTML += '<p><grey>'+ screen_name+'-'+tt+':</grey><br />'+chatmsg + '</p>';          
 	    var objDiv = document.getElementById("txt");      
 	    objDiv.scrollTop = objDiv.scrollHeight;
 	}
@@ -180,14 +183,15 @@ function Leave(){
 function alive(temp_seq,name){
     console.log("check alive");
     var index_n = digest_tree.find(name);
-    var n = roster.indexOf(name);
+    var name_t = name.substring(0,name.length-13);
+    var n = roster.indexOf(name_t);
     //console.log("name:"+name);
     //console.log("seqno"+temp_seq);
-    if (index_n != -1){
+    if (index_n != -1 && n != -1){
 	var seq = digest_tree.digestnode[index_n].seqno;
 	if(temp_seq == seq){
 	    roster.splice(n,1);
-	    console.log(name+" leave");
+	    console.log(name_t+" leave");
 	    document.getElementById('menu').innerHTML = '<p><b>Member</b></p><ul>';
 	    for(var i = 0;i<roster.length;i++){
 		document.getElementById('menu').innerHTML += '<li>'+roster[i]+'</li>';
