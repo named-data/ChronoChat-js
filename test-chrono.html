@@ -55,6 +55,7 @@ $(document).ready(function(){
     	    $("#leave").show();
             $("#menu").show();
 	    document.getElementById('room').innerHTML = '<grey>Chatroom: </grey>'+'<b><green>'+chatroom+'</green></b>';
+	    document.getElementById('room').innerHTML+= '<grey>  Username: </grey>'+'<b><green>'+usrname+'</green></b>';
             testPublish();
         }
     });
@@ -84,6 +85,7 @@ function testPublish () {
         template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
         ndn.expressInterest(n, template, onSyncData, initial_timeout);
         console.log("initial sync express");
+        console.log(n.to_uri());
      
     };
 
@@ -104,9 +106,12 @@ function testPublish () {
 
 
 <div id = "title" class="center">
-<h1><blue>Web</blue> ChronoChat</h1></div>
+<h1><blue>Web</blue> ChronoChat</h1>
+<div id = "footer">
+      <grey>Powered by </grey><a target="_blank" href="http://github.com/named-data/ndn-js"><blue>NDN.JS</blue></a><grey>.</grey>
 
-
+</div>
+</div>
 <div id = "log" class="center">
 <div id = "info">
      username: <input type="text" id="name" value="qiuhan">
@@ -119,7 +124,6 @@ function testPublish () {
 <div style="width:850px" class="center">
 <div style="width:850px">
 <div id="room"></div>
-<button id = "leave" onclick="Leave()"><blue><b>leave</b></blue></button>
 </div>
 <div style="width:850px">
 <div id = "txt"></div>
@@ -131,13 +135,12 @@ function testPublish () {
 </div>
 
 <div>
+<button id = "leave" onclick="Leave()"><blue><b>leave</b></blue></button>
 <button id = "send" onclick="SendMessage()">send</button>
-</div>
-</div>
-<div id = "footer">
-      <grey>Powered by </grey><a target="_blank" href="http://github.com/named-data/ndn-js"><blue>NDN.JS</blue></a><grey>.</grey>
-</footer>
+
 
 </div>
+</div>
+
 </div>
 </html>

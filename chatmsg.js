@@ -4,8 +4,8 @@ function onChatInterest(inst){
     console.log(inst.name.to_uri());
     var content = {};
     var seq = parseInt(DataUtils.toString(inst.name.components[5]));/////
-    console.log("seq");
-    console.log(seq)
+    //console.log("seq");
+    //console.log(seq)
     for(var i = msgcache.length-1;i>=0;i--){
 	//console.log("msgseq:"+msgcache[i].seqno);
         if(msgcache[i].seqno ==seq){
@@ -14,8 +14,8 @@ function onChatInterest(inst){
             break;
         }
     }
-    console.log("msg find:");
-    console.log(content);
+    //console.log("msg find:");
+    //console.log(content);
     if(content.msg != null){
 	var str = JSON.stringify(content);
 	var co = new ContentObject(inst.name,str);
@@ -69,7 +69,7 @@ var rosterfind = function (name) {
 
 function heartbeat(){
     usrseq++;
-    console.log("heartbeat:"+usrseq);//////
+    //console.log("heartbeat:"+usrseq);//////
     var content = [{name:usrname,seqno:usrseq}];
     //console.log(content);
     var d = new Date();
@@ -99,6 +99,7 @@ function heartbeat(){
 	template.interestLifetime = 10000;
 	ndn.expressInterest(n, template, onSyncData, sync_timeout);                
 	console.log('Heartbeat Interest expressed.');
+        console.log(n.to_uri());
     }         
 }
 
@@ -136,6 +137,7 @@ function SendMessage(){
 	    template.interestLifetime = 10000;
 	    ndn.expressInterest(n, template, onSyncData, sync_timeout);              
 	    console.log('Sync Interest expressed.');
+            console.log(n.to_uri());
 	    var tt = d.toLocaleTimeString();
 	    document.getElementById('txt').innerHTML += '<p><grey>'+ usrname+'-'+tt+':</grey><br />'+chatmsg + '</p>';          
 	    var objDiv = document.getElementById("txt");      
@@ -186,10 +188,11 @@ function alive(temp_seq,name){
 	if(temp_seq == seq){
 	    roster.splice(n,1);
 	    console.log(name+" leave");
-	    document.getElementById('menu').innerHTML = '<p><b>Member</b></p>';
+	    document.getElementById('menu').innerHTML = '<p><b>Member</b></p><ul>';
 	    for(var i = 0;i<roster.length;i++){
-		document.getElementById('menu').innerHTML += '<p>'+roster[i]+'</p>';
+		document.getElementById('menu').innerHTML += '<li>'+roster[i]+'</li>';
 	    }
+            document.getElementById('menu').innerHTML += '</ul>';
 	}
     }
 }

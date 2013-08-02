@@ -10,9 +10,9 @@ function onSyncInterest(inst){
     //search if the digest is already exist in the digest log
     console.log('Sync Interest received in callback.');
     console.log(inst.name.to_uri());
-    //var digest = DataUtils.toHex(inst.name.components[4])
+    var digest = DataUtils.toHex(inst.name.components[4])
     if(inst.name.components.length == 6 || digest == "0000"){/////////start recovery
-        console.log("send back recovery data");
+        //console.log("send back recovery data");
 	var syncdigest;
 	if(inst.name.components.length == 6)
 	    syncdigest = DataUtils.toHex(inst.name.components[5]);
@@ -28,27 +28,30 @@ function onSyncInterest(inst){
 	    co.sign(mykey, {'keyName':mykeyname});
 	    try {
 		ndn.send(co);
+      		console.log("send recovery data back");
+                console.log(content);
+                console.log(inst.name.to_uri());
 	    } catch (e) {
 		console.log(e.toString());
 	    }
 	}
+	console.log(content);
     }
     else{
 	var syncdigest = DataUtils.toHex(inst.name.components[4]);
 	console.log("syncdigest: "+syncdigest);
 	console.log("root: "+digest_tree.root);
 	if(syncdigest != digest_tree.root){
+            console.log("digest doesn't equal");
 	    var index = logfind(syncdigest);
 	    var content = [];
 	    function process_syncdata(index,syncdigest_t){
 		var data_name = [];
 		var data_seq = [];
-		console.log(digest_log.length);
+		//console.log(digest_log.length);
 		for(var j = index+1;j<digest_log.length;j++){
 		    var temp = digest_log[j].data;
-		    //console.log(j);
 		    for(var i = 0;i<temp.length;i++){
-			//console.log(i);
 			var n = data_name.indexOf(temp[i].name);
 			if(n = -1){
 			    data_name.push(temp[i].name);
@@ -71,6 +74,8 @@ function onSyncInterest(inst){
 		    try {
 			ndn.send(co);
 			console.log("Sync Data send");
+                        console.log(n.to_uri());
+                        console.log(content);
 		    } catch (e) {
 			console.log(e.toString());
 		    }
@@ -78,11 +83,14 @@ function onSyncInterest(inst){
 	    }
 	    
 	    function recovery(syncdigest_t){
+                console.log("timer end");
 		var index2 = logfind(syncdigest_t);
 		console.log(index2);
 		console.log(digest_log);
 		if(index2 != -1){
-		    process_syncdata(index2,syncdigest_t);
+                    if(syncdigest_t!=digest_tree.root){
+		    	process_syncdata(index2,syncdigest_t);
+		    }
 		}
 		else{
 		    console.log("unknown digest: ")
@@ -95,6 +103,7 @@ function onSyncInterest(inst){
 		    template.interestLifetime = 10000;
 		    ndn.expressInterest(n, template, onSyncData, sync_timeout);
 		    console.log("Recovery Syncinterest expressed:"); 
+     		    console.log(n.to_uri());
 		}
 		console.log('end of recover');
 	    }
@@ -129,10 +138,10 @@ function onSyncData(inst,co){
         for(var i = 0;i<content.length;i++){
 	    if(content[i].name == usrname){
 		var content_t = [{name:content[i].name,seqno:content[i].seqno+1}];
-		digest_tree.update(content);
+		digest_tree.update(content_t);
                 console.log(content_t);
 		if(logfind(digest_tree.root)==-1){
-		    var newlog = {digest:digest_tree.root, data:content};
+		    var newlog = {digest:digest_tree.root, data:content_t};
 		    digest_log.push(newlog);
 		    console.log("addlog:"+digest_tree.root);
 		    var d = new Date();
@@ -154,8 +163,10 @@ function onSyncData(inst,co){
 	n.append(DataUtils.toNumbers(digest_t));
 	var co = new ContentObject(n, str);
 	co.sign(mykey, {'keyName':mykeyname});
+        console.log("initial update data sending back");
+        console.log(content_t);
+	console.log(n.to_uri());
 	try {
-	    console.log('before send');
 	    ndn.send(co);
 	  
 	} catch (e) {
@@ -175,7 +186,7 @@ function onSyncData(inst,co){
 		if(content[i].name!=usrname){
 		    var n = new Name('/ndn/ucla.edu/irl/'+content[i].name+'/'+chatroom+'/'+content[i].seqno);
 		    var template = new Interest();
-		    //template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
+		    template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
 		    template.interestLifetime = 10000;
 		    ndn.expressInterest(n, template, onChatData, chat_timeout);
 		    console.log(n.to_uri());
