@@ -50,7 +50,7 @@ function onChatData(inst,co){
     }
     else if(content.type == "leave"){
         var n = rosterfind(name_t);
-	if(n!=-1){
+	if(n!=-1 && name_t!=screen_name){
             roster.splice(n,1);
 	    document.getElementById('menu').innerHTML = '<p><b>Member</b></p><ul>';
 	    for(var i = 0;i<roster.length;i++){
@@ -68,6 +68,7 @@ var rosterfind = function (name) {
             return i;
         }
     }
+    return -1;
 };
 
 function heartbeat(){

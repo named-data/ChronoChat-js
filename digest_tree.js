@@ -1,7 +1,4 @@
 //digest tree
-//var roster = ["Alice","Bob","Cathy"];
-//var deqno = [0,0,0];
-//the digest_tree input is the new information to put into it
 
 var Digest_Tree = function Digest_Tree() {
     this.digestnode = [];
@@ -18,7 +15,6 @@ Digest_Tree.prototype.initial = function() {
     this.root = md.digest();
     usr_name = usrname.substring(0,usrname.length-13);
     roster[0] = usr_name;
-    //usrdigest = md.digest();
     usrseq = 0;
     document.getElementById('menu').innerHTML = '<p><b>Member</b></p>';
     document.getElementById('menu').innerHTML += '<ul><li>'+roster[0]+'</li></ul>';
@@ -28,7 +24,6 @@ Digest_Tree.prototype.initial = function() {
 Digest_Tree.prototype.newcomer = function(name,seqno){
     var digest_t = new KJUR.crypto.MessageDigest({alg: "sha256", prov: "cryptojs"});
     var name_t = name.substring(0,name.length-13);
-    //var usr_name = usrname.substring(0,usrname.length-13);
     if(name_t == screen_name){
     	usrseq = seqno;
     }
@@ -43,12 +38,12 @@ Digest_Tree.prototype.newcomer = function(name,seqno){
     console.log("sort digest");
     if(roster.indexOf(name_t)==-1){
     	roster.push(name_t);
+	document.getElementById('menu').innerHTML = '<p><b>Member</b></p><ul>';
+    	for(var i = 0;i<roster.length;i++){
+		document.getElementById('menu').innerHTML += '<li>'+roster[i]+'</li>';
+    	}
+    	document.getElementById('menu').innerHTML += '</ul>';
     }
-    document.getElementById('menu').innerHTML = '<p><b>Member</b></p><ul>';
-    for(var i = 0;i<roster.length;i++){
-	document.getElementById('menu').innerHTML += '<li>'+roster[i]+'</li>';
-    }
-    document.getElementById('menu').innerHTML += '</ul>';
     var root_d = '';
     for(var i = 0;i<this.digestnode.length;i++){
 	root_d = root_d+this.digestnode[i].digest;
@@ -60,11 +55,10 @@ Digest_Tree.prototype.newcomer = function(name,seqno){
 	setTimeout(function(){alive(seqno,name);},120000);
 	console.log("set timer");
     }
-    //return seqno;
 };
 
 Digest_Tree.prototype.update = function (content) {
-    //console.log(content[0].seqno);////////
+    //console.log(content[0].seqno);
     //console.log("tree update content:");
     //console.log(content);
     for(var i = 0;i<content.length;i++){
@@ -74,7 +68,6 @@ Digest_Tree.prototype.update = function (content) {
 	    //only update the newer status
 		if(this.digestnode[n_index].seqno<content[i].seqno){
 		    var content_name = content[i].name.substring(0,content[i].name.length-13);
-            	    //usr_name = usrname.substring(0,usrname.length-13);
                     if(content_name == screen_name){
 			usrseq = content[i].seqno;
             	    }
@@ -87,6 +80,11 @@ Digest_Tree.prototype.update = function (content) {
 		    var seqno = content[i].seqno;
 		    if(roster.indexOf(content_name)==-1){
 			roster.push(content_name);
+			document.getElementById('menu').innerHTML = '<p><b>Member</b></p><ul>';
+    			for(var i = 0;i<roster.length;i++){
+				document.getElementById('menu').innerHTML += '<li>'+roster[i]+'</li>';
+    			}
+    			document.getElementById('menu').innerHTML += '</ul>';
 		    }
 		    if(name!=usrname){
 			setTimeout(function(){alive(seqno,name);},120000);
@@ -107,7 +105,6 @@ Digest_Tree.prototype.update = function (content) {
     this.root = md.digest();
     console.log("update root to: "+this.root);
     usrdigest = this.root;
-    //return content;
 };
 
 function sortdigestnode(node1,node2){
