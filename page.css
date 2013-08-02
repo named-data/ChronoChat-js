@@ -78,12 +78,14 @@ div
 {
     margin-top:10px;
     height:420px;
-    width:100px;
-    float:left;
+    width:200px;
+    float:right;
     font-size:20px;
     font-family: 'Quintessential', cursive;
-    border-right-style:dashed;
+    border-left-style:dashed;
     border-width:2px;
+    margin-bottom:10px;
+    text-align:left;
      
 } 
 #fname
@@ -101,7 +103,7 @@ div
 #send
 {   
     background:#3090C7;
-    margin-left:110px;
+    margin-left:10px;
     font-size:20px;
     float:left;
     width:100px;
@@ -114,7 +116,7 @@ div
     background:white;
     font-size:20px;
     font-color:#3090C7;
-    float:left;
+    float:right;
     width:80px;
     height:50px;
     border-radius:5px;
