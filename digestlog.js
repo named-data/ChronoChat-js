@@ -10,8 +10,9 @@ function onSyncInterest(inst){
     //search if the digest is already exist in the digest log
     console.log('Sync Interest received in callback.');
     console.log(inst.name.to_uri());
-    var digest = DataUtils.toHex(inst.name.components[4])
+    //var digest = DataUtils.toHex(inst.name.components[4])
     if(inst.name.components.length == 6 || digest == "0000"){/////////start recovery
+        console.log("send back recovery data");
 	var syncdigest;
 	if(inst.name.components.length == 6)
 	    syncdigest = DataUtils.toHex(inst.name.components[5]);
@@ -39,7 +40,7 @@ function onSyncInterest(inst){
 	if(syncdigest != digest_tree.root){
 	    var index = logfind(syncdigest);
 	    var content = [];
-	    function process_syncdata(index){
+	    function process_syncdata(index,syncdigest_t){
 		var data_name = [];
 		var data_seq = [];
 		console.log(digest_log.length);
@@ -63,7 +64,9 @@ function onSyncInterest(inst){
 		}
 		if(content.length!=0){
 		    var str = JSON.stringify(content);
-		    var co = new ContentObject(inst.name, str);
+                    var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
+		    n.append(DataUtils.toNumbers(syncdigest_t));
+		    var co = new ContentObject(n, str);
 		    co.sign(mykey, {'keyName':mykeyname});
 		    try {
 			ndn.send(co);
@@ -74,19 +77,19 @@ function onSyncInterest(inst){
 		}
 	    }
 	    
-	    function recovery(){
-		var index2 = logfind(syncdigest);
+	    function recovery(syncdigest_t){
+		var index2 = logfind(syncdigest_t);
 		console.log(index2);
 		console.log(digest_log);
 		if(index2 != -1){
-		    process_syncdata(index2);
+		    process_syncdata(index2,syncdigest_t);
 		}
 		else{
 		    console.log("unknown digest: ")
-		    console.log(syncdigest);
+		    console.log(syncdigest_t);
 		    console.log(digest_tree.root);
 		    var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/recovery/');
-		    n.append(DataUtils.toNumbers(syncdigest));
+		    n.append(DataUtils.toNumbers(syncdigest_t));
 		    var template = new Interest();
 		    //template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
 		    template.interestLifetime = 10000;
@@ -97,11 +100,11 @@ function onSyncInterest(inst){
 	    }
 
 	    if(index == -1){
-		setTimeout(function(){recovery();},2000);
+		setTimeout(function(){recovery(syncdigest);},2000);
 		console.log("set timer recover");
 	    }
 	    else{
-		process_syncdata(index);
+		process_syncdata(index,syncdigest);
 	    }
 	}
     }
