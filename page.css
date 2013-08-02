@@ -125,10 +125,22 @@ div
 {
     font-size:30px;
     font-family: 'Architects Daughter', cursive;
-    width:600px;
+    width:620px;
     height:50px;
     text-align:center;
     float:left;
+}
+#footer
+{
+    margin: 20px auto 0;
+    padding-bottom: 2px;
+    text-align: right;
+
+    /*position: fixed;*/
+    /*line-height: 10px;*/
+    bottom: 0;
+    width:200px;
+    font-family: 'Quintessential', cursive;
 }
 .center
 {

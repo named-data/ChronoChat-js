@@ -81,6 +81,7 @@ function testPublish () {
         var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/').append(DataUtils.toNumbers('0000'));
         var template = new Interest();
         template.interestLifetime = 1000;
+        template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
         ndn.expressInterest(n, template, onSyncData, initial_timeout);
         console.log("initial sync express");
      
@@ -134,8 +135,10 @@ function testPublish () {
 <button id = "send" onclick="SendMessage()">send</button>
 </div>
 </div>
+<div id = "footer">
+      <grey>Powered by </grey><a target="_blank" href="http://github.com/named-data/ndn-js"><blue>NDN.JS</blue></a><grey>.</grey>
+</footer>
+
 </div>
-
-
-</body>
+</div>
 </html>
