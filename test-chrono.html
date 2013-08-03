@@ -36,8 +36,7 @@ var session;
 $(document).ready(function(){
     $("#txt").hide();
     $("#fname").hide();
-    $("#send").hide();
-    $("#leave").hide();
+    $("#bottom").hide();
     $("#menu").hide();
     $("#login").click(function(){
         usrname = document.getElementById('name').value;
@@ -52,11 +51,11 @@ $(document).ready(function(){
             $("#login").hide();
             $("#txt").show();
     	    $("#fname").show();
-    	    $("#send").show();
-    	    $("#leave").show();
+    	    $("#bottom").show();
             $("#menu").show();
 	    document.getElementById('room').innerHTML = '<grey>Chatroom: </grey>'+'<b><green>'+chatroom+'</green></b>';
 	    document.getElementById('room').innerHTML+= '<grey>  Username: </grey>'+'<b><green>'+usrname+'</green></b>';
+            document.getElementById('menu').innerHTML = '<p><b>Member</b></p>';
             testPublish();
         }
     });
@@ -97,6 +96,12 @@ function testPublish () {
     
 }
 
+function checkkey(event){
+    console.log("event.keyCode");
+    if(event.keyCode==13){
+	SendMessage();
+    }
+}
     </script>
 
 </head>
@@ -129,19 +134,17 @@ function testPublish () {
 <div style="width:850px">
 <div id = "txt"></div>
 <div id="menu">
-<b>Member</b><br>
 </div>
 <div>
-  <textarea id="fname"></textarea>
+  <textarea id="fname" onkeyup="checkkey(event)"></textarea>
 </div>
 
-<div>
-
+<div id = "bottom">
+<div id="note"><grey>Press Enter to Send Message</grey></div>
 <button id = "send" onclick="SendMessage()"><b>send</b></button>
 <button id = "leave" onclick="Leave()"><blue><b>leave</b></blue></button>
-
-</div>
 </div>
 
+</div>
 </div>
 </html>
