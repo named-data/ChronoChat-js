@@ -20,7 +20,7 @@ function onSyncInterest(inst){
 	    syncdigest = "0000";
 	var content = [];
 	for(var i = 0;i<digest_tree.digestnode.length;i++){
-	    content[i] = {name:digest_tree.digestnode[i].prefix_name,seqno:digest_tree.digestnode[i].seqno};
+	    content[i] = {name:digest_tree.digestnode[i].prefix_name,seqno:digest_tree.digestnode[i].seqno,session:digest_tree.digestnode[i].session};
 	}
 	if(content.length!=0){
 	    var str = JSON.stringify(content);
@@ -39,8 +39,8 @@ function onSyncInterest(inst){
     }
     else{
 	var syncdigest = DataUtils.toHex(inst.name.components[4]);
-	console.log("syncdigest: "+syncdigest);
-	console.log("root: "+digest_tree.root);
+	//console.log("syncdigest: "+syncdigest);
+	//console.log("root: "+digest_tree.root);
 	if(syncdigest != digest_tree.root){
             console.log("digest doesn't equal");
 	    var index = logfind(syncdigest);
@@ -48,25 +48,28 @@ function onSyncInterest(inst){
 	    function process_syncdata(index,syncdigest_t){
 		var data_name = [];
 		var data_seq = [];
+		var data_ses = [];
 		//console.log(digest_log.length);
 		for(var j = index+1;j<digest_log.length;j++){
 		    var temp = digest_log[j].data;
 		    for(var i = 0;i<temp.length;i++){
   			if(digest_tree.find(temp[i].name)!=-1){
-				var n = data_name.indexOf(temp[i].name);
-				if(n = -1){
+			    var n = data_name.indexOf(temp[i].name);
+			    if(n = -1){
 			    	data_name.push(temp[i].name);
 			    	data_seq.push(temp[i].seqno);
-				}
-				else{
+				data_ses.push(temp[i].session);
+			    }
+			    else{
 			    	data_seq[n] = temp[i].seqno;
-  				}
+				data_ses[n] = temp[i].session;
+  			    }
 			}
 		    }
 		}
 		console.log("search log finished");
 		for(var i = 0;i<data_name.length;i++){
-		    content[i] = { name:data_name[i],seqno:data_seq[i]};
+		    content[i] = { name:data_name[i],seqno:data_seq[i],session:data_ses[i]};
 		}
 		if(content.length!=0){
 		    var str = JSON.stringify(content);
@@ -102,7 +105,6 @@ function onSyncInterest(inst){
 		    var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/recovery/');
 		    n.append(DataUtils.toNumbers(syncdigest_t));
 		    var template = new Interest();
-		    //template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
 		    template.interestLifetime = 10000;
 		    ndn.expressInterest(n, template, onSyncData, sync_timeout);
 		    console.log("Recovery Syncinterest expressed:"); 
@@ -130,27 +132,23 @@ function onSyncData(inst,co){
     console.log(content);
     if(digest_tree.root == "0000"){
     	digest_tree.update(content);
-    //console.log(content);
+	//console.log(content);
 	if(logfind(digest_tree.root)==-1){
     	    console.log("sync log add");
 	    var newlog = {digest:digest_tree.root, data:content};
 	    digest_log.push(newlog);
-	    console.log("addlog:"+digest_tree.root);
+	    //console.log("addlog:"+digest_tree.root);
 	}
 	var digest_t = digest_tree.root;
         for(var i = 0;i<content.length;i++){
-	    var content_name = content[i].name.substring(0,content[i].name.length-13);
-            //usr_name = usrname.substring(0,usrname.length-13);
-	    console.log(content_name);
-            console.log(screen_name);
-	    if(content_name == screen_name){
-		var content_t = [{name:usrname,seqno:content[i].seqno+1}];
+	    //var content_name = content[i].name.substring(0,content[i].name.length-13);
+	    if(content[i].name == usrname){
+		var content_t = [{name:usrname,seqno:content[i].seqno+1,session:session}];
 		digest_tree.update(content_t);
-                console.log(content_t);
 		if(logfind(digest_tree.root)==-1){
 		    var newlog = {digest:digest_tree.root, data:content_t};
 		    digest_log.push(newlog);
-		    console.log("addlog:"+digest_tree.root);
+		    //console.log("addlog:"+digest_tree.root);
 		    var d = new Date();
 		    var t = d.getTime();
 		    msgcache.push({seqno:usrseq,msgtype:"join",msg:"xxx",time:t});
@@ -161,10 +159,10 @@ function onSyncData(inst,co){
 	}
 	var content_t =[]
 	if(usrseq>=0){
-	    content_t[0] = {name:usrname,seqno:usrseq};
+	    content_t[0] = {name:usrname,seqno:usrseq,session:session};
 	}
 	else
-	    content_t[0] = {name:usrname,seqno:0};
+	    content_t[0] = {name:usrname,seqno:0,session:session};
 	var str = JSON.stringify(content_t);
 	var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
 	n.append(DataUtils.toNumbers(digest_t));
@@ -175,11 +173,10 @@ function onSyncData(inst,co){
 	console.log(n.to_uri());
 	try {
 	    ndn.send(co);
-	  
+	    
 	} catch (e) {
 	    console.log(e.toString());
 	}
-	//var myVar = setInterval(function(){heartbeat();},60000);
     }
     else{
         digest_tree.update(content);
@@ -188,14 +185,12 @@ function onSyncData(inst,co){
     	    console.log("sync log add");
     	    var newlog = {digest:digest_tree.root, data:content};
 	    digest_log.push(newlog);
-	    console.log("addlog:"+digest_tree.root);
+	    //console.log("addlog:"+digest_tree.root);
 	    for(var i = 0; i<content.length;i++){
-		var content_name = content[i].name.substring(0,content[i].name.length-13);
-            	//usr_name = usrname.substring(0,usrname.length-13);
-		if(content_name!=screen_name){
-		    var n = new Name('/ndn/ucla.edu/irl/'+content[i].name+'/'+chatroom+'/'+content[i].seqno);
+		//var content_name = content[i].name.substring(0,content[i].name.length-13);
+		if(content[i].name!=usrname){
+		    var n = new Name('/ndn/ucla.edu/irl/'+content[i].name+'/'+chatroom+'/'+session+'/'+content[i].seqno);
 		    var template = new Interest();
-		    //template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
 		    template.interestLifetime = 10000;
 		    ndn.expressInterest(n, template, onChatData, chat_timeout);
 		    console.log(n.to_uri());
@@ -207,28 +202,21 @@ function onSyncData(inst,co){
     if(usrseq <0){//the user haven't put himself in the digest tree
 	console.log("initial state")
 	usrseq = 0;
-	var content = [{name:usrname,seqno:usrseq}];
-	//console.log(digest_tree.root);
+	var content = [{name:usrname,seqno:usrseq,session:session}];
 	digest_tree.update(content);
-	//console.log(digest_tree.root);
 	if(logfind(digest_tree.root)==-1){
 	    console.log("initial log add");
 	    var newlog = {digest:digest_tree.root, data:content};
 	    digest_log.push(newlog);
-	    console.log("addlog:"+digest_tree.root);
+	    //console.log("addlog:"+digest_tree.root);
 	    var myVar = setInterval(function(){heartbeat();},60000);
-	//setTimeout(function(){heartbeat();},60000);
 	}
     }
     var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
     n.append(DataUtils.toNumbers(digest_tree.root));
     var template = new Interest();
-    //template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
     template.interestLifetime = 10000;
     ndn.expressInterest(n, template, onSyncData, sync_timeout);
     console.log("Syncinterest expressed:");
     console.log(n.to_uri());
-	//console.log(template.name.to_url());
-	//assume that the everyone except the new comer is in the static state
-	//var myVar = setInterval(function(){heartbeat()},60000);
 }

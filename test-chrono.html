@@ -20,11 +20,9 @@
 var maxmsgcachelength = 100;
 var usrdigest = {};
 var usrname;
-var screen_name;
 var usrseq = -1;
 var max_wait = 10;
 var roster = new Array();
-var db;
 var chatroom;
 var msgcache = [];
 var digest_tree;
@@ -33,7 +31,7 @@ var ndn;
 var mykey;
 var mykeyname;
 var digest_log = [];
-var timestamp;
+var session;
 
 $(document).ready(function(){
     $("#txt").hide();
@@ -42,10 +40,10 @@ $(document).ready(function(){
     $("#leave").hide();
     $("#menu").hide();
     $("#login").click(function(){
-        screen_name = document.getElementById('name').value;
-        usrname = screen_name+(new Date()).getTime();
+        usrname = document.getElementById('name').value;
+        session = (new Date()).getTime();
         chatroom = document.getElementById('chatroom').value;
-        if(screen_name==""||chatroom==""){
+        if(usrname==""||chatroom==""){
             alert("input usrname and chatroom");
         }
         else{
@@ -58,7 +56,7 @@ $(document).ready(function(){
     	    $("#leave").show();
             $("#menu").show();
 	    document.getElementById('room').innerHTML = '<grey>Chatroom: </grey>'+'<b><green>'+chatroom+'</green></b>';
-	    document.getElementById('room').innerHTML+= '<grey>  Username: </grey>'+'<b><green>'+screen_name+'</green></b>';
+	    document.getElementById('room').innerHTML+= '<grey>  Username: </grey>'+'<b><green>'+usrname+'</green></b>';
             testPublish();
         }
     });
@@ -138,9 +136,9 @@ function testPublish () {
 </div>
 
 <div>
-<button id = "leave" onclick="Leave()"><blue><b>leave</b></blue></button>
-<button id = "send" onclick="SendMessage()"><b>send</b></button>
 
+<button id = "send" onclick="SendMessage()"><b>send</b></button>
+<button id = "leave" onclick="Leave()"><blue><b>leave</b></blue></button>
 
 </div>
 </div>
