@@ -35,7 +35,7 @@ function onSyncInterest(inst){
 		console.log(e.toString());
 	    }
 	}
-	console.log(content);
+	//console.log(content);
     }
     else{
 	var syncdigest = DataUtils.toHex(inst.name.components[4]);
