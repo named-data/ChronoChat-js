@@ -102,7 +102,8 @@ function heartbeat(){
 }
 
 function SendMessage(){
-    var chatmsg = document.getElementById('fname').value;
+    var msg = document.getElementById('fname').value;
+    var chatmsg = msg.trim();
     if(chatmsg != ""){
 	document.getElementById('fname').value = "";
 	usrseq++;
