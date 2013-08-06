@@ -9,23 +9,24 @@
 <link href='http://fonts.googleapis.com/css?family=Alegreya' rel='stylesheet' type='text/css'>
     <meta charset="utf-8">
 	
-    <script src="../ChronoChat-javascript/ndn.js"></script>
-    <script src="../ChronoChat-javascript/Sync.js"></script>
-    <script src="../ChronoChat-javascript/digest_tree.js"></script>
-    <script src="../ChronoChat-javascript/Chat.js"></script>
+    <script src="ndn.js"></script>
+    <script src="Sync.js"></script>
+    <script src="digest_tree.js"></script>
+    <script src="Chat.js"></script>
+    <script src="prefix.js"></script>
     <script src="http://code.jquery.com/jquery-1.10.1.min.js"></script>
-
     <script>
 
 var usrname;
 var screen_name;
-//var usrseq = -1;
 var chat;
 var chatroom;
 var sync;
 var ndn;
 var mykey;
 var mykeyname;
+var chat_prefix;
+var sync_prefix='/ndn/broadcast/chronos/';
 
 $(document).ready(function(){
     $("#txt").hide();
@@ -50,42 +51,27 @@ $(document).ready(function(){
 	    document.getElementById('room').innerHTML = '<grey>Chatroom: </grey>'+'<b><green>'+chatroom+'</green></b>';
 	    document.getElementById('room').innerHTML+= '<grey>  Username: </grey>'+'<b><green>'+screen_name+'</green></b>';
             document.getElementById('menu').innerHTML = '<p><b>Member</b></p>';
-            testPublish();
+            ChronoChat();
         }
     });
 });
 
 
-function testPublish () {
+function ChronoChat () {
     chat = new Chat();
     sync = new Sync(chat.sendInterest.bind(chat),chat.initial.bind(chat));
     sync.digest_log.push({digest:"0000",data:[]});
-    ndn = new NDN();
+    ndn = new NDN({host:'B.ws.ndn.ucla.edu'});
     mykey = ndn.getDefaultKey();
     mykeyname= new Name('/ndn/'+screen_name+'/'+'chronos/'+chatroom+'/key/').appendKeyID(mykey).appendVersion().appendSegment(0);
 
     ndn.onopen = function () {
-        /*var d = new Date();
-	var t = d.getTime();
-        msgcache.push({seqno:0,msgtype:"join",msg:"xxx",time:t});*/
-        //initialchat();
-        var n1 = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
-        ndn.registerPrefix(n1,sync.onInterest.bind(sync));
-        console.log('sync prefix registered.');
-        var n2 = new Name('/ndn/ucla.edu/irl/'+screen_name+'/'+chatroom+'/');
-        ndn.registerPrefix(n2,chat.onInterest.bind(chat));
-        console.log('data prefix registered.');
-        var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/').append(DataUtils.toNumbers('0000'));
-        var template = new Interest();
+        var n0 = new Name('/local/ndn/prefix');
+	var template = new Interest();
         template.interestLifetime = 1000;
-        template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
-        ndn.expressInterest(n, template, sync.onData.bind(sync), sync.initialTimeOut.bind(sync));
-        console.log("initial sync express");
-        console.log(n.to_uri());
-     
-    };
+        ndn.expressInterest(n0, template, prefixData, prefixTimeOut);
 
-    
+    };
     ndn.connect();
     
     console.log('Started...');

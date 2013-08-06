@@ -25,7 +25,7 @@ Chat.prototype.sendInterest = function(content){
         var name_t = content[i].name.substring(0,content[i].name.length-13);
 	if(name_t!=screen_name){//won't fetch the data from user that has the same name as me
             var session = content[i].name.substring(content[i].name.length-13,content[i].name.length)
-	    var n = new Name('/ndn/ucla.edu/irl/'+name_t+'/'+chatroom+'/'+session+'/'+content[i].seqno);
+	    var n = new Name(chat_prefix+'/'+name_t+'/'+chatroom+'/'+session+'/'+content[i].seqno);
 	    var template = new Interest();
 	    template.interestLifetime = 10000;
 	    ndn.expressInterest(n, template, this.onData.bind(this), this.chatTimeout.bind(this));
@@ -123,7 +123,7 @@ Chat.prototype.heartbeat=function(){
     while (this.msgcache.length>this.maxmsgcachelength)
         this.msgcache.shift();
     var str = JSON.stringify(content);
-    var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
+    var n = new Name(sync.prefix+chatroom+'/');
     n.append(DataUtils.toNumbers(sync.digest_tree.root));
     var co = new ContentObject(n, str);
     co.sign(mykey, {'keyName':mykeyname});
@@ -138,7 +138,7 @@ Chat.prototype.heartbeat=function(){
 	var newlog = {digest:sync.digest_tree.root, data:content};
 	sync.digest_log.push(newlog);
 	//console.log("addlog:"+digest_tree.root);
-	var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
+	var n = new Name(sync.prefix+chatroom+'/');
 	n.append(DataUtils.toNumbers(sync.digest_tree.root));
 	var template = new Interest();
 	template.interestLifetime = 10000;
@@ -167,7 +167,7 @@ Chat.prototype.SendMessage=function(){
 	while (this.msgcache.length>this.maxmsgcachelength)
             this.msgcache.shift();
 	var str = JSON.stringify(content);
-	var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
+	var n = new Name(sync.prefix+chatroom+'/');
 	n.append(DataUtils.toNumbers(sync.digest_tree.root));
 	var co = new ContentObject(n, str);
 	co.sign(mykey, {'keyName':mykeyname});
@@ -182,7 +182,7 @@ Chat.prototype.SendMessage=function(){
 	    var newlog = {digest:sync.digest_tree.root, data:content};
 	    sync.digest_log.push(newlog);
 	    //console.log("addlog:"+digest_tree.root);
-	    var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
+	    var n = new Name(sync.prefix+chatroom+'/');
 	    n.append(DataUtils.toNumbers(sync.digest_tree.root));
 	    var template = new Interest();
 	    template.interestLifetime = 10000;
@@ -210,7 +210,7 @@ Chat.prototype.Leave=function(){
     while (this.msgcache.length>this.maxmsgcachelength)
         this.msgcache.shift();
     var str = JSON.stringify(content);
-    var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
+    var n = new Name(sync.prefix+chatroom+'/');
     n.append(DataUtils.toNumbers(sync.digest_tree.root));
     var co = new ContentObject(n, str);
     co.sign(mykey, {'keyName':mykeyname});
