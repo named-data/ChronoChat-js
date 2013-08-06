@@ -254,14 +254,14 @@ Chat.prototype.alive=function(temp_seq,name){
     console.log("check alive");
     var index_n = sync.digest_tree.find(name);
     var n = this.roster.indexOf(name);
-    console.log(index_n);
-    console.log(n);
+    //console.log(index_n);
+    //console.log(n);
     if (index_n != -1 && n != -1){
 	var seq = sync.digest_tree.digestnode[index_n].seqno;
 	if(temp_seq == seq){
 	    this.roster.splice(n,1);
 	    var name_t = name.substring(0,name.length-13);
-	    console.log(name+" leave");
+	    console.log(name_t+" leave");
 	    document.getElementById('menu').innerHTML = '<p><b>Member</b></p><ul>';
 	    for(var i = 0;i<this.roster.length;i++){
 		var name_t = this.roster[i].substring(0,this.roster[i].length-13);

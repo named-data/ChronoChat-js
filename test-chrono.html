@@ -69,6 +69,8 @@ function ChronoChat () {
         var n0 = new Name('/local/ndn/prefix');
 	var template = new Interest();
         template.interestLifetime = 1000;
+        template.childSelector = 1;
+        template.answerOriginKind = 0;
         ndn.expressInterest(n0, template, prefixData, prefixTimeOut);
 
     };
