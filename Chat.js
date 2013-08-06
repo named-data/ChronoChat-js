@@ -87,10 +87,15 @@ Chat.prototype.onData = function(inst,co){
     var l = 0;
     while(l<this.roster.length){
 	var name_t = this.roster[l].substring(0,this.roster[l].length-13);
+	var session_t = this.roster[l].substring(this.roster[l].length-13,this.roster[l].length);
 	if(name != name_t && content.type!="leave")
 	    l++;
-        else
+        else{
+	    if(name == name_t && session>session_t){
+		this.roster[l] = name+session;
+	    }
 	    break;
+	}
     }
     if(l==this.roster.length){
         this.roster.push(name+session);
@@ -249,11 +254,14 @@ Chat.prototype.alive=function(temp_seq,name){
     console.log("check alive");
     var index_n = sync.digest_tree.find(name);
     var n = this.roster.indexOf(name);
+    console.log(index_n);
+    console.log(n);
     if (index_n != -1 && n != -1){
 	var seq = sync.digest_tree.digestnode[index_n].seqno;
 	if(temp_seq == seq){
 	    this.roster.splice(n,1);
-	    console.log(name_t+" leave");
+	    var name_t = name.substring(0,name.length-13);
+	    console.log(name+" leave");
 	    document.getElementById('menu').innerHTML = '<p><b>Member</b></p><ul>';
 	    for(var i = 0;i<this.roster.length;i++){
 		var name_t = this.roster[i].substring(0,this.roster[i].length-13);
