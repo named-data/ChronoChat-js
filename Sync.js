@@ -23,12 +23,10 @@ Sync.prototype.onInterest = function(inst){
     console.log(inst.name.to_uri());
     var syncdigest = DataUtils.toHex(inst.name.components[4])
     if(inst.name.components.length == 6 || syncdigest == "0000"){
-    //console.log("send back recovery data");
 	this.processRecoveryInst(inst);
     }
     else{
 	if(syncdigest != this.digest_tree.root){
-            console.log("digest doesn't equal");
 	    var index = this.logfind(syncdigest);
 	    var content = [];
 	    if(index == -1){
@@ -49,19 +47,15 @@ Sync.prototype.onData = function(inst,co){
     console.log("Sync ContentObject received in callback");
     console.log('name:'+co.name.to_uri());
     var content = JSON.parse(DataUtils.toString(co.content));
-    console.log(DataUtils.toString(co.content));
-    console.log(content);
     if(this.digest_tree.root == "0000"){
 	this.initialOndata(content);
     }
     else{
 	this.digest_tree.update(content,this);
-	//console.log(content);
 	if(this.logfind(this.digest_tree.root)==-1){
 	    console.log("sync log add");
 	    var newlog = {digest:this.digest_tree.root, data:content};
             this.digest_log.push(newlog);
-	    //console.log("addlog:"+this.digest_tree.root);
 	}
     }
     this.sendChatInterest(content);
@@ -86,7 +80,6 @@ Sync.prototype.processRecoveryInst=function(inst){
 	try {
 	    ndn.send(co);
       	    console.log("send recovery data back");
-            console.log(content);
             console.log(inst.name.to_uri());
 	} catch (e) {
 	    console.log(e.toString());
@@ -99,7 +92,6 @@ Sync.prototype.processSyncInst = function(index,syncdigest_t){
     var data_name = [];
     var data_seq = [];
     var data_ses = [];
-    //console.log(digest_log.length);
     for(var j = index+1;j<this.digest_log.length;j++){
         var temp = this.digest_log[j].data;
         for(var i = 0;i<temp.length;i++){
@@ -138,8 +130,6 @@ Sync.prototype.processSyncInst = function(index,syncdigest_t){
 
 Sync.prototype.sendRecovery=function(syncdigest_t){
     console.log("unknown digest: ")
-    console.log(syncdigest_t);
-    console.log(this.digest_tree.root);
     var n = new Name(this.prefix+chatroom+'/recovery/');
     n.append(DataUtils.toNumbers(syncdigest_t));
     var template = new Interest();
@@ -150,10 +140,7 @@ Sync.prototype.sendRecovery=function(syncdigest_t){
 };
 
 Sync.prototype.judgeRecovery = function(syncdigest_t){
-    console.log("timer end");
     var index2 = this.logfind(syncdigest_t);
-    //console.log(index2);
-    //console.log(this.digest_log);
     if(index2 != -1){
         if(syncdigest_t!=this.digest_tree.root){
 	    this.processSyncInst(index2,syncdigest_t);
@@ -168,7 +155,6 @@ Sync.prototype.syncTimeout = function(interest) {
     console.log("Sync Interest time out.");
     console.log('Sync Interest name: ' + interest.name.to_uri());
     var component = DataUtils.toHex(interest.name.components[4]);
-    //console.log(component);
     if(component == this.digest_tree.root){
 	var n = new Name(interest.name);
 	var template = new Interest();
