@@ -1,9 +1,10 @@
 //Chronosync with log operation as well as interest and data processing
-var Sync = function Sync(){
+var Sync = function Sync(sendchatinterest,initialchat){
     this.digest_tree = new Digest_Tree();
     this.digest_log = new Array();
     this.usrseq = -1;
-    
+    this.sendChatInterest = sendchatinterest;
+    this.InitialChat = initialchat;
 };
 
 Sync.prototype.logfind = function(digest){
@@ -15,67 +16,61 @@ Sync.prototype.logfind = function(digest){
     return -1;
 };
 
-Sync.prototype.make_onInterest = function(sendInterest,initialchat){
-    var self = this;
-    return function(inst){
-        //search if the digest is already exist in the digest log
-        console.log('Sync Interest received in callback.');
-        console.log(inst.name.to_uri());
-        var syncdigest = DataUtils.toHex(inst.name.components[4])
-        if(inst.name.components.length == 6 || syncdigest == "0000"){
-        //console.log("send back recovery data");
-	    self.processRecoveryInst(inst);
-        }
-        else{
-	//console.log("syncdigest: "+syncdigest);
-	//console.log("root: "+digest_tree.root);
-	    if(syncdigest != self.digest_tree.root){
-                console.log("digest doesn't equal");
-	        var index = self.logfind(syncdigest);
-	        var content = [];
-	        if(index == -1){
-		    setTimeout(function(){self.judgeRecovery(syncdigest,sendInterest,initialchat);},2000);
-		    console.log("set timer recover");
-	        }
-	        else{
-
-		    self.processSyncInst(index,syncdigest);
-	        }
-	    }
-        }
+Sync.prototype.onInterest = function(inst){
+    //search if the digest is already exist in the digest log
+    console.log('Sync Interest received in callback.');
+    console.log(inst.name.to_uri());
+    var syncdigest = DataUtils.toHex(inst.name.components[4])
+    if(inst.name.components.length == 6 || syncdigest == "0000"){
+    //console.log("send back recovery data");
+	this.processRecoveryInst(inst);
     }
+    else{
+	if(syncdigest != this.digest_tree.root){
+            console.log("digest doesn't equal");
+	    var index = this.logfind(syncdigest);
+	    var content = [];
+	    if(index == -1){
+                var self = this;
+		setTimeout(function(){self.judgeRecovery(syncdigest);},2000);
+		console.log("set timer recover");
+	    }
+	    else{
+
+		this.processSyncInst(index,syncdigest);
+	    }
+	}
+    }
+
 };
 
-Sync.prototype.make_onData = function(sendInterest,initialchat){
-    var self = this;
-    return function(inst,co){
-	console.log("Sync ContentObject received in callback");
-	console.log('name:'+co.name.to_uri());
-	var content = JSON.parse(DataUtils.toString(co.content));
-	console.log(DataUtils.toString(co.content));
-	console.log(content);
-	if(self.digest_tree.root == "0000"){
-	    (self.initialOndata())(content,initialchat);
-	}
-	else{
-	    self.digest_tree.update(content,self);
-	//console.log(content);
-	    if(self.logfind(self.digest_tree.root)==-1){
-	        console.log("sync log add");
-	        var newlog = {digest:self.digest_tree.root, data:content};
-	        self.digest_log.push(newlog);
-	    //console.log("addlog:"+this.digest_tree.root);
-	    }
-	}
-	sendInterest(content);
-	var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
-	n.append(DataUtils.toNumbers(self.digest_tree.root));
-	var template = new Interest();
-	template.interestLifetime = 10000;
-	ndn.expressInterest(n, template, self.make_onData(sendInterest,initialchat), self.make_syncTimeout(sendInterest,initialchat));
-	console.log("Syncinterest expressed:");
-	console.log(n.to_uri());
+Sync.prototype.onData = function(inst,co){
+    console.log("Sync ContentObject received in callback");
+    console.log('name:'+co.name.to_uri());
+    var content = JSON.parse(DataUtils.toString(co.content));
+    console.log(DataUtils.toString(co.content));
+    console.log(content);
+    if(this.digest_tree.root == "0000"){
+	this.initialOndata(content);
     }
+    else{
+	this.digest_tree.update(content,this);
+	//console.log(content);
+	if(this.logfind(this.digest_tree.root)==-1){
+	    console.log("sync log add");
+	    var newlog = {digest:this.digest_tree.root, data:content};
+            this.digest_log.push(newlog);
+	    //console.log("addlog:"+this.digest_tree.root);
+	}
+    }
+    this.sendChatInterest(content);
+    var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
+    n.append(DataUtils.toNumbers(this.digest_tree.root));
+    var template = new Interest();
+    template.interestLifetime = 10000;
+    ndn.expressInterest(n, template, this.onData.bind(this), this.syncTimeout.bind(this));
+    console.log("Syncinterest expressed:");
+    console.log(n.to_uri());
 };
 
 Sync.prototype.processRecoveryInst=function(inst){
@@ -140,7 +135,7 @@ Sync.prototype.processSyncInst = function(index,syncdigest_t){
     }
 };
 
-Sync.prototype.sendRecovery=function(syncdigest_t,sendInterest,initialchat){
+Sync.prototype.sendRecovery=function(syncdigest_t){
     console.log("unknown digest: ")
     console.log(syncdigest_t);
     console.log(this.digest_tree.root);
@@ -148,12 +143,12 @@ Sync.prototype.sendRecovery=function(syncdigest_t,sendInterest,initialchat){
     n.append(DataUtils.toNumbers(syncdigest_t));
     var template = new Interest();
     template.interestLifetime = 10000;
-    ndn.expressInterest(n, template, this.make_onData(sendInterest,initialchat), this.make_syncTimeout(sendInterest,initialchat));
+    ndn.expressInterest(n, template, this.onData.bind(this), this.syncTimeout.bind(this));
     console.log("Recovery Syncinterest expressed:"); 
     console.log(n.to_uri());
 };
 
-Sync.prototype.judgeRecovery = function(syncdigest_t,sendInterest,initialchat){
+Sync.prototype.judgeRecovery = function(syncdigest_t){
     console.log("timer end");
     var index2 = this.logfind(syncdigest_t);
     //console.log(index2);
@@ -164,53 +159,48 @@ Sync.prototype.judgeRecovery = function(syncdigest_t,sendInterest,initialchat){
 	}
     }
     else{
-        this.sendRecovery(syncdigest_t,sendInterest,initialchat);
+        this.sendRecovery(syncdigest_t);
     }
 };
 
-Sync.prototype.make_syncTimeout = function(sendInterest,initialchat){
-    var self = this;
-    return function(interest) {
-        console.log("Sync Interest time out.");
-        console.log('Sync Interest name: ' + interest.name.to_uri());
-        var component = DataUtils.toHex(interest.name.components[4]);
+Sync.prototype.syncTimeout = function(interest) {
+    console.log("Sync Interest time out.");
+    console.log('Sync Interest name: ' + interest.name.to_uri());
+    var component = DataUtils.toHex(interest.name.components[4]);
     //console.log(component);
-        if(component == self.digest_tree.root){
-	    var n = new Name(interest.name);
-	    var template = new Interest();
-	    template.interestLifetime = 10000;
-	    ndn.expressInterest(n, template, self.make_onData(sendInterest,initialchat), self.make_syncTimeout(sendInterest,initialchat));
-	    console.log("Syncinterest expressed:");
-	    console.log(n.to_uri());
-        }
-    }                  
+    if(component == this.digest_tree.root){
+	var n = new Name(interest.name);
+	var template = new Interest();
+	template.interestLifetime = 10000;
+	ndn.expressInterest(n, template, this.onData.bind(this), this.syncTimeout.bind(this));
+	console.log("Syncinterest expressed:");
+	console.log(n.to_uri());
+    }                 
 };
 
-Sync.prototype.initialOndata = function(){
-    var self = this;
-    return function(content,initialchat){
+Sync.prototype.initialOndata = function(content){
     //user is a new comer and receive data of all other people in the group
-        self.digest_tree.update(content,self);
-        if(self.logfind(self.digest_tree.root)==-1){
+        this.digest_tree.update(content,this);
+        if(this.logfind(this.digest_tree.root)==-1){
             console.log("sync log add");
-            var newlog = {digest:self.digest_tree.root, data:content};
-            self.digest_log.push(newlog);
+            var newlog = {digest:this.digest_tree.root, data:content};
+            this.digest_log.push(newlog);
         }
-        var digest_t = self.digest_tree.root;
+        var digest_t = this.digest_tree.root;
         for(var i = 0;i<content.length;i++){
             if(content[i].name == usrname){//if the user was an olde comer, after add the static log he need to increase his seqno by 1
 	        var content_t = [{name:usrname,seqno:content[i].seqno+1}];
-	        self.digest_tree.update(content_t,self);
-	        if(self.logfind(self.digest_tree.root)==-1){
-	            var newlog = {digest:self.digest_tree.root, data:content_t};
-	            self.digest_log.push(newlog);
- 		    initialchat(self.usrseq);
+	        this.digest_tree.update(content_t,this);
+	        if(this.logfind(this.digest_tree.root)==-1){
+	            var newlog = {digest:this.digest_tree.root, data:content_t};
+	            this.digest_log.push(newlog);
+ 		    this.InitialChat(this.usrseq);
 	        }
             }
         }
         var content_t =[]
-        if(self.usrseq>=0){//send the data packet with new seqno back
-    	    content_t[0] = {name:usrname,seqno:self.usrseq};
+        if(this.usrseq>=0){//send the data packet with new seqno back
+    	    content_t[0] = {name:usrname,seqno:this.usrseq};
         }
         else
     	    content_t[0] = {name:usrname,seqno:0};
@@ -228,40 +218,36 @@ Sync.prototype.initialOndata = function(){
         } catch (e) {
     	    console.log(e.toString());
         }
-    	if(self.digest_tree.find(usrname)==-1){//the user haven't put himself in the digest tree which means he is a new comer
+    	if(this.digest_tree.find(usrname)==-1){//the user haven't put himself in the digest tree which means he is a new comer
 	    console.log("initial state")
-	    self.usrseq++;
-	    var content = [{name:usrname,seqno:self.usrseq}];
-	    self.digest_tree.update(content,self);
-	    if(self.logfind(self.digest_tree.root)==-1){
+	    this.usrseq++;
+	    var content = [{name:usrname,seqno:this.usrseq}];
+	    this.digest_tree.update(content,this);
+	    if(this.logfind(this.digest_tree.root)==-1){
 	        console.log("initial log add");
-	    	var newlog = {digest:self.digest_tree.root, data:content};
-	    	self.digest_log.push(newlog);
-	    	initialchat(self.usrseq);
+	    	var newlog = {digest:this.digest_tree.root, data:content};
+	    	this.digest_log.push(newlog);
+	    	this.InitialChat(this.usrseq);
 	    }
     	}
-    }
 };
 
 
-Sync.prototype.make_initialTimeOut = function(sendInterest,initialchat){
-    var self = this;
-    return function(interest){
+Sync.prototype.initialTimeOut = function(interest){
         console.log("initial sync timeout");
         console.log("no other people");
-        console.log(self);
-        self.digest_tree.initial();
-        self.usrseq++;
-        initialchat(self.usrseq);
-	var newlog = {digest:self.digest_tree.root, data:[{name:usrname,seqno:self.usrseq}]};
-	self.digest_log.push(newlog);
+        console.log(this);
+        this.digest_tree.initial();
+        this.usrseq++;
+        this.InitialChat(this.usrseq);
+	var newlog = {digest:this.digest_tree.root, data:[{name:usrname,seqno:this.usrseq}]};
+	this.digest_log.push(newlog);
 	//console.log("addlog:"+digest_tree.root);
 	var n = new Name('/ndn/broadcast/chronos/'+chatroom+'/');
-	n.append(DataUtils.toNumbers(self.digest_tree.root));
+	n.append(DataUtils.toNumbers(this.digest_tree.root));
 	var template = new Interest();
 	template.interestLifetime = 10000;
-	ndn.expressInterest(n, template, self.make_onData(sendInterest,initialchat), self.make_syncTimeout(sendInterest,initialchat));
+	ndn.expressInterest(n, template, this.onData.bind(this), this.syncTimeout.bind(this));
 	console.log("Syncinterest expressed:");
 	console.log(n.to_uri());
-    }
 };
