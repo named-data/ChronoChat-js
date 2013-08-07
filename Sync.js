@@ -22,8 +22,11 @@ Sync.prototype.onInterest = function(inst){
     console.log('Sync Interest received in callback.');
     console.log(inst.name.to_uri());
     var syncdigest = DataUtils.toHex(inst.name.components[4])
+    if(inst.name.components.length == 6){
+        syncdigest = DataUtils.toHex(inst.name.components[5]);
+    }
     if(inst.name.components.length == 6 || syncdigest == "0000"){
-	this.processRecoveryInst(inst);
+	this.processRecoveryInst(inst,syncdigest);
     }
     else{
 	if(syncdigest != this.digest_tree.root){
@@ -68,21 +71,23 @@ Sync.prototype.onData = function(inst,co){
     console.log(n.to_uri());
 };
 
-Sync.prototype.processRecoveryInst=function(inst){
-    var content = [];
-    for(var i = 0;i<this.digest_tree.digestnode.length;i++){
-	content[i] = {name:this.digest_tree.digestnode[i].prefix_name,seqno:this.digest_tree.digestnode[i].seqno};
-    }
-    if(content.length!=0){
-	var str = JSON.stringify(content);
-	var co = new ContentObject(inst.name, str);
-	co.sign(mykey, {'keyName':mykeyname});
-	try {
-	    ndn.send(co);
-      	    console.log("send recovery data back");
-            console.log(inst.name.to_uri());
-	} catch (e) {
-	    console.log(e.toString());
+Sync.prototype.processRecoveryInst=function(inst,syncdigest){
+    if(this.logfind(syncdigest)!=-1){
+	var content = [];
+	for(var i = 0;i<this.digest_tree.digestnode.length;i++){
+	    content[i] = {name:this.digest_tree.digestnode[i].prefix_name,seqno:this.digest_tree.digestnode[i].seqno};
+	}
+	if(content.length!=0){
+	    var str = JSON.stringify(content);
+	    var co = new ContentObject(inst.name, str);
+	    co.sign(mykey, {'keyName':mykeyname});
+	    try {
+		ndn.send(co);
+      		console.log("send recovery data back");
+		console.log(inst.name.to_uri());
+	    } catch (e) {
+		console.log(e.toString());
+	    }
 	}
     }
 };
