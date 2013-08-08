@@ -225,6 +225,11 @@ Chat.prototype.SendMessage=function(){
 
 Chat.prototype.Leave=function(){
     alert("Leaving the Chatroom...");
+    $("#txt").hide();
+    $("#fname").hide();
+    $("#bottom").hide();
+    $("#menu").hide();
+    document.getElementById('room').innerHTML = 'Please close the window. Thank you';
     var i = 0;
     sync.usrseq++;
     var content = [{name:usrname,seqno:sync.usrseq}];
@@ -247,7 +252,7 @@ Chat.prototype.Leave=function(){
     console.log("leave log add");
     var newlog = {digest:sync.digest_tree.root, data:content};
     sync.digest_log.push(newlog);
-    setTimeout(function(){window.close();},2000);	
+    setTimeout(function(){ndn.close();},2000);	
 }
 
 Chat.prototype.alive=function(temp_seq,name){
@@ -256,12 +261,13 @@ Chat.prototype.alive=function(temp_seq,name){
     var n = this.roster.indexOf(name);
     //console.log(index_n);
     //console.log(n);
+    console.log(this.roster);
     if (index_n != -1 && n != -1){
 	var seq = sync.digest_tree.digestnode[index_n].seqno;
 	if(temp_seq == seq){
 	    this.roster.splice(n,1);
 	    var name_t = name.substring(0,name.length-13);
-	    console.log(name_t+" leave");
+	    console.log(name+" leave");
 	    document.getElementById('menu').innerHTML = '<p><b>Member</b></p><ul>';
 	    for(var i = 0;i<this.roster.length;i++){
 		var name_t = this.roster[i].substring(0,this.roster[i].length-13);

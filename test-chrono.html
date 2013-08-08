@@ -54,12 +54,13 @@ $(document).ready(function(){
             ChronoChat();
         }
     });
+
 });
 
 
 function ChronoChat () {
     chat = new Chat();
-    sync = new Sync(chat.sendInterest.bind(chat),chat.initial.bind(chat));
+    sync = new Sync(chat.sendInterest.bind(chat),chat.initial.bind(chat),chatroom);
     sync.digest_log.push({digest:"0000",data:[]});
     ndn = new NDN({host:'B.ws.ndn.ucla.edu'});
     mykey = ndn.getDefaultKey();
@@ -103,7 +104,7 @@ function checkkey(event){
 </div>
 <div id = "log" class="center">
 <div id = "info">
-     username: <input type="text" id="name" value="qiuhan">
+     username: <input type="text" id="name" value="Enter Name">
 <br /><br />
      chatroom: <input type="text" id="chatroom" value="ndnchat">
 </div>
@@ -125,7 +126,7 @@ function checkkey(event){
 <div id = "bottom">
 <div id="note"><grey>Press Enter to Send Message</grey></div>
 <button id = "send" onclick="chat.SendMessage()"><b>send</b></button>
-<button id = "leave" onclick="chat.Leave()"><blue><b>leave</b></blue></button>
+<button id = "leave" onclick = "chat.Leave()"><blue><b>leave</b></blue></button>
 </div>
 
 </div>

@@ -1,11 +1,12 @@
 //Chronosync with log operation as well as interest and data processing
-var Sync = function Sync(sendchatinterest,initialchat){
+var Sync = function Sync(sendchatinterest,initialchat,chatroom){
     this.digest_tree = new Digest_Tree();
     this.digest_log = new Array();
     this.usrseq = -1;
     this.sendChatInterest = sendchatinterest;
     this.InitialChat = initialchat;
     this.prefix = '/ndn/broadcast/chronos/';
+    this.chatroom = chatroom;
 };
 
 Sync.prototype.logfind = function(digest){
@@ -62,7 +63,7 @@ Sync.prototype.onData = function(inst,co){
 	}
     }
     this.sendChatInterest(content);
-    var n = new Name(this.prefix+chatroom+'/');
+    var n = new Name(this.prefix+this.chatroom+'/');
     n.append(DataUtils.toNumbers(this.digest_tree.root));
     var template = new Interest();
     template.interestLifetime = 10000;
@@ -118,7 +119,7 @@ Sync.prototype.processSyncInst = function(index,syncdigest_t){
     }
     if(content.length!=0){
         var str = JSON.stringify(content);
-        var n = new Name(this.prefix+chatroom+'/');
+        var n = new Name(this.prefix+this.chatroom+'/');
         n.append(DataUtils.toNumbers(syncdigest_t));
         var co = new ContentObject(n, str);
         co.sign(mykey, {'keyName':mykeyname});
@@ -135,7 +136,7 @@ Sync.prototype.processSyncInst = function(index,syncdigest_t){
 
 Sync.prototype.sendRecovery=function(syncdigest_t){
     console.log("unknown digest: ")
-    var n = new Name(this.prefix+chatroom+'/recovery/');
+    var n = new Name(this.prefix+this.chatroom+'/recovery/');
     n.append(DataUtils.toNumbers(syncdigest_t));
     var template = new Interest();
     template.interestLifetime = 10000;
@@ -197,7 +198,7 @@ Sync.prototype.initialOndata = function(content){
         else
     	    content_t[0] = {name:usrname,seqno:0};
         var str = JSON.stringify(content_t);
-        var n = new Name(this.prefix+chatroom+'/');
+        var n = new Name(this.prefix+this.chatroom+'/');
         n.append(DataUtils.toNumbers(digest_t));
         var co = new ContentObject(n, str);
         co.sign(mykey, {'keyName':mykeyname});
@@ -235,7 +236,7 @@ Sync.prototype.initialTimeOut = function(interest){
 	var newlog = {digest:this.digest_tree.root, data:[{name:usrname,seqno:this.usrseq}]};
 	this.digest_log.push(newlog);
 	//console.log("addlog:"+digest_tree.root);
-	var n = new Name(this.prefix+chatroom+'/');
+	var n = new Name(this.prefix+this.chatroom+'/');
 	n.append(DataUtils.toNumbers(this.digest_tree.root));
 	var template = new Interest();
 	template.interestLifetime = 10000;
