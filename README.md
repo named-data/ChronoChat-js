@@ -43,7 +43,7 @@ There are five major parts in the source code package:
 Dependencies
 ------------
 
-ChronoChat-js uses NDN.JS library (https://github.com/wentaoshang/NDN.JS) and ProtoBuf.js library (https://github.com/dcodeIO/ProtoBuf.js/).
+ChronoChat-js uses NDN.JS library by Wentao Shang (https://github.com/wentaoshang/NDN.JS) and ProtoBuf.js library (https://github.com/dcodeIO/ProtoBuf.js/).
 
 Notice
 ------
