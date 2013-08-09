@@ -14,19 +14,19 @@ Main File Info
 --------------
 
 There are five parts of the source code:
-* NDN.JS:
+1.NDN.JS:
   'ndn.js' for NDN.JS from https://github.com/wentaoshang/NDN.JS
-* ChronoSync:
+2.ChronoSync:
   'Sync.js' for sync interest and data processing
   'digest_tree.js' for digest tree in ChronoSync
-* ChronoChat:
+3.ChronoChat:
   'Chat.js' for shat interest and data processing as well as other action like leave and heartbeat
   'start.js' for initialization of the application
-* Protobuf:
+4.Protobuf:
   'sync_state.js':for sync data packet
   'chatbuf.js':for chat data packet
   ./Protobuf is the Protobuf for javascript from https://github.com/dcodeIO/ProtoBuf.js/pull/3
-* Webpage:
+5.Webpage:
   'chrono.html' for web page
   'page.css' for css file of the page
 
