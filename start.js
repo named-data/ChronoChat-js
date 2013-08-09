@@ -3,7 +3,8 @@
  *   Authors:   Qiuhan Ding <dingqiuhan@gmail.com>, Wentao Shang <wentaoshang@gmail.com>
  *   BSD License, see LICENSE file. 
  *   
- *   Start NDN And Initialize Variables. The Prefix for Chat Interest Name is fetched through auto configure
+ *   Start NDN And Initialize Variables. 
+ *   The prefix for chat interest name is fetched through auto configure by sending interest to '/local/ndn/prefix'
  *   
  */
 
