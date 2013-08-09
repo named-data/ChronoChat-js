@@ -8,22 +8,22 @@ ChronoSync constructs a digest tree to represent the information about all the u
 
                            ----------
                            |  root  |
-			   ----------
-			   /    |    \
-			  /     |     \
-		    --------
-		    | leaf |    ...
-		    --------
-		      /  \
-		     /    \
+                           ----------
+                           /    |    \
+                          /     |     \
+                    --------
+                    | leaf |    ...
+                    --------
+                      /  \
+                     /    \
            ----------      ---------
-	   | prefix |      | seqno |
-	   ----------      ---------
-	                     /   \
-			    /     \
-		  -----------     -------
-		  | session |     | seq |
-		  -----------     -------
+           | prefix |      | seqno |
+           ----------      ---------
+                             /   \
+                            /     \
+                  -----------     -------
+                  | session |     | seq |
+                  -----------     -------
 
 
 Prefix and Session ID Generation
