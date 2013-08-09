@@ -14,11 +14,17 @@
     <script src="digest_tree.js"></script>
     <script src="Chat.js"></script>
     <script src="prefix.js"></script>
+    <script src="Long.min.js"></script>
+    <script src="ByteBuffer.min.js"></script>
+    <script src="ProtoBuf.noparse.min.js"></script>
+    <script src="chatbuf.js"></script>
+    <script src="sync_state.js"></script>
     <script src="http://code.jquery.com/jquery-1.10.1.min.js"></script>
     <script>
 
 var usrname;
 var screen_name;
+var session;
 var chat;
 var chatroom;
 var sync;
@@ -26,7 +32,14 @@ var ndn;
 var mykey;
 var mykeyname;
 var chat_prefix;
-var sync_prefix='/ndn/broadcast/chronos/';
+var sync_prefix='/ndn/broadcast/ChronoChat-0.3/';
+var ProtoBuf = dcodeIO.ProtoBuf;
+var ChatMessage = SyncDemo.ChatMessage;
+var SyncState = Sync.SyncState;
+var SyncStateMsg = Sync.SyncStateMsg;
+var prefix_name;
+var sync_lifetime = 5000;
+var specialnode ='/d0n0t18ak/t0ps8cr8t';
 
 $(document).ready(function(){
     $("#txt").hide();
@@ -35,7 +48,9 @@ $(document).ready(function(){
     $("#menu").hide();
     $("#login").click(function(){
         screen_name = document.getElementById('name').value;
-        usrname = screen_name+(new Date()).getTime();
+	session = (new Date()).getTime();
+	session = parseInt(session/1000);
+        usrname = screen_name+session;
         chatroom = document.getElementById('chatroom').value;
         if(screen_name==""||chatroom==""){
             alert("input usrname and chatroom");
@@ -59,12 +74,13 @@ $(document).ready(function(){
 
 
 function ChronoChat () {
+    prefix_name = getRandomString();
     chat = new Chat();
-    sync = new Sync(chat.sendInterest.bind(chat),chat.initial.bind(chat),chatroom);
-    sync.digest_log.push({digest:"0000",data:[]});
-    ndn = new NDN({host:'B.ws.ndn.ucla.edu'});
+    sync = new ChronoSync(chat.sendInterest.bind(chat),chat.initial.bind(chat),chatroom,session);
+    sync.digest_log.push({digest:"00",data:[]});
+    ndn = new NDN()//{host:'B.ws.ndn.ucla.edu'});
     mykey = ndn.getDefaultKey();
-    mykeyname= new Name('/ndn/'+screen_name+'/'+'chronos/'+chatroom+'/key/').appendKeyID(mykey).appendVersion().appendSegment(0);
+    mykeyname= new Name('/ndn/'+screen_name+'/'+'ChronoChat-0.3/'+chatroom+'/key/').appendKeyID(mykey).appendVersion().appendSegment(0);
 
     ndn.onopen = function () {
         var n0 = new Name('/local/ndn/prefix');
