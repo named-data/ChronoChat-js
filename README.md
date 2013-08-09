@@ -16,28 +16,28 @@ There are five major parts in the source code package:
 
 1.  NDN.JS
 
-* ndn.js: NDN.JS library source code
+    * ndn.js: NDN.JS library source code
 
 2.  ChronoSync
 
-* Sync.js: sync interest and data processing
-* digest_tree.js: digest tree in ChronoSync
+    * Sync.js: sync interest and data processing
+    * digest_tree.js: digest tree in ChronoSync
 
 3.  ChronoChat
 
-* Chat.js: chat interest and data processing as well as other action like leave and heartbeat
-* start.js: initialization of the application
+    * Chat.js: chat interest and data processing as well as other action like leave and heartbeat
+    * start.js: initialization of the application
 
 4.  Protobuf
 
-* sync_state.js: sync data packet format definition
-* chatbuf.js: chat data packet format definition
-* Protobuf/: the ProtoBuf.js library source code 
+    * sync_state.js: sync data packet format definition
+    * chatbuf.js: chat data packet format definition
+    * Protobuf/: the ProtoBuf.js library source code 
 
 5.  Webpage
 
-* chrono.html: web chat interface
-* page.css: css file of the web page
+    * chrono.html: web chat interface
+    * page.css: css file of the web page
 
 
 Dependencies
