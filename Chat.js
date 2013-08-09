@@ -26,7 +26,7 @@ Chat.prototype.sendInterest = function(content){
     var sessionlist = [];
     var seqlist = [];
     for(var j = 0; j<content.length;j++){
-	if(content[i].type == 0){
+	if(content[j].type == 0){
             var name_component = content[j].name.split('/');
 	    var name_t = name_component[name_component.length-1];
             var session = content[j].seqno.session;
