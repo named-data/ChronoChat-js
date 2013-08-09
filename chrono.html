@@ -1,4 +1,10 @@
 <!DOCTYPE HTML>
+<!--
+   Copyright (C) 2013 Regents of the University of California 
+   Authors:   Qiuhan Ding <dingqiuhan@gmail.com>, Wentao Shang <wentaoshang@gmail.com>
+   BSD License, see LICENSE file. 
+-->
+
 <html>
 <head>
 <link rel="stylesheet" type="text/css" href="page.css" />
@@ -13,10 +19,10 @@
     <script src="Sync.js"></script>
     <script src="digest_tree.js"></script>
     <script src="Chat.js"></script>
-    <script src="prefix.js"></script>
-    <script src="Long.min.js"></script>
-    <script src="ByteBuffer.min.js"></script>
-    <script src="ProtoBuf.noparse.min.js"></script>
+    <script src="start.js"></script>
+    <script src="./Protobuf/Long.min.js"></script>
+    <script src="./Protobuf/ByteBuffer.min.js"></script>
+    <script src="./Protobuf/ProtoBuf.noparse.min.js"></script>
     <script src="chatbuf.js"></script>
     <script src="sync_state.js"></script>
     <script src="http://code.jquery.com/jquery-1.10.1.min.js"></script>
@@ -42,10 +48,7 @@ var sync_lifetime = 5000;
 var specialnode ='/d0n0t18ak/t0ps8cr8t';
 
 $(document).ready(function(){
-    $("#txt").hide();
-    $("#fname").hide();
-    $("#bottom").hide();
-    $("#menu").hide();
+     $("#chat").hide();
     $("#login").click(function(){
         screen_name = document.getElementById('name').value;
 	session = (new Date()).getTime();
@@ -59,10 +62,7 @@ $(document).ready(function(){
             alert(screen_name+", welcome to chatroom "+chatroom+"!");
             $("#log").hide();
             $("#login").hide();
-            $("#txt").show();
-    	    $("#fname").show();
-    	    $("#bottom").show();
-            $("#menu").show();
+            $("#chat").show();
 	    document.getElementById('room').innerHTML = '<grey>Chatroom: </grey>'+'<b><green>'+chatroom+'</green></b>';
 	    document.getElementById('room').innerHTML+= '<grey>  Username: </grey>'+'<b><green>'+screen_name+'</green></b>';
             document.getElementById('menu').innerHTML = '<p><b>Member</b></p>';
@@ -72,36 +72,6 @@ $(document).ready(function(){
 
 });
 
-
-function ChronoChat () {
-    prefix_name = getRandomString();
-    chat = new Chat();
-    sync = new ChronoSync(chat.sendInterest.bind(chat),chat.initial.bind(chat),chatroom,session);
-    sync.digest_log.push({digest:"00",data:[]});
-    ndn = new NDN({host:'B.ws.ndn.ucla.edu'});
-    mykey = ndn.getDefaultKey();
-    mykeyname= new Name('/ndn/'+screen_name+'/'+'ChronoChat-0.3/'+chatroom+'/key/').appendKeyID(mykey).appendVersion().appendSegment(0);
-
-    ndn.onopen = function () {
-        var n0 = new Name('/local/ndn/prefix');
-	var template = new Interest();
-        template.interestLifetime = 1000;
-        template.childSelector = 1;
-        template.answerOriginKind = 0;
-        ndn.expressInterest(n0, template, prefixData, prefixTimeOut);
-
-    };
-    ndn.connect();
-    
-    console.log('Started...');
-    
-}
-
-function checkkey(event){
-    if(event.keyCode==13){
-	chat.SendMessage();
-    }
-}
     </script>
 
 </head>
@@ -119,32 +89,30 @@ function checkkey(event){
 </div>
 </div>
 <div id = "log" class="center">
+  
 <div id = "info">
      username: <input type="text" id="name" value="Enter Name">
 <br /><br />
      chatroom: <input type="text" id="chatroom" value="ndnchat">
 </div>
 <button id = "login" > login </button>
+
 </div>
 
 <div style="width:850px" class="center">
+
 <div style="width:850px">
-<div id="room"></div>
-</div>
-<div style="width:850px">
-<div id = "txt"></div>
-<div id="menu">
-</div>
-<div>
-  <textarea id="fname" onkeyup="checkkey(event)"></textarea>
+    <div id="room"></div>
 </div>
 
-<div id = "bottom">
-<div id="note"><grey>Press Enter to Send Message</grey></div>
-<button id = "send" onclick="chat.SendMessage()"><b>send</b></button>
-<button id = "leave" onclick = "chat.Leave()"><blue><b>leave</b></blue></button>
+<div id = "chat">
+    <div id = "txt"></div>
+    <div id="menu"></div>
+    <div><textarea id="fname" onkeyup="checkkey(event)"></textarea></div>
+    <div id="note"><grey>Press Enter to Send Message</grey></div>
+    <button id = "send" onclick="chat.SendMessage()"><b>send</b></button>
+    <button id = "leave" onclick = "chat.Leave()"><blue><b>leave</b></blue></button>
 </div>
 
-</div>
 </div>
 </html>

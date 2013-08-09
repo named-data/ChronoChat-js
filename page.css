@@ -7,10 +7,6 @@ button
 {
     text-align:center;
 }
-div
-{
-    text-align:center;
-}
 #txt 
 {
     margin-top:10px;
@@ -148,6 +144,10 @@ div
     float:right
     width:200px;
     font-family: 'Quintessential', cursive;
+}
+#chat
+{
+    width:850px;
 }
 .center
 {

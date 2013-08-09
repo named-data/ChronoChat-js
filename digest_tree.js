@@ -1,10 +1,17 @@
-//digest tree
+/**
+ *   Copyright (C) 2013 Regents of the University of California 
+ *   Authors:   Qiuhan Ding <dingqiuhan@gmail.com>, Wentao Shang <wentaoshang@gmail.com>
+ *   BSD License, see LICENSE file. 
+ *   
+ *   Digest_Tree Object
+ */
 
 var Digest_Tree = function Digest_Tree() {
     this.digestnode = [];
     this.root = '00';
 };
 
+//Initialize after the first interest timeout
 Digest_Tree.prototype.initial = function(self) {
     var md = new KJUR.crypto.MessageDigest({alg: "sha256", prov: "cryptojs"});
     md.updateHex(Int32ToHex(self.session)+Int32ToHex(0));
@@ -24,6 +31,7 @@ Digest_Tree.prototype.initial = function(self) {
     
 };
 
+//Add new comer to the tree
 Digest_Tree.prototype.newcomer = function(name,seqno,self){
     //console.log(seqno);
     var md = new KJUR.crypto.MessageDigest({alg: "sha256", prov: "cryptojs"});
@@ -40,10 +48,8 @@ Digest_Tree.prototype.newcomer = function(name,seqno,self){
 
     var temp = {"prefix_name":name,"seqno":{seq:seqno.seq,session:seqno.session},"digest":md.digest()};
     console.log("new comer "+name+','+seqno.seq+','+seqno.session);
-    //console.log(temp);
     this.digestnode.push(temp);
     this.digestnode.sort(sortdigestnode);
-    //console.log("sort digest");
     var md = new KJUR.crypto.MessageDigest({alg: "sha256", prov: "cryptojs"});
     for(var i = 0;i<this.digestnode.length;i++){
 	md.updateHex(this.digestnode[i].digest);
@@ -51,10 +57,8 @@ Digest_Tree.prototype.newcomer = function(name,seqno,self){
     this.root = md.digest();
 };
 
+//Update the digest_tree when get some new data
 Digest_Tree.prototype.update = function (content,self) {
-    //console.log(content[0].seqno);
-    //console.log("tree update content:");
-    //console.log(content);
     for(var i = 0;i<content.length;i++){
 	if(content[i].type ==0){
 	    var n_index = this.find(content[i].name,content[i].seqno.session);
@@ -78,12 +82,9 @@ Digest_Tree.prototype.update = function (content,self) {
     		    md.updateHex(digest_name+digest_seq);
 
 		    this.digestnode[n_index].digest =md.digest();
-		//var name = content[i].name;
-		//var seqno = content[i].seqno;
                 }
 	    }
             else{
-	    	//console.log(content[i].seqno);
             	this.newcomer(content[i].name,content[i].seqno,self);
 	    }
         }
@@ -113,6 +114,7 @@ Digest_Tree.prototype.find = function (name,session) {
     return -1;
 };
 
+//Covert Int32 number to hex string
 function Int32ToHex (value) {
    var result = new Uint8Array(4);
    for (var i = 0; i < 4; i++) {

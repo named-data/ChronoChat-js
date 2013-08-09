@@ -1,12 +1,22 @@
+/**
+ *   Copyright (C) 2013 Regents of the University of California 
+ *   Authors:   Qiuhan Ding <dingqiuhan@gmail.com>, Wentao Shang <wentaoshang@gmail.com>
+ *   BSD License, see LICENSE file. 
+ *   
+ *   Chat Interest and Message (include Chat, Heartbeat and Leave) Processing.
+ *   Using Chat Message Protobuf for Chatmsg Data Packet
+ */
+
 var Chat = function Chat(){
     this.msgcache = new Array();
     this.roster = new Array();
     this.maxmsgcachelength = 100;
 };
 
+//Initialization: push the JOIN message in to the msgcache, update roster and start heartbeat
 Chat.prototype.initial = function(seqno){
-    console.log("initial chat");
     var self = this;
+    console.log("initial chat");
     var myVar = setInterval(function(){self.heartbeat();},60000);
     if(this.roster.indexOf(usrname) == -1){
 	this.roster.push(usrname);
@@ -14,12 +24,16 @@ Chat.prototype.initial = function(seqno){
 	document.getElementById('menu').innerHTML += '<ul><li>'+screen_name+'</li></ul>';
 	var d = new Date();
 	var t = d.getTime();
+	document.getElementById('txt').innerHTML += '<div><b><grey>'+screen_name+'-'+d.toLocaleTimeString()+': Join</grey></b><br /></div>'
+	var objDiv = document.getElementById("txt");      
+	objDiv.scrollTop = objDiv.scrollHeight;
 	this.msgcache.push({seqno:sync.usrseq,msgtype:'JOIN',msg:'xxx',time:t});
 	while (this.msgcache.length>this.maxmsgcachelength)
             this.msgcache.shift();
     }
 };
 
+//Send Chat Interest to fetch chat messages after get the user get the Sync data packet back but will not send interest 
 Chat.prototype.sendInterest = function(content){
     console.log(content);
     var sendlist = [];
@@ -55,8 +69,8 @@ Chat.prototype.sendInterest = function(content){
     }
 };
 
+//Send back Chat Data Packet which contains the user's message
 Chat.prototype.onInterest = function(inst){
-//need msgcache
     console.log('Chat Interest received in callback.');
     console.log(inst.name.to_uri());
     var content = {};
@@ -72,7 +86,6 @@ Chat.prototype.onInterest = function(inst){
     }
     if(content.from != null){
 	var str = new Uint8Array(content.toArrayBuffer());
-        //console.log(str);
         var co = new ContentObject(inst.name,str);
         co.sign(mykey);
 
@@ -86,22 +99,20 @@ Chat.prototype.onInterest = function(inst){
     }
 };
 
+//Processing the incoming Chat data
 Chat.prototype.onData = function(inst,co){
     console.log("Chat ContentObject received in callback");
     console.log('name'+co.name.to_uri());
     var arr = new Uint8Array(co.content.length);
     arr.set(co.content);
     var content = ChatMessage.decode(arr.buffer);
-    //console.log(content);
-    var name = content.from;//DataUtils.toString(co.name.components[4]);///
+    var name = content.from;
     var name_t = co.name.to_uri().split('/');
-    //console.log(name_t);
     var prefix = '/'+name_t[1]+'/'+name_t[2]+'/'+name_t[3]+'/'+name_t[4]+'/'+name_t[5];
-    //console.log(prefix);
     var session = DataUtils.toString(co.name.components[5]);
     var seqno = DataUtils.toString(co.name.components[6]);
     var l = 0;
-    //console.log(content.type == 2)
+    //update roster
     while(l<this.roster.length){
 	var name_t = this.roster[l].substring(0,this.roster[l].length-10);
 	var session_t = this.roster[l].substring(this.roster[l].length-10,this.roster[l].length);
@@ -116,6 +127,11 @@ Chat.prototype.onData = function(inst,co){
     }
     if(l==this.roster.length){
         this.roster.push(name+session);
+        var d = new Date(content.timestamp*1000);
+        var t = d.toLocaleTimeString();
+        document.getElementById('txt').innerHTML += '<div><b><grey>'+name+'-'+t+': Join'+'</grey></b><br /></div>';
+	var objDiv = document.getElementById("txt");      
+	objDiv.scrollTop = objDiv.scrollHeight;
 	document.getElementById('menu').innerHTML = '<p><b>Member</b></p><ul>';
         for(var i = 0;i<this.roster.length;i++){
 	    var name_t = this.roster[i].substring(0,this.roster[i].length-10);
@@ -125,8 +141,8 @@ Chat.prototype.onData = function(inst,co){
     }
     var self = this;
     setTimeout(function(){self.alive(seqno,name,session,prefix);},120000);
-    if (content.type ==0 && sync.flag == 0){
-        //display on the screen
+    if (content.type ==0 && sync.flag == 0 && content.from != screen_name){
+        //display on the screen will not display old data
         var d = new Date(content.timestamp*1000);
         var t = d.toLocaleTimeString();
         document.getElementById('txt').innerHTML +='<p><grey>'+ content.from+'-'+t+':</grey><br />'+content.data+'</p>';
@@ -134,6 +150,7 @@ Chat.prototype.onData = function(inst,co){
 	objDiv.scrollTop = objDiv.scrollHeight;
     }
     else if(content.type == 2){
+        //leave message
         var n = this.roster.indexOf(name+session);
 	if(n!=-1 && name!=screen_name){
             this.roster.splice(n,1);
@@ -144,6 +161,11 @@ Chat.prototype.onData = function(inst,co){
 	    }
             document.getElementById('menu').innerHTML += '</ul>';
             console.log(name+" leave");
+	    var d = new Date(content.timestamp*1000);
+            var t = d.toLocaleTimeString();
+            document.getElementById('txt').innerHTML += '<div><b><grey>'+name+'-'+t+': Leave</grey></b><br /></div>'
+	    var objDiv = document.getElementById("txt");      
+	    objDiv.scrollTop = objDiv.scrollHeight;
 	}
     }
 
@@ -153,6 +175,7 @@ Chat.prototype.chatTimeout = function(interest){
     console.log("no chat data coming back");
 };
 
+//Send a hearbeat message
 Chat.prototype.heartbeat=function(){
     if(this.msgcache.length == 0){
 	var d = new Date();
@@ -168,9 +191,7 @@ Chat.prototype.heartbeat=function(){
         this.msgcache.shift();
     var content_t = new SyncStateMsg({ss:content});
     var str = new Uint8Array(content_t.toArrayBuffer());
-    //var str = JSON.stringify(content);
     var n = new Name(sync.prefix+chatroom+'/'+sync.digest_tree.root);
-    //n.append(DataUtils.toNumbers(sync.digest_tree.root));
     var co = new ContentObject(n, str);
     co.sign(mykey);
     try {
@@ -184,7 +205,6 @@ Chat.prototype.heartbeat=function(){
 	var newlog = {digest:sync.digest_tree.root, data:content};
 	sync.digest_log.push(newlog);
 	var n = new Name(sync.prefix+chatroom+'/'+sync.digest_tree.root);
-	//n.append(DataUtils.toNumbers(sync.digest_tree.root));
 	var template = new Interest();
 	template.interestLifetime = sync_lifetime;
 	ndn.expressInterest(n, template, sync.onData.bind(sync), sync.syncTimeout.bind(sync));                
@@ -193,6 +213,7 @@ Chat.prototype.heartbeat=function(){
     }        
 }
 
+//Send a chat message
 Chat.prototype.SendMessage=function(){
     if(this.msgcache.length == 0){
 	var d = new Date();
@@ -201,6 +222,7 @@ Chat.prototype.SendMessage=function(){
     }
     var msg = document.getElementById('fname').value;
     var chatmsg = msg.trim();
+    //forming Sync Data Packet
     if(chatmsg != ""){
 	document.getElementById('fname').value = "";
 	sync.usrseq++;
@@ -212,9 +234,7 @@ Chat.prototype.SendMessage=function(){
             this.msgcache.shift();
 	var content_t = new SyncStateMsg({ss:content});
         var str = new Uint8Array(content_t.toArrayBuffer());
-	//var str = JSON.stringify(content);
 	var n = new Name(sync.prefix+chatroom+'/'+sync.digest_tree.root);
-	//n.append(DataUtils.toNumbers(sync.digest_tree.root));
 	var co = new ContentObject(n, str);
 	co.sign(mykey);
 	try {
@@ -228,7 +248,6 @@ Chat.prototype.SendMessage=function(){
 	    var newlog = {digest:sync.digest_tree.root, data:content};
 	    sync.digest_log.push(newlog);
 	    var n = new Name(sync.prefix+chatroom+'/'+sync.digest_tree.root);
-	    //n.append(DataUtils.toNumbers(sync.digest_tree.root));
 	    var template = new Interest();
 	    template.interestLifetime = sync_lifetime;
 	    ndn.expressInterest(n, template, sync.onData.bind(sync), sync.syncTimeout.bind(sync));           
@@ -244,12 +263,10 @@ Chat.prototype.SendMessage=function(){
 	alert("message cannot be empty");
 }
 
+//Send leave message and leave
 Chat.prototype.Leave=function(){
     alert("Leaving the Chatroom...");
-    $("#txt").hide();
-    $("#fname").hide();
-    $("#bottom").hide();
-    $("#menu").hide();
+    $("#chat").hide();
     document.getElementById('room').innerHTML = 'Please close the window. Thank you';
     var i = 0;
     sync.usrseq++;
@@ -268,12 +285,9 @@ Chat.prototype.Leave=function(){
     while (this.msgcache.length>this.maxmsgcachelength)
         this.msgcache.shift();
     var content_t = new SyncStateMsg({ss:content});
-    //console.log(content_t);
     var str = new Uint8Array(content_t.toArrayBuffer());
-    //var str = JSON.stringify(content);
     var n = new Name(sync.prefix+chatroom+'/'+sync.digest_tree.root);
     console.log(n.to_uri());
-    //n.append(DataUtils.toNumbers(sync.digest_tree.root));
     var co = new ContentObject(n, str);
     co.sign(mykey);
     try {
@@ -289,21 +303,21 @@ Chat.prototype.Leave=function(){
     setTimeout(function(){ndn.close();},2000);	
 }
 
+//Check whether a user is leaving by checking whether his seqno has changed
 Chat.prototype.alive=function(temp_seq,name,session,prefix){
     console.log("check alive");
-    //console.log(temp_seq,name,session,prefix)
     var index_n = sync.digest_tree.find(prefix,session);
     var n = this.roster.indexOf(name+session);
-    //console.log(index_n);
-    //console.log(n);
-    //console.log(this.roster);
     if (index_n != -1 && n != -1){
 	var seq = sync.digest_tree.digestnode[index_n].seqno.seq;
-	//console.log(seq);
 	if(temp_seq == seq){
 	    this.roster.splice(n,1);
-	    //var name_t = name.substring(0,name.length-10);
 	    console.log(name+" leave");
+	    var d = new Date();
+            var t = d.toLocaleTimeString();
+            document.getElementById('txt').innerHTML += '<div><b><grey>'+name+'-'+t+': Leave</grey></b><br /></div>'
+	    var objDiv = document.getElementById("txt");      
+	    objDiv.scrollTop = objDiv.scrollHeight;
 	    document.getElementById('menu').innerHTML = '<p><b>Member</b></p><ul>';
 	    for(var i = 0;i<this.roster.length;i++){
 		var name_t = this.roster[i].substring(0,this.roster[i].length-10);
@@ -314,6 +328,7 @@ Chat.prototype.alive=function(temp_seq,name,session,prefix){
     }
 }
 
+//Generate a random name for ChronoSync
 function getRandomString () {
    var seed = 'qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM0123456789';
    var result = '';
