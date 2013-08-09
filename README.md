@@ -6,7 +6,7 @@ ChronoChat-js is a javacript version of ChronoChat based on NDN-js and ChronoSyn
 Get Started
 -----------
 
-ChronoChat-js does not require any installation just open the file: chrono.html on a browser and then you can use it.
+ChronoChat-js does not require any installation. Just open the file: chrono.html on a browser and then you can use it.
 
 
 
@@ -51,4 +51,5 @@ API
 Contact Info
 ------------
 Qiuhan Ding: dingqiuhan@gmail.com
+
 Wentao Shang: wentaoshang@gmail.com
