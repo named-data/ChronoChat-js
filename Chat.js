@@ -145,7 +145,8 @@ Chat.prototype.onData = function(inst,co){
         //display on the screen will not display old data
         var d = new Date(content.timestamp*1000);
         var t = d.toLocaleTimeString();
-        document.getElementById('txt').innerHTML +='<p><grey>'+ content.from+'-'+t+':</grey><br />'+content.data+'</p>';
+	var escaped_msg = $('<div/>').text(content.data).html();  // encode special html characters to avoid script injection
+        document.getElementById('txt').innerHTML +='<p><grey>'+ content.from+'-'+t+':</grey><br />'+escaped_msg+'</p>';
 	var objDiv = document.getElementById("txt");      
 	objDiv.scrollTop = objDiv.scrollHeight;
     }
@@ -221,7 +222,8 @@ Chat.prototype.SendMessage=function(){
  	this.msgcache.push({seqno:sync.usrseq,msgtype:"JOIN",msg:"xxx",time:t});
     }
     var msg = document.getElementById('fname').value.trim();
-    var chatmsg = $('<div/>').text(msg).html();  // encode special html characters to avoid script injection
+    var chatmsg = msg;
+    //var chatmsg = $('<div/>').text(msg).html();  // encode special html characters to avoid script injection
     //forming Sync Data Packet
     if(chatmsg != ""){
 	document.getElementById('fname').value = "";
@@ -254,7 +256,8 @@ Chat.prototype.SendMessage=function(){
 	    console.log('Sync Interest expressed.');
             console.log(n.to_uri());
 	    var tt = d.toLocaleTimeString();
-	    document.getElementById('txt').innerHTML += '<p><grey>'+ screen_name+'-'+tt+':</grey><br />'+chatmsg + '</p>';          
+	    var escaped_msg = $('<div/>').text(msg).html();  // encode special html characters to avoid script injection
+	    document.getElementById('txt').innerHTML += '<p><grey>'+ screen_name+'-'+tt+':</grey><br />'+ escaped_msg + '</p>';          
 	    var objDiv = document.getElementById("txt");      
 	    objDiv.scrollTop = objDiv.scrollHeight;
 	}
