@@ -13,9 +13,8 @@ function ChronoChat () {
     chat = new Chat();
     sync = new ChronoSync(chat.sendInterest.bind(chat),chat.initial.bind(chat),chatroom,session);
     sync.digest_log.push({digest:"00",data:[]});
-    ndn = new NDN({host:'B.ws.ndn.ucla.edu'});
+    ndn = new NDN({host:hub});
     mykey = ndn.getDefaultKey();
-    mykeyname= new Name('/ndn/'+screen_name+'/'+'ChronoChat-0.3/'+chatroom+'/key/').appendKeyID(mykey).appendVersion().appendSegment(0);
 
     ndn.onopen = function () {
 	//Getting Routable Chat Name Prefix Through Auto Configure

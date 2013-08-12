@@ -35,10 +35,10 @@ var chat;
 var chatroom;
 var sync;
 var ndn;
+var hub;
 var mykey;
-var mykeyname;
 var chat_prefix;
-var sync_prefix='/ndn/broadcast/ChronoChat-0.3/';
+var sync_prefix = '/ndn/broadcast/ChronoChat-0.3/';
 var ProtoBuf = dcodeIO.ProtoBuf;
 var ChatMessage = SyncDemo.ChatMessage;
 var SyncState = Sync.SyncState;
@@ -48,13 +48,14 @@ var sync_lifetime = 5000;
 var specialnode ='/d0n0t18ak/t0ps8cr8t';
 
 $(document).ready(function(){
-     $("#chat").hide();
+    $("#chat").hide();
     $("#login").click(function(){
         screen_name = document.getElementById('name').value;
 	session = (new Date()).getTime();
 	session = parseInt(session/1000);
         usrname = screen_name+session;
         chatroom = document.getElementById('chatroom').value;
+        hub = document.getElementById('hub').value;
         if(screen_name==""||chatroom==""){
             alert("input usrname and chatroom");
         }
@@ -69,50 +70,44 @@ $(document).ready(function(){
             ChronoChat();
         }
     });
-
 });
 
     </script>
-
 </head>
-
-
 
 <body>
 
-
-<div id = "title" class="center">
-<h1><blue>Web</blue> ChronoChat</h1>
-<div id = "footer">
-      <grey>Powered by </grey><a target="_blank" href="http://github.com/named-data/ndn-js"><blue>NDN.JS</blue></a><grey>.</grey>
-
-</div>
-</div>
-<div id = "log" class="center">
-  
-<div id = "info">
-     username: <input type="text" id="name" value="Enter Name">
-<br /><br />
-     chatroom: <input type="text" id="chatroom" value="ndnchat">
-</div>
-<button id = "login" > login </button>
-
+<div id="title" class="center">
+  <h1><blue>Web</blue> ChronoChat</h1>
+  <div id="footer">
+    <grey>Powered by </grey><a target="_blank" href="http://github.com/named-data/ndn-js"><blue>NDN.JS</blue></a><grey>.</grey>
+  </div>
 </div>
 
-<div style="width:850px" class="center">
+<div id="log" class="center">
+  <div id="info">
+    username: <input type="text" id="name" value="Enter Name">
+    <br /><br />
+    chatroom: <input type="text" id="chatroom" value="ndnchat">
+    <br /><br />
+    wshub: <input type="text" id="hub" value="B.ws.ndn.ucla.edu">
+  </div>
+  <button id="login">login</button>
+</div>
 
-<div style="width:850px">
+<div id="chatting" style="width:850px" class="center">
+  <div style="width:850px">
     <div id="room"></div>
-</div>
-
-<div id = "chat">
-    <div id = "txt"></div>
+  </div>
+  
+  <div id="chat">
+    <div id="txt"></div>
     <div id="menu"></div>
     <div><textarea id="fname" onkeyup="checkkey(event)"></textarea></div>
     <div id="note"><grey>Press Enter to Send Message</grey></div>
-    <button id = "send" onclick="chat.SendMessage()"><b>send</b></button>
-    <button id = "leave" onclick = "chat.Leave()"><blue><b>leave</b></blue></button>
+    <button id="send" onclick="chat.SendMessage()"><b>send</b></button>
+    <button id="leave" onclick="chat.Leave()"><blue><b>leave</b></blue></button>
+  </div>
 </div>
 
-</div>
 </html>
