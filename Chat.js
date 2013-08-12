@@ -220,8 +220,8 @@ Chat.prototype.SendMessage=function(){
 	var t = d.getTime();
  	this.msgcache.push({seqno:sync.usrseq,msgtype:"JOIN",msg:"xxx",time:t});
     }
-    var msg = document.getElementById('fname').value;
-    var chatmsg = msg.trim();
+    var msg = document.getElementById('fname').value.trim();
+    var chatmsg = $('<div/>').text(msg).html();  // encode special html characters to avoid script injection
     //forming Sync Data Packet
     if(chatmsg != ""){
 	document.getElementById('fname').value = "";
