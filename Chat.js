@@ -106,67 +106,67 @@ Chat.prototype.onData = function(inst,co){
     var arr = new Uint8Array(co.content.length);
     arr.set(co.content);
     var content = ChatMessage.decode(arr.buffer);
-    var name = content.from;
-    var name_t = co.name.to_uri().split('/');
-    var prefix = '/'+name_t[1]+'/'+name_t[2]+'/'+name_t[3]+'/'+name_t[4]+'/'+name_t[5];
-    var session = DataUtils.toString(co.name.components[5]);
-    var seqno = DataUtils.toString(co.name.components[6]);
-    var l = 0;
-    //update roster
-    while(l<this.roster.length){
-	var name_t = this.roster[l].substring(0,this.roster[l].length-10);
-	var session_t = this.roster[l].substring(this.roster[l].length-10,this.roster[l].length);
-	if(name != name_t && content.type!=2)
-	    l++;
-        else{
-	    if(name == name_t && session>session_t){
-		this.roster[l] = name+session;
+    var temp = (new Date()).getTime();
+    if(temp-content.timestamp*1000<120000){
+	var t = (new Date(content.timestamp*1000)).toLocaleTimeString();
+	var name = content.from;
+	var name_t = co.name.to_uri().split('/');
+	var prefix = '/'+name_t[1]+'/'+name_t[2]+'/'+name_t[3]+'/'+name_t[4]+'/'+name_t[5];
+	var session = DataUtils.toString(co.name.components[5]);
+	var seqno = DataUtils.toString(co.name.components[6]);
+	var l = 0;
+	//update roster
+	while(l<this.roster.length){
+	    var name_t = this.roster[l].substring(0,this.roster[l].length-10);
+	    var session_t = this.roster[l].substring(this.roster[l].length-10,this.roster[l].length);
+	    if(name != name_t && content.type!=2)
+		l++;
+            else{
+		if(name == name_t && session>session_t){
+		    this.roster[l] = name+session;
+		}
+		break;
 	    }
-	    break;
 	}
-    }
-    if(l==this.roster.length){
-        this.roster.push(name+session);
-        var d = new Date(content.timestamp*1000);
-        var t = d.toLocaleTimeString();
-        document.getElementById('txt').innerHTML += '<div><b><grey>'+name+'-'+t+': Join'+'</grey></b><br /></div>';
-	var objDiv = document.getElementById("txt");      
-	objDiv.scrollTop = objDiv.scrollHeight;
-	document.getElementById('menu').innerHTML = '<p><b>Member</b></p><ul>';
-        for(var i = 0;i<this.roster.length;i++){
-	    var name_t = this.roster[i].substring(0,this.roster[i].length-10);
-	    document.getElementById('menu').innerHTML += '<li>'+name_t+'</li>';
-        }
-        document.getElementById('menu').innerHTML += '</ul>';
-    }
-    var self = this;
-    setTimeout(function(){self.alive(seqno,name,session,prefix);},120000);
-    if (content.type ==0 && sync.flag == 0 && content.from != screen_name){
-        //display on the screen will not display old data
-        var d = new Date(content.timestamp*1000);
-        var t = d.toLocaleTimeString();
-	var escaped_msg = $('<div/>').text(content.data).html();  // encode special html characters to avoid script injection
-        document.getElementById('txt').innerHTML +='<p><grey>'+ content.from+'-'+t+':</grey><br />'+escaped_msg+'</p>';
-	var objDiv = document.getElementById("txt");      
-	objDiv.scrollTop = objDiv.scrollHeight;
-    }
-    else if(content.type == 2){
-        //leave message
-        var n = this.roster.indexOf(name+session);
-	if(n!=-1 && name!=screen_name){
-            this.roster.splice(n,1);
-	    document.getElementById('menu').innerHTML = '<p><b>Member</b></p><ul>';
-	    for(var i = 0;i<this.roster.length;i++){
-		var name_t = this.roster[i].substring(0,this.roster[i].length-10);
-	        document.getElementById('menu').innerHTML += '<li>'+name_t+'</li>';
-	    }
-            document.getElementById('menu').innerHTML += '</ul>';
-            console.log(name+" leave");
-	    var d = new Date(content.timestamp*1000);
-            var t = d.toLocaleTimeString();
-            document.getElementById('txt').innerHTML += '<div><b><grey>'+name+'-'+t+': Leave</grey></b><br /></div>'
+	if(l==this.roster.length){
+	    this.roster.push(name+session);
+            document.getElementById('txt').innerHTML += '<div><b><grey>'+name+'-'+t+': Join'+'</grey></b><br /></div>';
 	    var objDiv = document.getElementById("txt");      
 	    objDiv.scrollTop = objDiv.scrollHeight;
+	    document.getElementById('menu').innerHTML = '<p><b>Member</b></p><ul>';
+            for(var i = 0;i<this.roster.length;i++){
+		var name_t = this.roster[i].substring(0,this.roster[i].length-10);
+		document.getElementById('menu').innerHTML += '<li>'+name_t+'</li>';
+            }
+            document.getElementById('menu').innerHTML += '</ul>';
+	}
+	var self = this;
+	setTimeout(function(){self.alive(seqno,name,session,prefix);},120000);
+	if (content.type ==0 && sync.flag == 0 && content.from != screen_name){
+            //display on the screen will not display old data
+	    var escaped_msg = $('<div/>').text(content.data).html();  // encode special html characters to avoid script injection
+            document.getElementById('txt').innerHTML +='<p><grey>'+ content.from+'-'+t+':</grey><br />'+escaped_msg+'</p>';
+	    var objDiv = document.getElementById("txt");      
+	    objDiv.scrollTop = objDiv.scrollHeight;
+	}
+	else if(content.type == 2){
+            //leave message
+            var n = this.roster.indexOf(name+session);
+	    if(n!=-1 && name!=screen_name){
+		this.roster.splice(n,1);
+		document.getElementById('menu').innerHTML = '<p><b>Member</b></p><ul>';
+		for(var i = 0;i<this.roster.length;i++){
+		    var name_t = this.roster[i].substring(0,this.roster[i].length-10);
+	            document.getElementById('menu').innerHTML += '<li>'+name_t+'</li>';
+		}
+		document.getElementById('menu').innerHTML += '</ul>';
+		console.log(name+" leave");
+		var d = new Date(content.timestamp*1000);
+		var t = d.toLocaleTimeString();
+		document.getElementById('txt').innerHTML += '<div><b><grey>'+name+'-'+t+': Leave</grey></b><br /></div>'
+		var objDiv = document.getElementById("txt");      
+		objDiv.scrollTop = objDiv.scrollHeight;
+	    }
 	}
     }
 
