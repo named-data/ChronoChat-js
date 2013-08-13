@@ -9,6 +9,13 @@ Get Started
 ChronoChat-js does not require any installation. Just open the file: chrono.html on a browser, input user name and chatroom name, and then start chatting.
 
 
+Namespace
+---------
+Sync Interest:'/ndn/broadcast/ChronoChat-0.3/'+chatroom+/digest
+
+Chat Interest:local-prefix+/chatroom+/random-generated-name+/session-number+/seqno
+
+
 File Structure
 --------------
 
