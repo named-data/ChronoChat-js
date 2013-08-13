@@ -71,12 +71,12 @@ button
 #login
 {
     margin-top:95px;
-    width:90px;
-    height:90px;
+    width:100px;
+    height:100px;
     font-family: 'Autour One', cursive;
     font-size:20px;
     float:left;
-    border-radius:10px;
+    border-radius:15px;
     border-color:#727272;
 }
 #menu

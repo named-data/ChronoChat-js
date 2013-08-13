@@ -147,7 +147,7 @@ ChronoSync.prototype.processSyncInst = function(index,syncdigest_t){
         }
     }
     for(var i = 0;i<data_name.length;i++){
-	content[i] = new SyncState({name:this.chat_prefix+data_name[i],type:'UPDATE',seqno:{seq:data_seq[i],session:data_ses[i]}});
+	content[i] = new SyncState({name:data_name[i],type:'UPDATE',seqno:{seq:data_seq[i],session:data_ses[i]}});
     }
     if(content.length!=0){
         var content_t = new SyncStateMsg({ss:content});
