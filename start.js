@@ -13,20 +13,16 @@ function ChronoChat () {
     chat = new Chat();
     sync = new ChronoSync(chat.sendInterest.bind(chat),chat.initial.bind(chat),chatroom,session);
     sync.digest_log.push({digest:"00",data:[]});
-    ndn = new NDN({host:hub});
-    mykey = ndn.getDefaultKey();
+    face = new Face({host:hub});
 
-    ndn.onopen = function () {
 	//Getting Routable Chat Name Prefix Through Auto Configure
         var n0 = new Name('/local/ndn/prefix');
 	var template = new Interest();
         template.interestLifetime = 1000;
         template.childSelector = 1;
         template.answerOriginKind = 0;
-        ndn.expressInterest(n0, template, prefixData, prefixTimeOut);
+        face.expressInterest(n0, template, prefixData, prefixTimeOut);
 
-    };
-    ndn.connect();
     
     console.log('Started...');
     
@@ -45,17 +41,17 @@ function prefixData(inst,co){
     chat_prefix = DataUtils.toString(co.content).trim()+'/'+chatroom+'/'+prefix_name;
     sync.chat_prefix = chat_prefix;
     var n1 = new Name(sync.prefix+chatroom+'/');
-    ndn.registerPrefix(n1,sync.onInterest.bind(sync));
+    face.registerPrefix(n1,sync.onInterest.bind(sync));
     console.log('sync prefix registered.');
 
     var n2 = new Name(chat_prefix);
-    ndn.registerPrefix(n2,chat.onInterest.bind(chat));
+    face.registerPrefix(n2,chat.onInterest.bind(chat));
     console.log('data prefix registered.');
     var n = new Name(sync.prefix+chatroom+'/00');
     var template = new Interest();
     template.interestLifetime = 1000;
     template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
-    ndn.expressInterest(n, template, sync.onData.bind(sync), sync.initialTimeOut.bind(sync));
+    face.expressInterest(n, template, sync.onData.bind(sync), sync.initialTimeOut.bind(sync));
     console.log("initial sync express");
     console.log(n.to_uri());
      
