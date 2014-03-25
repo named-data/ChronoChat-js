@@ -7,6 +7,8 @@
  *   Using SyncState and SyncStateMsg Protobuf for Sync Data Packet
  */
 
+function pokeData(data) { face.transport.send(data.wireEncode().buf()); }
+
 //Chronosync with log operation as well as interest and data processing
 var ChronoSync = function ChronoSync(sendchatinterest,initialchat,chatroom,session){
     this.digest_tree = new Digest_Tree();
@@ -32,17 +34,17 @@ ChronoSync.prototype.logfind = function(digest){
 };
 
 //Processing Sync Interest
-ChronoSync.prototype.onInterest = function(inst){
+ChronoSync.prototype.onInterest = function(prefix, inst, transport){
     //search if the digest is already exist in the digest log
     console.log('Sync Interest received in callback.');
     console.log(inst.name.to_uri());
-    var syncdigest = DataUtils.toString(inst.name.components[4])
+    var syncdigest = DataUtils.toString(inst.name.components[4].getValue());
     if(inst.name.components.length == 6){
-        syncdigest = DataUtils.toString(inst.name.components[5]);
+        syncdigest = DataUtils.toString(inst.name.components[5].getValue());
     }
     if(inst.name.components.length == 6 || syncdigest == "00"){
 	//Recovery interest or new comer interest
-	this.processRecoveryInst(inst,syncdigest);
+	this.processRecoveryInst(inst,syncdigest, transport);
     }
     else{
 	if(syncdigest != this.digest_tree.root){
@@ -51,12 +53,12 @@ ChronoSync.prototype.onInterest = function(inst){
 	    if(index == -1){
                 var self = this;
 		//Wait 2 seconds to see whether there is any data packet coming back
-		setTimeout(function(){self.judgeRecovery(syncdigest);},2000);
+		setTimeout(function(){self.judgeRecovery(syncdigest, transport);},2000);
 		console.log("set timer recover");
 	    }
 	    else{
 		//common interest processing
-		this.processSyncInst(index,syncdigest);
+		this.processSyncInst(index,syncdigest, transport);
 	    }
 	}
     }
@@ -92,13 +94,13 @@ ChronoSync.prototype.onData = function(inst,co){
     var n = new Name(this.prefix+this.chatroom+'/'+this.digest_tree.root);
     var template = new Interest();
     template.interestLifetime = sync_lifetime;
-    ndn.expressInterest(n, template, this.onData.bind(this), this.syncTimeout.bind(this));
+    face.expressInterest(n, template, this.onData.bind(this), this.syncTimeout.bind(this));
     console.log("Syncinterest expressed:");
     console.log(n.to_uri());
 };
 
 //Process Recovery Interest, go through digest tree and send data including info of all nodes
-ChronoSync.prototype.processRecoveryInst=function(inst,syncdigest){
+ChronoSync.prototype.processRecoveryInst=function(inst,syncdigest, transport){
     if(this.logfind(syncdigest)!=-1){
 	var content = [];
 	for(var i = 0;i<this.digest_tree.digestnode.length;i++){
@@ -108,9 +110,9 @@ ChronoSync.prototype.processRecoveryInst=function(inst,syncdigest){
 	    var content_t = new SyncStateMsg({ss:content});
 	    var str = new Uint8Array(content_t.toArrayBuffer());
 	    var co = new ContentObject(inst.name, str);
-	    co.sign(mykey);
+	    co.sign();
 	    try {
-		ndn.send(co);
+        transport.send(co.wireEncode().buf());
       		console.log("send recovery data back");
 		console.log(inst.name.to_uri());
 	    } catch (e) {
@@ -121,7 +123,7 @@ ChronoSync.prototype.processRecoveryInst=function(inst,syncdigest){
 };
 
 //Common Interest Processing, using digest log to find the difference after syncdigest_t
-ChronoSync.prototype.processSyncInst = function(index,syncdigest_t){
+ChronoSync.prototype.processSyncInst = function(index,syncdigest_t, transport){
     var content = [];
     var data_name = [];
     var data_seq = [];
@@ -154,9 +156,9 @@ ChronoSync.prototype.processSyncInst = function(index,syncdigest_t){
 	var str = new Uint8Array(content_t.toArrayBuffer());
         var n = new Name(this.prefix+this.chatroom+'/'+syncdigest_t);
         var co = new ContentObject(n, str);
-        co.sign(mykey);
+        co.sign();
         try {
-	    ndn.send(co);
+          transport.send(co.wireEncode().buf());
 	    console.log("Sync Data send");
             console.log(n.to_uri());
         } catch (e) {
@@ -171,17 +173,17 @@ ChronoSync.prototype.sendRecovery=function(syncdigest_t){
     var n = new Name(this.prefix+this.chatroom+'/recovery/'+syncdigest_t);
     var template = new Interest();
     template.interestLifetime = sync_lifetime;
-    ndn.expressInterest(n, template, this.onData.bind(this), this.syncTimeout.bind(this));
+    face.expressInterest(n, template, this.onData.bind(this), this.syncTimeout.bind(this));
     console.log("Recovery Syncinterest expressed:"); 
     console.log(n.to_uri());
 };
 
 //check if recovery is need
-ChronoSync.prototype.judgeRecovery = function(syncdigest_t){
+ChronoSync.prototype.judgeRecovery = function(syncdigest_t, transport){
     var index2 = this.logfind(syncdigest_t);
     if(index2 != -1){
         if(syncdigest_t!=this.digest_tree.root){
-	    this.processSyncInst(index2,syncdigest_t);
+	    this.processSyncInst(index2,syncdigest_t, transport);
 	}
     }
     else{
@@ -193,12 +195,12 @@ ChronoSync.prototype.judgeRecovery = function(syncdigest_t){
 ChronoSync.prototype.syncTimeout = function(interest) {
     console.log("Sync Interest time out.");
     console.log('Sync Interest name: ' + interest.name.to_uri());
-    var component = DataUtils.toString(interest.name.components[4]);
+    var component = DataUtils.toString(interest.name.components[4].getValue());
     if(component == this.digest_tree.root){
 	var n = new Name(interest.name);
 	var template = new Interest();
 	template.interestLifetime = sync_lifetime;
-	ndn.expressInterest(n, template, this.onData.bind(this), this.syncTimeout.bind(this));
+	face.expressInterest(n, template, this.onData.bind(this), this.syncTimeout.bind(this));
 	console.log("Syncinterest expressed:");
 	console.log(n.to_uri());
     }                 
@@ -236,11 +238,11 @@ ChronoSync.prototype.initialOndata = function(content){
     var str = new Uint8Array(content_tt.toArrayBuffer());
     var n = new Name(this.prefix+this.chatroom+'/'+digest_t);
     var co = new ContentObject(n, str);
-    co.sign(mykey);
+    co.sign();
     console.log("initial update data sending back");
     console.log(n.to_uri());
     try {
-    	ndn.send(co);
+    	pokeData(co);
 	
     } catch (e) {
     	console.log(e.toString());
@@ -272,7 +274,7 @@ ChronoSync.prototype.initialTimeOut = function(interest){
     var n = new Name(this.prefix+this.chatroom+'/'+this.digest_tree.root);
     var template = new Interest();
     template.interestLifetime = sync_lifetime;
-    ndn.expressInterest(n, template, this.onData.bind(this), this.syncTimeout.bind(this));
+    face.expressInterest(n, template, this.onData.bind(this), this.syncTimeout.bind(this));
     console.log("Syncinterest expressed:");
     console.log(n.to_uri());
 };
