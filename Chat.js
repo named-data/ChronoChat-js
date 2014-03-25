@@ -62,7 +62,7 @@ Chat.prototype.sendInterest = function(content){
 	var n = new Name(sendlist[i]+'/'+sessionlist[i]+'/'+seqlist[i]);///
 	var template = new Interest();
 	template.interestLifetime = sync_lifetime;
-	ndn.expressInterest(n, template, this.onData.bind(this), this.chatTimeout.bind(this));
+	face.expressInterest(n, template, this.onData.bind(this), this.chatTimeout.bind(this));
 	console.log(n.to_uri());
 	console.log('Chat Interest expressed.');
         
@@ -70,11 +70,11 @@ Chat.prototype.sendInterest = function(content){
 };
 
 //Send back Chat Data Packet which contains the user's message
-Chat.prototype.onInterest = function(inst){
+Chat.prototype.onInterest = function(prefix, inst, transport){
     console.log('Chat Interest received in callback.');
     console.log(inst.name.to_uri());
     var content = {};
-    var seq = parseInt(DataUtils.toString(inst.name.components[6]));
+    var seq = parseInt(DataUtils.toString(inst.name.components[6].getValue()));
     for(var i = this.msgcache.length-1;i>=0;i--){
         if(this.msgcache[i].seqno ==seq){
             if(this.msgcache[i].msgtype != 'CHAT')
@@ -87,10 +87,10 @@ Chat.prototype.onInterest = function(inst){
     if(content.from != null){
 	var str = new Uint8Array(content.toArrayBuffer());
         var co = new ContentObject(inst.name,str);
-        co.sign(mykey);
+        co.sign();
 
         try {
-            ndn.send(co);
+            transport.send(co.wireEncode().buf());
 	    console.log(content);
         } 
         catch (e) {
@@ -112,8 +112,8 @@ Chat.prototype.onData = function(inst,co){
 	var name = content.from;
 	var name_t = co.name.to_uri().split('/');
 	var prefix = '/'+name_t[1]+'/'+name_t[2]+'/'+name_t[3]+'/'+name_t[4]+'/'+name_t[5];
-	var session = DataUtils.toString(co.name.components[5]);
-	var seqno = DataUtils.toString(co.name.components[6]);
+	var session = DataUtils.toString(co.name.components[5].getValue());
+	var seqno = DataUtils.toString(co.name.components[6].getValue());
 	var l = 0;
 	//update roster
 	while(l<this.roster.length){
@@ -194,9 +194,9 @@ Chat.prototype.heartbeat=function(){
     var str = new Uint8Array(content_t.toArrayBuffer());
     var n = new Name(sync.prefix+chatroom+'/'+sync.digest_tree.root);
     var co = new ContentObject(n, str);
-    co.sign(mykey);
+    co.sign();
     try {
-	ndn.send(co);
+	pokeData(co);
     } catch (e) {
 	console.log(e.toString());
     }
@@ -208,7 +208,7 @@ Chat.prototype.heartbeat=function(){
 	var n = new Name(sync.prefix+chatroom+'/'+sync.digest_tree.root);
 	var template = new Interest();
 	template.interestLifetime = sync_lifetime;
-	ndn.expressInterest(n, template, sync.onData.bind(sync), sync.syncTimeout.bind(sync));                
+	face.expressInterest(n, template, sync.onData.bind(sync), sync.syncTimeout.bind(sync));                
 	console.log('Heartbeat Interest expressed.');
         console.log(n.to_uri());
     }        
@@ -238,9 +238,9 @@ Chat.prototype.SendMessage=function(){
         var str = new Uint8Array(content_t.toArrayBuffer());
 	var n = new Name(sync.prefix+chatroom+'/'+sync.digest_tree.root);
 	var co = new ContentObject(n, str);
-	co.sign(mykey);
+	co.sign();
 	try {
-	    ndn.send(co);
+	    pokeData(co);
 	} catch (e) {
 	    console.log(e.toString());
 	}
@@ -252,7 +252,7 @@ Chat.prototype.SendMessage=function(){
 	    var n = new Name(sync.prefix+chatroom+'/'+sync.digest_tree.root);
 	    var template = new Interest();
 	    template.interestLifetime = sync_lifetime;
-	    ndn.expressInterest(n, template, sync.onData.bind(sync), sync.syncTimeout.bind(sync));           
+	    face.expressInterest(n, template, sync.onData.bind(sync), sync.syncTimeout.bind(sync));           
 	    console.log('Sync Interest expressed.');
             console.log(n.to_uri());
 	    var tt = d.toLocaleTimeString();
@@ -292,9 +292,9 @@ Chat.prototype.Leave=function(){
     var n = new Name(sync.prefix+chatroom+'/'+sync.digest_tree.root);
     console.log(n.to_uri());
     var co = new ContentObject(n, str);
-    co.sign(mykey);
+    co.sign();
     try {
-	ndn.send(co);
+	pokeData(co);
 	
     } catch (e) {
 	console.log(e.toString());
@@ -303,7 +303,7 @@ Chat.prototype.Leave=function(){
     console.log("leave log add");
     var newlog = {digest:sync.digest_tree.root, data:content};
     sync.digest_log.push(newlog);
-    setTimeout(function(){ndn.close();},2000);	
+    setTimeout(function(){face.close();},2000);	
 }
 
 //Check whether a user is leaving by checking whether his seqno has changed
