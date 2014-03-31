@@ -15,9 +15,9 @@ function ChronoChat () {
     sync.digest_log.push({digest:"00",data:[]});
     face = new Face({host:hub});
 
-	//Getting Routable Chat Name Prefix Through Auto Configure
+    //Getting Routable Chat Name Prefix Through Auto Configure
         var n0 = new Name('/local/ndn/prefix');
-	var template = new Interest();
+    var template = new Interest();
         template.interestLifetime = 1000;
         template.childSelector = 1;
         template.answerOriginKind = 0;
@@ -31,7 +31,7 @@ function ChronoChat () {
 //Enable sending msg by pressing 'Enter'
 function checkkey(event){
     if(event.keyCode==13){
-	chat.SendMessage();
+    chat.SendMessage();
     }
 }
 
