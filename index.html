@@ -14,7 +14,7 @@
 <link href='http://fonts.googleapis.com/css?family=Quintessential' rel='stylesheet' type='text/css'>
 <link href='http://fonts.googleapis.com/css?family=Alegreya' rel='stylesheet' type='text/css'>
     <meta charset="utf-8">
-	
+    
     <script src="ndn.js"></script>
     <script src="Sync.js"></script>
     <script src="digest_tree.js"></script>
@@ -51,8 +51,8 @@ $(document).ready(function(){
     $("#chat").hide();
     $("#login").click(function(){
         screen_name = document.getElementById('name').value;
-	session = (new Date()).getTime();
-	session = parseInt(session/1000);
+    session = (new Date()).getTime();
+    session = parseInt(session/1000);
         usrname = screen_name+session;
         chatroom = document.getElementById('chatroom').value;
         hub = document.getElementById('hub').value;
@@ -64,8 +64,8 @@ $(document).ready(function(){
             $("#log").hide();
             $("#login").hide();
             $("#chat").show();
-	    document.getElementById('room').innerHTML = '<grey>Chatroom: </grey>'+'<b><green>'+chatroom+'</green></b>';
-	    document.getElementById('room').innerHTML+= '<grey>  Username: </grey>'+'<b><green>'+screen_name+'</green></b>';
+        document.getElementById('room').innerHTML = '<grey>Chatroom: </grey>'+'<b><green>'+chatroom+'</green></b>';
+        document.getElementById('room').innerHTML+= '<grey>  Username: </grey>'+'<b><green>'+screen_name+'</green></b>';
             document.getElementById('menu').innerHTML = '<p><b>Member</b></p>';
             ChronoChat();
         }
@@ -90,7 +90,7 @@ $(document).ready(function(){
     <br /><br />
     chatroom: <input type="text" id="chatroom" value="ndnchat">
     <br /><br />
-    wshub: <input type="text" id="hub" style = "width:235px" value="B.ws.ndn.ucla.edu">
+    wshub: <input type="text" id="hub" style = "width:235px" value="borges.metwi.ucla.edu">
   </div>
   <button id="login">login</button>
 </div>

@@ -1,12 +1,12 @@
 ChronoChat-js
 =============
 
-ChronoChat-js is a javacript version of ChronoChat based on NDN-js and ChronoSync. It is compatible with desktop version of ChronoChat (https://github.com/named-data/ChronoChat).
+ChronoChat-js is a javacript version of ChronoChat based on NDN-js and ChronoSync.
 
 Get Started
 -----------
 
-ChronoChat-js does not require any installation. Just open the file: chrono.html on a browser, input user name and chatroom name, and then start chatting.
+ChronoChat-js does not require any installation. Just open the file: index.html in a browser, input user name and chatroom name, and then start chatting.
 
 
 Namespace
@@ -43,19 +43,19 @@ There are five major parts in the source code package:
 
 5.Webpage
 
-* chrono.html: web chat interface
+* index.html: web chat interface
 * page.css: css file of the web page
 
 
 Dependencies
 ------------
 
-ChronoChat-js uses NDN.JS library by Wentao Shang (https://github.com/wentaoshang/NDN.JS) and ProtoBuf.js library (https://github.com/dcodeIO/ProtoBuf.js/).
+ChronoChat-js uses ndn-js (https://github.com/named-data/ndn-js) and the ProtoBuf.js library (https://github.com/dcodeIO/ProtoBuf.js/).
 
 Notice
 ------
 
-ChronoChat-js currently does not perform any data authentication. The private key used to encrypt user data packets is hard-coded in NDN.JS and shared by all the users on the Web.
+ChronoChat-js currently does not perform any data authentication. The private key used to encrypt user data packets is hard-coded in ndn-js and shared by all the users on the Web.
 
 
 ChronoSync API
@@ -63,8 +63,8 @@ ChronoSync API
 
 TBD.
 
-Contact Info
-------------
+Original Authors
+----------------
 
 Qiuhan Ding: dingqiuhan@gmail.com
 
