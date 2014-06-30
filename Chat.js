@@ -63,7 +63,7 @@ Chat.prototype.sendInterest = function(content){
     var template = new Interest();
     template.interestLifetime = sync_lifetime;
     face.expressInterest(n, template, this.onData.bind(this), this.chatTimeout.bind(this));
-    console.log(n.to_uri());
+    console.log(n.toUri());
     console.log('Chat Interest expressed.');
         
     }
@@ -72,9 +72,9 @@ Chat.prototype.sendInterest = function(content){
 //Send back Chat Data Packet which contains the user's message
 Chat.prototype.onInterest = function(prefix, inst, transport){
     console.log('Chat Interest received in callback.');
-    console.log(inst.name.to_uri());
+    console.log(inst.getName().toUri());
     var content = {};
-    var seq = parseInt(DataUtils.toString(inst.name.components[6].getValue().buf()));
+    var seq = parseInt(DataUtils.toString(inst.getName().get(6).getValue().buf()));
     for(var i = this.msgcache.length-1;i>=0;i--){
         if(this.msgcache[i].seqno ==seq){
             if(this.msgcache[i].msgtype != 'CHAT')
@@ -86,7 +86,7 @@ Chat.prototype.onInterest = function(prefix, inst, transport){
     }
     if(content.from != null){
     var str = new Uint8Array(content.toArrayBuffer());
-        var co = new ContentObject(inst.name,str);
+        var co = new ContentObject(inst.getName(),str);
         co.sign();
 
         try {
@@ -102,18 +102,18 @@ Chat.prototype.onInterest = function(prefix, inst, transport){
 //Processing the incoming Chat data
 Chat.prototype.onData = function(inst,co){
     console.log("Chat ContentObject received in callback");
-    console.log('name'+co.name.to_uri());
-    var arr = new Uint8Array(co.content.length);
-    arr.set(co.content);
+    console.log('name'+co.getName().toUri());
+    var arr = new Uint8Array(co.getContent().size());
+    arr.set(co.getContent().buf());
     var content = ChatMessage.decode(arr.buffer);
     var temp = (new Date()).getTime();
     if(temp-content.timestamp*1000<120000){
     var t = (new Date(content.timestamp*1000)).toLocaleTimeString();
     var name = content.from;
-    var name_t = co.name.to_uri().split('/');
+    var name_t = co.getName().toUri().split('/');
     var prefix = '/'+name_t[1]+'/'+name_t[2]+'/'+name_t[3]+'/'+name_t[4]+'/'+name_t[5];
-    var session = DataUtils.toString(co.name.components[5].getValue().buf());
-    var seqno = DataUtils.toString(co.name.components[6].getValue().buf());
+    var session = DataUtils.toString(co.getName().get(5).getValue().buf());
+    var seqno = DataUtils.toString(co.getName().get(6).getValue().buf());
     var l = 0;
     //update roster
     while(l<this.roster.length){
@@ -210,7 +210,7 @@ Chat.prototype.heartbeat=function(){
     template.interestLifetime = sync_lifetime;
     face.expressInterest(n, template, sync.onData.bind(sync), sync.syncTimeout.bind(sync));                
     console.log('Heartbeat Interest expressed.');
-        console.log(n.to_uri());
+        console.log(n.toUri());
     }        
 }
 
@@ -254,7 +254,7 @@ Chat.prototype.SendMessage=function(){
         template.interestLifetime = sync_lifetime;
         face.expressInterest(n, template, sync.onData.bind(sync), sync.syncTimeout.bind(sync));           
         console.log('Sync Interest expressed.');
-            console.log(n.to_uri());
+            console.log(n.toUri());
         var tt = d.toLocaleTimeString();
         var escaped_msg = $('<div/>').text(msg).html();  // encode special html characters to avoid script injection
         document.getElementById('txt').innerHTML += '<p><grey>'+ screen_name+'-'+tt+':</grey><br />'+ escaped_msg + '</p>';          
@@ -290,7 +290,7 @@ Chat.prototype.Leave=function(){
     var content_t = new SyncStateMsg({ss:content});
     var str = new Uint8Array(content_t.toArrayBuffer());
     var n = new Name(sync.prefix+chatroom+'/'+sync.digest_tree.root);
-    console.log(n.to_uri());
+    console.log(n.toUri());
     var co = new ContentObject(n, str);
     co.sign();
     try {

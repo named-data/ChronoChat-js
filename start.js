@@ -37,8 +37,8 @@ function checkkey(event){
 
 function prefixData(inst,co){
     console.log("prefix ContentObject received in callback");
-    console.log('name'+co.name.to_uri());
-    chat_prefix = DataUtils.toString(co.content).trim()+'/'+chatroom+'/'+prefix_name;
+    console.log('name'+co.getName().toUri());
+    chat_prefix = DataUtils.toString(co.getContent().buf()).trim()+'/'+chatroom+'/'+prefix_name;
     sync.chat_prefix = chat_prefix;
     var n1 = new Name(sync.prefix+chatroom+'/');
     face.registerPrefix(n1,sync.onInterest.bind(sync));
@@ -53,11 +53,11 @@ function prefixData(inst,co){
     template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
     face.expressInterest(n, template, sync.onData.bind(sync), sync.initialTimeOut.bind(sync));
     console.log("initial sync express");
-    console.log(n.to_uri());
+    console.log(n.toUri());
      
 }
 
 function prefixTimeOut(inst){
     console.log("prefix Interest time out");
-    console.log('name'+inst.name.to_uri());
+    console.log('name'+inst.getName().toUri());
 };
