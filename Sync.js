@@ -93,7 +93,7 @@ ChronoSync.prototype.onData = function(inst,co){
     this.sendChatInterest(content);
     var n = new Name(this.prefix+this.chatroom+'/'+this.digest_tree.root);
     var template = new Interest();
-    template.interestLifetime = sync_lifetime;
+    template.setInterestLifetimeMilliseconds(sync_lifetime);
     face.expressInterest(n, template, this.onData.bind(this), this.syncTimeout.bind(this));
     console.log("Syncinterest expressed:");
     console.log(n.toUri());
@@ -172,7 +172,7 @@ ChronoSync.prototype.sendRecovery=function(syncdigest_t){
     console.log("unknown digest: ")
     var n = new Name(this.prefix+this.chatroom+'/recovery/'+syncdigest_t);
     var template = new Interest();
-    template.interestLifetime = sync_lifetime;
+    template.setInterestLifetimeMilliseconds(sync_lifetime);
     face.expressInterest(n, template, this.onData.bind(this), this.syncTimeout.bind(this));
     console.log("Recovery Syncinterest expressed:"); 
     console.log(n.toUri());
@@ -199,7 +199,7 @@ ChronoSync.prototype.syncTimeout = function(interest) {
     if(component == this.digest_tree.root){
     var n = new Name(interest.getName());
     var template = new Interest();
-    template.interestLifetime = sync_lifetime;
+    template.setInterestLifetimeMilliseconds(sync_lifetime);
     face.expressInterest(n, template, this.onData.bind(this), this.syncTimeout.bind(this));
     console.log("Syncinterest expressed:");
     console.log(n.toUri());
@@ -273,7 +273,7 @@ ChronoSync.prototype.initialTimeOut = function(interest){
     this.digest_log.push(newlog);
     var n = new Name(this.prefix+this.chatroom+'/'+this.digest_tree.root);
     var template = new Interest();
-    template.interestLifetime = sync_lifetime;
+    template.setInterestLifetimeMilliseconds(sync_lifetime);
     face.expressInterest(n, template, this.onData.bind(this), this.syncTimeout.bind(this));
     console.log("Syncinterest expressed:");
     console.log(n.toUri());

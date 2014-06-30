@@ -18,9 +18,9 @@ function ChronoChat () {
     //Getting Routable Chat Name Prefix Through Auto Configure
         var n0 = new Name('/local/ndn/prefix');
     var template = new Interest();
-        template.interestLifetime = 1000;
-        template.childSelector = 1;
-        template.answerOriginKind = 0;
+        template.setInterestLifetimeMilliseconds(1000);
+        template.setChildSelector(1);
+        template.setAnswerOriginKind(0);
         face.expressInterest(n0, template, prefixData, prefixTimeOut);
 
     
@@ -49,8 +49,8 @@ function prefixData(inst,co){
     console.log('data prefix registered.');
     var n = new Name(sync.prefix+chatroom+'/00');
     var template = new Interest();
-    template.interestLifetime = 1000;
-    template.answerOriginKind = Interest.ANSWER_NO_CONTENT_STORE;
+    template.setInterestLifetimeMilliseconds(1000);
+    template.setAnswerOriginKind(Interest.ANSWER_NO_CONTENT_STORE);
     face.expressInterest(n, template, sync.onData.bind(sync), sync.initialTimeOut.bind(sync));
     console.log("initial sync express");
     console.log(n.toUri());

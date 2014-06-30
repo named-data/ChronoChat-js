@@ -61,7 +61,7 @@ Chat.prototype.sendInterest = function(content){
     for(var i = 0; i<sendlist.length;i++){
     var n = new Name(sendlist[i]+'/'+sessionlist[i]+'/'+seqlist[i]);///
     var template = new Interest();
-    template.interestLifetime = sync_lifetime;
+    template.setInterestLifetimeMilliseconds(sync_lifetime);
     face.expressInterest(n, template, this.onData.bind(this), this.chatTimeout.bind(this));
     console.log(n.toUri());
     console.log('Chat Interest expressed.');
@@ -207,7 +207,7 @@ Chat.prototype.heartbeat=function(){
     sync.digest_log.push(newlog);
     var n = new Name(sync.prefix+chatroom+'/'+sync.digest_tree.root);
     var template = new Interest();
-    template.interestLifetime = sync_lifetime;
+    template.setInterestLifetimeMilliseconds(sync_lifetime);
     face.expressInterest(n, template, sync.onData.bind(sync), sync.syncTimeout.bind(sync));                
     console.log('Heartbeat Interest expressed.');
         console.log(n.toUri());
@@ -251,7 +251,7 @@ Chat.prototype.SendMessage=function(){
         sync.digest_log.push(newlog);
         var n = new Name(sync.prefix+chatroom+'/'+sync.digest_tree.root);
         var template = new Interest();
-        template.interestLifetime = sync_lifetime;
+        template.setInterestLifetimeMilliseconds(sync_lifetime);
         face.expressInterest(n, template, sync.onData.bind(sync), sync.syncTimeout.bind(sync));           
         console.log('Sync Interest expressed.');
             console.log(n.toUri());
