@@ -74,7 +74,7 @@ Chat.prototype.onInterest = function(prefix, inst, transport){
     console.log('Chat Interest received in callback.');
     console.log(inst.name.to_uri());
     var content = {};
-    var seq = parseInt(DataUtils.toString(inst.name.components[6].getValue()));
+    var seq = parseInt(DataUtils.toString(inst.name.components[6].getValue().buf()));
     for(var i = this.msgcache.length-1;i>=0;i--){
         if(this.msgcache[i].seqno ==seq){
             if(this.msgcache[i].msgtype != 'CHAT')
@@ -112,8 +112,8 @@ Chat.prototype.onData = function(inst,co){
     var name = content.from;
     var name_t = co.name.to_uri().split('/');
     var prefix = '/'+name_t[1]+'/'+name_t[2]+'/'+name_t[3]+'/'+name_t[4]+'/'+name_t[5];
-    var session = DataUtils.toString(co.name.components[5].getValue());
-    var seqno = DataUtils.toString(co.name.components[6].getValue());
+    var session = DataUtils.toString(co.name.components[5].getValue().buf());
+    var seqno = DataUtils.toString(co.name.components[6].getValue().buf());
     var l = 0;
     //update roster
     while(l<this.roster.length){

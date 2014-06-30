@@ -38,9 +38,9 @@ ChronoSync.prototype.onInterest = function(prefix, inst, transport){
     //search if the digest is already exist in the digest log
     console.log('Sync Interest received in callback.');
     console.log(inst.name.to_uri());
-    var syncdigest = DataUtils.toString(inst.name.components[4].getValue());
+    var syncdigest = DataUtils.toString(inst.name.components[4].getValue().buf());
     if(inst.name.components.length == 6){
-        syncdigest = DataUtils.toString(inst.name.components[5].getValue());
+        syncdigest = DataUtils.toString(inst.name.components[5].getValue().buf());
     }
     if(inst.name.components.length == 6 || syncdigest == "00"){
     //Recovery interest or new comer interest
@@ -195,7 +195,7 @@ ChronoSync.prototype.judgeRecovery = function(syncdigest_t, transport){
 ChronoSync.prototype.syncTimeout = function(interest) {
     console.log("Sync Interest time out.");
     console.log('Sync Interest name: ' + interest.name.to_uri());
-    var component = DataUtils.toString(interest.name.components[4].getValue());
+    var component = DataUtils.toString(interest.name.components[4].getValue().buf());
     if(component == this.digest_tree.root){
     var n = new Name(interest.name);
     var template = new Interest();
