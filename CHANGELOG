@@ -1,3 +1,9 @@
+Interim changes after ChronoChat-js v0.2 (2014-07-15)
+-----------------------------------------------------
+
+Bug fixes
+* Fixed a bug in sorting the digest tree which affected recovery interests.
+
 ChronoChat-js v0.2 (2014-04-07)
 -------------------------------
 Changes

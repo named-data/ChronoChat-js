@@ -99,6 +99,8 @@ Digest_Tree.prototype.update = function (content,self) {
 };
 
 function sortdigestnode(node1,node2){
+    if (node1.prefix_name == node2.prefix_name && node1.seqno.session == node2.seqno.session)
+      return 0;
     if((node1.prefix_name>node2.prefix_name)||((node1.prefix_name == node2.prefix_name)&&node1.seqno.session>node2.seqno.session))
     return 1;
     else
