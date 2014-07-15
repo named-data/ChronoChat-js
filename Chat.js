@@ -14,7 +14,7 @@ var Chat = function Chat(){
 };
 
 //Initialization: push the JOIN message in to the msgcache, update roster and start heartbeat
-Chat.prototype.initial = function(seqno){
+Chat.prototype.initial = function() {
     var self = this;
     console.log("initial chat");
     var myVar = setInterval(function(){self.heartbeat();},60000);

@@ -223,7 +223,7 @@ ChronoSync.prototype.initialOndata = function(content){
         if(this.logfind(this.digest_tree.root)==-1){
             var newlog = {digest:this.digest_tree.root, data:content_t};
             this.digest_log.push(newlog);
-         this.InitialChat(this.usrseq);
+         this.InitialChat();
         }
         }
     }
@@ -256,7 +256,7 @@ ChronoSync.prototype.initialOndata = function(content){
     if(this.logfind(this.digest_tree.root)==-1){
         var newlog = {digest:this.digest_tree.root, data:content};
         this.digest_log.push(newlog);
-        this.InitialChat(this.usrseq);
+        this.InitialChat();
     }
     }
 };
@@ -267,7 +267,7 @@ ChronoSync.prototype.initialTimeOut = function(interest){
     console.log("no other people");
     this.digest_tree.initial(this);
     this.usrseq++;
-    this.InitialChat(this.usrseq);
+    this.InitialChat();
     var content = [new SyncState({name:this.chat_prefix,type:'UPDATE',seqno:{seq:this.usrseq,session:this.session}})];
     var newlog = {digest:this.digest_tree.root, data:content};
     this.digest_log.push(newlog);
