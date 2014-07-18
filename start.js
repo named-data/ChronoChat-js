@@ -15,29 +15,6 @@ function ChronoChat () {
     sync.digest_log.push({digest:"00",data:[]});
     face = new Face({host:hub});
 
-    //Getting Routable Chat Name Prefix Through Auto Configure
-        var n0 = new Name('/local/ndn/prefix');
-    var template = new Interest();
-        template.setInterestLifetimeMilliseconds(1000);
-        template.setChildSelector(1);
-        template.setAnswerOriginKind(0);
-        face.expressInterest(n0, template, prefixData, prefixTimeOut);
-
-    
-    console.log('Started...');
-    
-}
-
-//Enable sending msg by pressing 'Enter'
-function checkkey(event){
-    if(event.keyCode==13){
-    chat.SendMessage();
-    }
-}
-
-function prefixData(inst,co){
-    console.log("prefix ContentObject received in callback");
-    console.log('name'+co.getName().toUri());
     chat_prefix = new Name(hubPrefix).append(chatroom).append(prefix_name).toUri();
     sync.chat_prefix = chat_prefix;
     var n1 = new Name(sync.prefix+chatroom+'/');
@@ -54,10 +31,14 @@ function prefixData(inst,co){
     face.expressInterest(n, template, sync.onData.bind(sync), sync.initialTimeOut.bind(sync));
     console.log("initial sync express");
     console.log(n.toUri());
-     
+    
+    console.log('Started...');
+    
 }
 
-function prefixTimeOut(inst){
-    console.log("prefix Interest time out");
-    console.log('name'+inst.getName().toUri());
-};
+//Enable sending msg by pressing 'Enter'
+function checkkey(event){
+    if(event.keyCode==13){
+    chat.SendMessage();
+    }
+}
