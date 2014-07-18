@@ -74,7 +74,9 @@ Chat.prototype.onInterest = function(prefix, inst, transport){
     console.log('Chat Interest received in callback.');
     console.log(inst.getName().toUri());
     var content = {};
-    var seq = parseInt(DataUtils.toString(inst.getName().get(6).getValue().buf()));
+    // chat_prefix should really be saved as a name, not a URI string.
+    var chatPrefixSize = new Name(chat_prefix).size();
+    var seq = parseInt(DataUtils.toString(inst.getName().get(chatPrefixSize + 1).getValue().buf()));
     for(var i = this.msgcache.length-1;i>=0;i--){
         if(this.msgcache[i].seqno ==seq){
             if(this.msgcache[i].msgtype != 'CHAT')
@@ -110,10 +112,11 @@ Chat.prototype.onData = function(inst,co){
     if(temp-content.timestamp*1000<120000){
     var t = (new Date(content.timestamp*1000)).toLocaleTimeString();
     var name = content.from;
-    var name_t = co.getName().toUri().split('/');
-    var prefix = '/'+name_t[1]+'/'+name_t[2]+'/'+name_t[3]+'/'+name_t[4]+'/'+name_t[5];
-    var session = DataUtils.toString(co.getName().get(5).getValue().buf());
-    var seqno = DataUtils.toString(co.getName().get(6).getValue().buf());
+    // chat_prefix should really be saved as a name, not a URI string.
+    var chatPrefixSize = new Name(chat_prefix).size();
+    var prefix = co.getName().getPrefix(chatPrefixSize).toUri();
+    var session = DataUtils.toString(co.getName().get(chatPrefixSize + 0).getValue().buf());
+    var seqno = DataUtils.toString(co.getName().get(chatPrefixSize + 1).getValue().buf());
     var l = 0;
     //update roster
     while(l<this.roster.length){
