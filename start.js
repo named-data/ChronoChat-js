@@ -38,7 +38,7 @@ function checkkey(event){
 function prefixData(inst,co){
     console.log("prefix ContentObject received in callback");
     console.log('name'+co.getName().toUri());
-    chat_prefix = DataUtils.toString(co.getContent().buf()).trim()+'/'+chatroom+'/'+prefix_name;
+    chat_prefix = new Name(hubPrefix).append(chatroom).append(prefix_name).toUri();
     sync.chat_prefix = chat_prefix;
     var n1 = new Name(sync.prefix+chatroom+'/');
     face.registerPrefix(n1,sync.onInterest.bind(sync));

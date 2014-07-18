@@ -45,6 +45,15 @@ button
     font-family: 'Autour One', cursive;
     border-radius:3px;
 }
+#hubPrefix
+{
+    margin-top:10px;
+    width:200px;
+    height:20px;
+    font-size:15px;
+    font-family: 'Autour One', cursive;
+    border-radius:3px;
+}
 #chatroom
 {
     margin-top:10px;

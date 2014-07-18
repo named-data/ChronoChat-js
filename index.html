@@ -30,6 +30,7 @@
 
 var usrname;
 var screen_name;
+var hubPrefix;
 var session;
 var chat;
 var chatroom;
@@ -50,7 +51,8 @@ var specialnode ='/d0n0t18ak/t0ps8cr8t';
 $(document).ready(function(){
     $("#chat").hide();
     $("#login").click(function(){
-        screen_name = document.getElementById('name').value;
+    screen_name = document.getElementById('name').value;
+    hubPrefix = document.getElementById('hubPrefix').value;
     session = (new Date()).getTime();
     session = parseInt(session/1000);
         usrname = screen_name+session;
@@ -88,9 +90,11 @@ $(document).ready(function(){
   <div id="info">
     username: <input type="text" id="name" value="Enter Name">
     <br /><br />
+    hub prefix: <input type="text" id="hubPrefix" value="ndn/edu/ucla/remap">
+    <br /><br />
     chatroom: <input type="text" id="chatroom" value="ndnchat">
     <br /><br />
-    wshub: <input type="text" id="hub" style = "width:235px" value="borges.metwi.ucla.edu">
+    wshub: <input type="text" id="hub" style = "width:235px" value="aleph.ndn.ucla.edu">
   </div>
   <button id="login">login</button>
 </div>
