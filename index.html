@@ -1,8 +1,23 @@
 <!DOCTYPE HTML>
 <!--
-   Copyright (C) 2013 Regents of the University of California 
-   Authors:   Qiuhan Ding <dingqiuhan@gmail.com>, Wentao Shang <wentaoshang@gmail.com>
-   BSD License, see LICENSE file. 
+ * Copyright (C) 2013-2015 Regents of the University of California.
+ * @author: Qiuhan Ding <dingqiuhan@gmail.com>
+ * @author: Wentao Shang <wentaoshang@gmail.com>
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
 -->
 
 <html>
@@ -14,7 +29,7 @@
 <link href='http://fonts.googleapis.com/css?family=Quintessential' rel='stylesheet' type='text/css'>
 <link href='http://fonts.googleapis.com/css?family=Alegreya' rel='stylesheet' type='text/css'>
     <meta charset="utf-8">
-    
+
     <script src="ndn.js"></script>
     <script src="Sync.js"></script>
     <script src="digest_tree.js"></script>
@@ -51,23 +66,21 @@ var specialnode ='/d0n0t18ak/t0ps8cr8t';
 $(document).ready(function(){
     $("#chat").hide();
     $("#login").click(function(){
-    screen_name = document.getElementById('name').value;
-    hubPrefix = document.getElementById('hubPrefix').value;
-    session = (new Date()).getTime();
-    session = parseInt(session/1000);
+        screen_name = document.getElementById('name').value;
+        hubPrefix = document.getElementById('hubPrefix').value;
+        session = parseInt(new Date().getTime() / 1000);
         usrname = screen_name+session;
         chatroom = document.getElementById('chatroom').value;
         hub = document.getElementById('hub').value;
-        if(screen_name==""||chatroom==""){
+        if (screen_name == "" || chatroom == "")
             alert("input usrname and chatroom");
-        }
-        else{
-            alert(screen_name+", welcome to chatroom "+chatroom+"!");
+        else {
+            alert(screen_name + ", welcome to chatroom " + chatroom + "!");
             $("#log").hide();
             $("#login").hide();
             $("#chat").show();
-        document.getElementById('room').innerHTML = '<grey>Chatroom: </grey>'+'<b><green>'+chatroom+'</green></b>';
-        document.getElementById('room').innerHTML+= '<grey>  Username: </grey>'+'<b><green>'+screen_name+'</green></b>';
+            document.getElementById('room').innerHTML = '<grey>Chatroom: </grey>' + '<b><green>' + chatroom + '</green></b>';
+            document.getElementById('room').innerHTML += '<grey>  Username: </grey>' + '<b><green>' + screen_name + '</green></b>';
             document.getElementById('menu').innerHTML = '<p><b>Member</b></p>';
             ChronoChat();
         }
@@ -82,7 +95,7 @@ $(document).ready(function(){
 <div id="title" class="center">
   <h1><blue>Web</blue> ChronoChat</h1>
   <div id="footer">
-    <grey>Powered by </grey><a target="_blank" href="http://github.com/named-data/ndn-js"><blue>NDN.JS</blue></a><grey>.</grey>
+    <grey>Powered by </grey><a target="_blank" href="http://github.com/named-data/ndn-js"><blue>NDN-JS</blue></a><grey>.</grey>
   </div>
 </div>
 
@@ -103,7 +116,7 @@ $(document).ready(function(){
   <div style="width:850px">
     <div id="room"></div>
   </div>
-  
+
   <div id="chat">
     <div id="txt"></div>
     <div id="menu"></div>
