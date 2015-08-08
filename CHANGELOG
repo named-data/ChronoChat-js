@@ -1,11 +1,13 @@
-Interim changes after ChronoChat-js v0.2 (2014-07-15)
+ChronoChat-js v0.3 (2015-08-08)
 -----------------------------------------------------
 
-Bug fixes
-* Fixed a bug in sorting the digest tree which affected recovery interests.
+Changes
+* http://redmine.named-data.net/issues/3021 Updated to use ChronoSync2013 in NDN-JS.
+  It now works with NFD. Removed the local files to implement ChronoSync.
 
 ChronoChat-js v0.2 (2014-04-07)
 -------------------------------
+
 Changes
 * Upgrade to ndn-js v0.3 with the TLV wire format.
 
