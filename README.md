@@ -1,73 +1,56 @@
 ChronoChat-js
 =============
 
-ChronoChat-js is a javacript version of ChronoChat based on NDN-js and ChronoSync.
+ChronoChat-js is a javacript version of ChronoChat based on NDN-JS and ChronoSync.
 
 Get Started
 -----------
-
 ChronoChat-js does not require any installation. Just open the file: index.html in a browser, input user name, hub prefix and chatroom name, and then start chatting.
 
 You can also try the online demo at http://named-data.net/apps/live/chat/ .  (Try opening two browser tabs with different user names.)
 
-
-Namespace
----------
-Sync Interest:'/ndn/broadcast/ChronoChat-0.3/'+chatroom+/digest
-
-Chat Interest:local-prefix+/chatroom+/random-generated-name+/session-number+/seqno
-
+ChronoSync
+----------
+This uses the NDN-JS ChronoSync2013 protocol which is documented at http://named-data.net/doc/ndn-ccl-api/chrono-sync2013.html .
 
 File Structure
 --------------
+These are the major parts in the source code package:
 
-There are five major parts in the source code package:
+1. NDN-JS
 
-1.NDN.JS
+* ndn.js: The NDN-JS library source code, including ChronoSync2013.
 
-* ndn.js: NDN.JS library source code
+2. ChronoChat
 
-2.ChronoSync
+* chrono-chat.js: chat interest and data processing as well as other actions like leave and heartbeat.
 
-* Sync.js: sync interest and data processing
-* digest_tree.js: digest tree in ChronoSync
+3. Protobuf
 
-3.ChronoChat
+* chatbuf.js: The chat data packet format definition.
+* Protobuf/: The ProtoBuf.js library source code.
 
-* Chat.js: chat interest and data processing as well as other action like leave and heartbeat
-* start.js: initialization of the application
+4. Web page
 
-4.Protobuf
+* index.html: The web chat interface.
+* page.css: The css file of the web page.
 
-* sync_state.js: sync data packet format definition
-* chatbuf.js: chat data packet format definition
-* Protobuf/: the ProtoBuf.js library source code 
-
-5.Webpage
-
-* index.html: web chat interface
-* page.css: css file of the web page
-
-
-Dependencies
-------------
-
-ChronoChat-js uses ndn-js (https://github.com/named-data/ndn-js) and the ProtoBuf.js library (https://github.com/dcodeIO/ProtoBuf.js/).
-
-Notice
-------
-
+Notes
+-----
 ChronoChat-js currently does not perform any data authentication. The private key used to encrypt user data packets is hard-coded in ndn-js and shared by all the users on the Web.
 
+License
+-------
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Lesser General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
 
-ChronoSync API
---------------
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Lesser General Public License for more details.
 
-TBD.
-
-Original Authors
-----------------
-
-Qiuhan Ding: dingqiuhan@gmail.com
-
-Wentao Shang: wentaoshang@gmail.com
+You should have received a copy of the GNU Lesser General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+A copy of the GNU Lesser General Public License is in the file COPYING.
