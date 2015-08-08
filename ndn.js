@@ -1,6 +1,6 @@
 /**
- * Copyright (C) 2013-2014 Regents of the University of California.
- * @author: Wentao Shang
+ * Copyright (C) 2014-2015 Regents of the University of California.
+ * @author: Ryan Bennett
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -10,288 +10,87 @@
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
-// Library namespace
-var ndn = ndn || {};
+// define a shim require function so that a node/browserify require calls dont cause errors when ndn-js is used via <script> tag
 
+var ndn = ndn || {}
 var exports = ndn;
 
-var require = function(ignore) { return ndn; };
+var module = {}
+function require(){return ndn;}
+/**
+ * This module checks for the availability of various crypto.subtle api's at runtime,
+ * exporting a function that returns the known availability of necessary NDN crypto apis
+ * Copyright (C) 2014-2015 Regents of the University of California.
+ * @author: Ryan Bennett <nomad.ry@gmail.com>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
 
-// Factory method to create node.js compatible buffer objects
-var Buffer = function Buffer(data, format)
-{
-  var obj;
-
-  if (typeof data == 'number')
-    obj = new Uint8Array(data);
-  else if (typeof data == 'string') {
-    if (format == null || format == 'utf8') {
-      var utf8 = Buffer.str2rstr_utf8(data);
-      obj = new Uint8Array(utf8.length);
-      for (var i = 0; i < utf8.length; i++)
-        obj[i] = utf8.charCodeAt(i);
-    }
-    else if (format == 'binary') {
-      obj = new Uint8Array(data.length);
-      for (var i = 0; i < data.length; i++)
-        obj[i] = data.charCodeAt(i);
-    }
-    else if (format == 'hex') {
-      obj = new Uint8Array(Math.floor(data.length / 2));
-      var i = 0;
-      data.replace(/(..)/g, function(ss) {
-        obj[i++] = parseInt(ss, 16);
+function DetectSubtleCrypto(){
+  var use = false;
+  var baselineSupport = (
+                            (crypto && crypto.subtle)
+                            && (
+                                (location.protocol === "https:" || "chrome-extension:" || "chrome:")
+                                || (location.hostname === "localhost" || location.hostname === "127.0.0.1")
+                               )
+                        ) ? true : false ;
+  if (baselineSupport) {
+    var algo = { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, hash:{name:"SHA-256"}, publicExponent: new Uint8Array([0x01, 0x00, 0x01])};
+    var keypair;
+    //try to perform every RSA crypto operation we need, if everything works, set use = true
+    crypto.subtle.generateKey(
+      algo,
+      true, //exportable;
+      ["sign", "verify"]).then(function(key){
+        keypair = key;
+        return crypto.subtle.sign(algo, key.privateKey, new Uint8Array([1,2,3,4,5]));
+      }).then(function(signature){
+        return crypto.subtle.verify(algo, keypair.publicKey, signature, new Uint8Array([1,2,3,4,5]));
+      }).then(function(verified){
+        return crypto.subtle.exportKey("pkcs8",keypair.privateKey);
+      }).then(function(pkcs8){
+        return crypto.subtle.importKey("pkcs8", pkcs8, algo, true, ["sign"]);
+      }).then(function(importedKey){
+        return crypto.subtle.exportKey("spki", keypair.publicKey);
+      }).then(function(spki){
+        return crypto.subtle.importKey("spki", spki, algo, true, ["verify"]);
+      }).then(function(importedKey){
+        var testDigest = new Uint8Array([1,2,3,4,5]);
+        return crypto.subtle.digest({name:"SHA-256"}, testDigest.buffer);
+      }).then(function(result){
+        use = true;
+      }, function(err){
+        console.log("DetectSubtleCrypto encountered error, not using crypto.subtle: ", err)
       });
-    }
-    else if (format == 'base64') {
-      var hex = b64tohex(data);
-      obj = new Uint8Array(Math.floor(hex.length / 2));
-      var i = 0;
-      hex.replace(/(..)/g, function(ss) {
-        obj[i++] = parseInt(ss, 16);
-      });
-    }
-    else
-      throw new Error('Buffer: unknown encoding format ' + format);
   }
-  else if (typeof data == 'object' && data instanceof Uint8Array || Buffer.isBuffer(data)) {
-    // The second argument is a boolean for "copy", default true.
-    if (format == false)
-      obj = data.subarray(0);
-    else
-      obj = new Uint8Array(data);
+  return function useSubtleCrypto(){
+    return use;
   }
-  else if (typeof data == 'object' && data instanceof ArrayBuffer)
-    // Copy.
-    obj = new Uint8Array(data);
-  else if (typeof data == 'object')
-    // Assume component is a byte array.  We can't check instanceof Array because
-    //   this doesn't work in JavaScript if the array comes from a different module.
-    obj = new Uint8Array(data);
-  else
-    throw new Error('Buffer: unknown data type.');
+}
 
-  try {
-    obj.__proto__ = Buffer.prototype;
-  } catch(ex) {
-    throw new Error("Buffer: Set obj.__proto__ exception: " + ex);
-  }
+var UseSubtleCrypto = DetectSubtleCrypto();
 
-  obj.__proto__.toString = function(encoding) {
-    if (encoding == null || encoding == 'binary') {
-      var ret = "";
-      for (var i = 0; i < this.length; i++)
-        ret += String.fromCharCode(this[i]);
-      return ret;
-    }
-
-    var ret = "";
-    for (var i = 0; i < this.length; i++)
-      ret += (this[i] < 16 ? "0" : "") + this[i].toString(16);
-
-    if (encoding == 'hex')
-      return ret;
-    else if (encoding == 'base64')
-      return hex2b64(ret);
-    else
-      throw new Error('Buffer.toString: unknown encoding format ' + encoding);
-  };
-
-  obj.__proto__.slice = function(begin, end) {
-    if (end !== undefined)
-      return new Buffer(this.subarray(begin, end), false);
-    else
-      return new Buffer(this.subarray(begin), false);
-  };
-
-  obj.__proto__.copy = function(target, targetStart) {
-    if (targetStart !== undefined)
-      target.set(this, targetStart);
-    else
-      target.set(this);
-  };
-
-  return obj;
-};
-
-Buffer.prototype = Uint8Array.prototype;
-
-Buffer.isBuffer = function(obj)
-{
-  return typeof obj === 'object' && obj instanceof Buffer;
-};
-
-Buffer.concat = function(arrays)
-{
-  var totalLength = 0;
-  for (var i = 0; i < arrays.length; ++i)
-    totalLength += arrays[i].length;
-
-  var result = new Buffer(totalLength);
-  var offset = 0;
-  for (var i = 0; i < arrays.length; ++i) {
-    result.set(arrays[i], offset);
-    offset += arrays[i].length;
-  }
-  return result;
-};
-
-Buffer.str2rstr_utf8 = function(input)
-{
-  var output = "";
-  var i = -1;
-  var x, y;
-
-  while (++i < input.length)
-  {
-    // Decode utf-16 surrogate pairs
-    x = input.charCodeAt(i);
-    y = i + 1 < input.length ? input.charCodeAt(i + 1) : 0;
-    if (0xD800 <= x && x <= 0xDBFF && 0xDC00 <= y && y <= 0xDFFF)
-    {
-      x = 0x10000 + ((x & 0x03FF) << 10) + (y & 0x03FF);
-      i++;
-    }
-
-    // Encode output as utf-8
-    if (x <= 0x7F)
-      output += String.fromCharCode(x);
-    else if (x <= 0x7FF)
-      output += String.fromCharCode(0xC0 | ((x >>> 6 ) & 0x1F),
-                                    0x80 | ( x         & 0x3F));
-    else if (x <= 0xFFFF)
-      output += String.fromCharCode(0xE0 | ((x >>> 12) & 0x0F),
-                                    0x80 | ((x >>> 6 ) & 0x3F),
-                                    0x80 | ( x         & 0x3F));
-    else if (x <= 0x1FFFFF)
-      output += String.fromCharCode(0xF0 | ((x >>> 18) & 0x07),
-                                    0x80 | ((x >>> 12) & 0x3F),
-                                    0x80 | ((x >>> 6 ) & 0x3F),
-                                    0x80 | ( x         & 0x3F));
-  }
-  return output;
-};
-
-// Factory method to create hasher objects
-exports.createHash = function(alg)
-{
-  if (alg != 'sha256')
-    throw new Error('createHash: unsupported algorithm.');
-
-  var obj = {};
-
-  obj.md = new KJUR.crypto.MessageDigest({alg: "sha256", prov: "cryptojs"});
-
-  obj.update = function(buf) {
-    this.md.updateHex(buf.toString('hex'));
-  };
-
-  obj.digest = function() {
-    return new Buffer(this.md.digest(), 'hex');
-  };
-
-  return obj;
-};
-
-// Factory method to create RSA signer objects
-exports.createSign = function(alg)
-{
-  if (alg != 'RSA-SHA256')
-    throw new Error('createSign: unsupported algorithm.');
-
-  var obj = {};
-
-  obj.arr = [];
-
-  obj.update = function(buf) {
-    this.arr.push(buf);
-  };
-
-  obj.sign = function(keypem) {
-    var rsa = new RSAKey();
-    rsa.readPrivateKeyFromPEMString(keypem);
-    var signer = new KJUR.crypto.Signature({alg: "SHA256withRSA", prov: "cryptojs/jsrsa"});
-    signer.initSign(rsa);
-    for (var i = 0; i < this.arr.length; ++i)
-      signer.updateHex(this.arr[i].toString('hex'));
-
-    return new Buffer(signer.sign(), 'hex');
-  };
-
-  return obj;
-};
-
-// Factory method to create RSA verifier objects
-exports.createVerify = function(alg)
-{
-  if (alg != 'RSA-SHA256')
-    throw new Error('createSign: unsupported algorithm.');
-
-  var obj = {};
-
-  obj.arr = [];
-
-  obj.update = function(buf) {
-    this.arr.push(buf);
-  };
-
-  var getSubjectPublicKeyPosFromHex = function(hPub) {
-    var a = ASN1HEX.getPosArrayOfChildren_AtObj(hPub, 0);
-    if (a.length != 2)
-      return -1;
-    var pBitString = a[1];
-    if (hPub.substring(pBitString, pBitString + 2) != '03')
-      return -1;
-    var pBitStringV = ASN1HEX.getStartPosOfV_AtObj(hPub, pBitString);
-    if (hPub.substring(pBitStringV, pBitStringV + 2) != '00')
-      return -1;
-    return pBitStringV + 2;
-  };
-
-  var readPublicDER = function(pub_der) {
-    var hex = pub_der.toString('hex');
-    var p = getSubjectPublicKeyPosFromHex(hex);
-    var a = ASN1HEX.getPosArrayOfChildren_AtObj(hex, p);
-    if (a.length != 2)
-      return null;
-    var hN = ASN1HEX.getHexOfV_AtObj(hex, a[0]);
-    var hE = ASN1HEX.getHexOfV_AtObj(hex, a[1]);
-    var rsaKey = new RSAKey();
-    rsaKey.setPublic(hN, hE);
-    return rsaKey;
-  };
-
-  obj.verify = function(keypem, sig) {
-    var key = new ndn.Key();
-    key.fromPemString(keypem);
-
-    var rsa = readPublicDER(key.publicToDER());
-    var signer = new KJUR.crypto.Signature({alg: "SHA256withRSA", prov: "cryptojs/jsrsa"});
-    signer.initVerifyByPublicKey(rsa);
-    for (var i = 0; i < this.arr.length; i++)
-      signer.updateHex(this.arr[i].toString('hex'));
-    var hSig = sig.toString('hex');
-    return signer.verify(hSig);
-  };
-
-  return obj;
-};
-
-exports.randomBytes = function(size)
-{
-  // TODO: Use a cryptographic random number generator.
-  var result = new Buffer(size);
-  for (var i = 0; i < size; ++i)
-    result[i] = Math.floor(Math.random() * 256);
-  return result;
-};
+exports.UseSubtleCrypto = UseSubtleCrypto;
 /*
 CryptoJS v3.1.2
 code.google.com/p/crypto-js
@@ -1013,6 +812,9 @@ var CryptoJS = CryptoJS || (function (Math, undefined) {
 
     return C;
 }(Math));
+
+exports.CryptoJS = CryptoJS;
+module.exports = exports;
 /*
 CryptoJS v3.1.2
 code.google.com/p/crypto-js
@@ -1028,9 +830,10 @@ The above copyright notice and this permission notice shall be included in all c
 
 code.google.com/p/crypto-js/wiki/License
 */
+
+var C = require('./core.js').CryptoJS;
 (function (Math) {
     // Shortcuts
-    var C = CryptoJS;
     var C_lib = C.lib;
     var WordArray = C_lib.WordArray;
     var Hasher = C_lib.Hasher;
@@ -1207,6 +1010,9 @@ code.google.com/p/crypto-js/wiki/License
      */
     C.HmacSHA256 = Hasher._createHmacHelper(SHA256);
 }(Math));
+
+exports.CryptoJS = C;
+module.exports = exports;
 // Copyright (c) 2003-2009  Tom Wu
 // All Rights Reserved.
 // 
@@ -1223,8 +1029,13 @@ code.google.com/p/crypto-js/wiki/License
 // 
 // See "jrsasig-THIRDPARTYLICENSE.txt" for details.
 
-var b64map="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-var b64pad="=";
+var b64map="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+  , b64pad="="
+  , BI_RM = "0123456789abcdefghijklmnopqrstuvwxyz";
+
+function int2char(n) {
+  return BI_RM.charAt(n); 
+}
 
 function hex2b64(h) {
   var i;
@@ -1294,6 +1105,12 @@ function b64toBA(s) {
   }
   return a;
 }
+
+exports.b64tohex = b64tohex;
+exports.b64toBA  = b64toBA;
+exports.hex2b64  = hex2b64;
+
+module.exports = exports;
 // Copyright (c) 2003-2009  Tom Wu
 // All Rights Reserved.
 // 
@@ -1311,7 +1128,9 @@ function b64toBA(s) {
 // See "jrsasig-THIRDPARTYLICENSE.txt" for details.
 
 // Depends on jsbn.js and rng.js
+var intShim = require("jsbn");
 
+var BigInteger = intShim.BigInteger ? intShim.BigInteger : intShim ;
 // Version 1.1: support utf-8 encoding in pkcs1pad2
 
 // convert a (hex) string to a bignum object
@@ -1431,7 +1250,7 @@ function oaep_pad(s, n, hash)
 }
 
 // "empty" RSA key constructor
-function RSAKey() {
+var RSAKey = function RSAKey() {
   this.n = null;
   this.e = 0;
   this.d = null;
@@ -1496,6 +1315,10 @@ RSAKey.prototype.setPublic = RSASetPublic;
 RSAKey.prototype.encrypt = RSAEncrypt;
 RSAKey.prototype.encryptOAEP = RSAEncryptOAEP;
 //RSAKey.prototype.encrypt_b64 = RSAEncryptB64;
+
+
+exports.RSAKey = RSAKey;
+module.exports = exports;
 // Copyright (c) 2003-2009  Tom Wu
 // All Rights Reserved.
 // 
@@ -1514,6 +1337,14 @@ RSAKey.prototype.encryptOAEP = RSAEncryptOAEP;
 
 // Depends on rsa.js and jsbn2.js
 
+var intShim = require("jsbn");
+var BigInteger = intShim.BigInteger ? intShim.BigInteger : intShim ;
+var RSAKey = require('./rsa.js').RSAKey;
+
+
+function parseBigInt(str,r) {
+  return new BigInteger(str,r);
+}
 // Version 1.1: support utf-8 decoding in pkcs1unpad2
 
 // Undo PKCS#1 (type 2, random) padding and, if valid, return the plaintext
@@ -1755,6 +1586,9 @@ RSAKey.prototype.generate = RSAGenerate;
 RSAKey.prototype.decrypt = RSADecrypt;
 RSAKey.prototype.decryptOAEP = RSADecryptOAEP;
 //RSAKey.prototype.b64_decrypt = RSAB64Decrypt;
+
+exports.RSAKey = RSAKey;
+module.exports = exports;
 /*! crypto-1.0.4.js (c) 2013 Kenji Urushima | kjur.github.com/jsrsasign/license
  */
 /*
@@ -1784,6 +1618,15 @@ RSAKey.prototype.decryptOAEP = RSADecryptOAEP;
  * @since 2.2
  * @license <a href="http://kjur.github.io/jsrsasign/license/">MIT License</a>
  */
+
+var CryptoJS = require('./sha256.js').CryptoJS
+  , intShim = require('jsbn');
+
+var BigInteger = intShim.BigInteger ? intShim.BigInteger : intShim;
+
+function parseBigInt(str,r) {
+  return new BigInteger(str,r);
+}
 
 /** 
  * kjur's class library name space
@@ -2449,6 +2292,8 @@ KJUR.crypto.Signature = function(params) {
     }
 };
 
+exports.KJUR = KJUR;
+module.exports = exports;
 /*! rsapem-1.1.js (c) 2012 Kenji Urushima | kjur.github.com/jsrsasign/license
  */
 //
@@ -2482,6 +2327,9 @@ KJUR.crypto.Signature = function(params) {
 //   removing PEM header, PEM footer and space characters including
 //   new lines from PEM formatted RSA private key string.
 //
+var ASN1HEX = require('./asn1hex-1.1.js').ASN1HEX;
+var b64tohex = require('./base64.js').b64tohex;
+var RSAKey = require('./rsa2.js').RSAKey;
 
 /**
  * @fileOverview
@@ -2558,6 +2406,9 @@ function _rsapem_readPrivateKeyFromPEMString(keyPEM) {
 
 RSAKey.prototype.readPrivateKeyFromPEMString = _rsapem_readPrivateKeyFromPEMString;
 RSAKey.prototype.readPrivateKeyFromASN1HexString = _rsapem_readPrivateKeyFromASN1HexString;
+
+exports.RSAKey = RSAKey;
+module.exports = exports;
 /*! rsasign-1.2.2.js (c) 2012 Kenji Urushima | kjur.github.com/jsrsasign/license
  */
 //
@@ -2589,6 +2440,13 @@ RSAKey.prototype.readPrivateKeyFromASN1HexString = _rsapem_readPrivateKeyFromASN
 //   rsa.js
 //   rsa2.js
 //
+var intShim = require('jsbn');
+var BigInteger = intShim.BigInteger ? intShim.BigInteger : intShim;
+var RSAKey = require('./rsapem-1.1.js').RSAKey
+
+function parseBigInt(str,r) {
+  return new BigInteger(str,r);
+}
 
 // keysize / pmstrlen
 //  512 /  128
@@ -2957,6 +2815,9 @@ RSAKey.SALT_LEN_RECOVER = -2;
  * @class key of RSA public key algorithm
  * @description Tom Wu's RSA Key class and extension
  */
+
+exports.RSAKey = RSAKey;
+module.exports = exports;
 /*! asn1hex-1.1.js (c) 2012 Kenji Urushima | kjur.github.com/jsrsasign/license
  */
 //
@@ -2981,7 +2842,12 @@ RSAKey.SALT_LEN_RECOVER = -2;
 //
 // Depends on:
 //
+var intShim = require('jsbn')
 
+var BigInteger = intShim.BigInteger ? intShim.BigInteger : intShim;
+function parseBigInt(str,r) {
+  return new BigInteger(str,r);
+}
 // MEMO:
 //   f('3082025b02...', 2) ... 82025b ... 3bytes
 //   f('020100', 2) ... 01 ... 1byte
@@ -3236,7 +3102,7 @@ function _asnhex_getDecendantHexVByNthList(h, currentIndex, nthList) {
  * @see <a href="http://kjur.github.com/jsrsasigns/">'jwrsasign'(RSA Sign JavaScript Library) home page http://kjur.github.com/jsrsasign/</a>
  * @since 1.1
  */
-function ASN1HEX() {
+var ASN1HEX = function ASN1HEX() {
   return ASN1HEX;
 }
 
@@ -3252,6 +3118,9 @@ ASN1HEX.getNthChildIndex_AtObj = _asnhex_getNthChildIndex_AtObj;
 ASN1HEX.getDecendantIndexByNthList = _asnhex_getDecendantIndexByNthList;
 ASN1HEX.getDecendantHexVByNthList = _asnhex_getDecendantHexVByNthList;
 ASN1HEX.getDecendantHexTLVByNthList = _asnhex_getDecendantHexTLVByNthList;
+
+exports.ASN1HEX = ASN1HEX;
+module.exports = exports;
 /*! x509-1.1.js (c) 2012 Kenji Urushima | kjur.github.com/jsrsasign/license
  */
 // 
@@ -3281,6 +3150,9 @@ ASN1HEX.getDecendantHexTLVByNthList = _asnhex_getDecendantHexTLVByNthList;
 //   base64.js
 //   rsa.js
 //   asn1hex.js
+var b64tohex = require('./base64.js').b64tohex;
+var RSAKey = require('./rsa.js').RSAKey;
+var ASN1HEX = require('./asn1hex-1.1.js').ASN1HEX;
 
 /**
  * @fileOverview
@@ -3523,6 +3395,8 @@ X509.prototype.getSubjectString = _x509_getSubjectString;
 X509.prototype.getNotBefore = _x509_getNotBefore;
 X509.prototype.getNotAfter = _x509_getNotAfter;
 
+exports.X509 = X509;
+module.exports = exports;
 // Copyright (c) 2005  Tom Wu
 // All Rights Reserved.
 // 
@@ -3549,7 +3423,7 @@ var canary = 0xdeadbeefcafe;
 var j_lm = ((canary&0xffffff)==0xefcafe);
 
 // (public) Constructor
-function BigInteger(a,b,c) {
+var BigInteger = function BigInteger(a,b,c) {
   if(a != null)
     if("number" == typeof a) this.fromNumber(a,b,c);
     else if(b == null && "string" != typeof a) this.fromString(a,256);
@@ -4762,8 +4636,1550 @@ BigInteger.prototype.square = bnSquare;
 // int hashCode()
 // long longValue()
 // static BigInteger valueOf(long val)
+
+exports.BigInteger = BigInteger;
+module.exports = exports;
 /**
- * Copyright (C) 2013-2014 Regents of the University of California.
+ * Copyright (C) 2013-2015 Regents of the University of California.
+ * @author: Wentao Shang
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+var ASN1HEX = require('../contrib/securityLib/asn1hex-1.1.js').ASN1HEX
+var KJUR = require('../contrib/securityLib/crypto-1.0.js').KJUR
+var RSAKey = require('../contrib/securityLib/rsasign-1.2.js').RSAKey
+var b64tohex = require('../contrib/securityLib/base64.js').b64tohex
+
+// Library namespace
+var ndn = ndn || {};
+ndn.Key = require("./key.js").Key
+
+var exports = ndn;
+
+
+// Factory method to create hasher objects
+exports.createHash = function(alg)
+{
+  if (alg != 'sha256')
+    throw new Error('createHash: unsupported algorithm.');
+
+  var obj = {};
+
+  obj.md = new KJUR.crypto.MessageDigest({alg: "sha256", prov: "cryptojs"});
+
+  obj.update = function(buf) {
+    this.md.updateHex(buf.toString('hex'));
+  };
+
+  obj.digest = function(encoding) {
+    var hexDigest = this.md.digest();
+    if (encoding == 'hex')
+      return hexDigest;
+    else
+      return new Buffer(hexDigest, 'hex');
+  };
+
+  return obj;
+};
+
+// Factory method to create RSA signer objects
+exports.createSign = function(alg)
+{
+  if (alg != 'RSA-SHA256')
+    throw new Error('createSign: unsupported algorithm.');
+
+  var obj = {};
+
+  obj.arr = [];
+
+  obj.update = function(buf) {
+    this.arr.push(buf);
+  };
+
+  obj.sign = function(keypem) {
+    var rsa = new RSAKey();
+    rsa.readPrivateKeyFromPEMString(keypem);
+    var signer = new KJUR.crypto.Signature({alg: "SHA256withRSA", prov: "cryptojs/jsrsa"});
+    signer.initSign(rsa);
+    for (var i = 0; i < this.arr.length; ++i)
+      signer.updateHex(this.arr[i].toString('hex'));
+
+    return new Buffer(signer.sign(), 'hex');
+  };
+
+  return obj;
+};
+
+// Factory method to create RSA verifier objects
+exports.createVerify = function(alg)
+{
+  if (alg != 'RSA-SHA256')
+    throw new Error('createSign: unsupported algorithm.');
+
+  var obj = {};
+
+  obj.arr = [];
+
+  obj.update = function(buf) {
+    this.arr.push(buf);
+  };
+
+  var getSubjectPublicKeyPosFromHex = function(hPub) {
+    var a = ASN1HEX.getPosArrayOfChildren_AtObj(hPub, 0);
+    if (a.length != 2)
+      return -1;
+    var pBitString = a[1];
+    if (hPub.substring(pBitString, pBitString + 2) != '03')
+      return -1;
+    var pBitStringV = ASN1HEX.getStartPosOfV_AtObj(hPub, pBitString);
+    if (hPub.substring(pBitStringV, pBitStringV + 2) != '00')
+      return -1;
+    return pBitStringV + 2;
+  };
+
+  var publicKeyPemToDer = function(publicKeyPem) {
+    // Remove the '-----XXX-----' from the beginning and the end of the public
+    // key and also remove any \n in the public key string.
+    var lines = publicKeyPem.split('\n');
+    var pub = "";
+    for (var i = 1; i < lines.length - 1; i++)
+      pub += lines[i];
+    return new Buffer(pub, 'base64');
+  }
+
+  var readPublicDER = function(pub_der) {
+    var hex = pub_der.toString('hex');
+    var p = getSubjectPublicKeyPosFromHex(hex);
+    var a = ASN1HEX.getPosArrayOfChildren_AtObj(hex, p);
+    if (a.length != 2)
+      return null;
+    var hN = ASN1HEX.getHexOfV_AtObj(hex, a[0]);
+    var hE = ASN1HEX.getHexOfV_AtObj(hex, a[1]);
+    var rsaKey = new RSAKey();
+    rsaKey.setPublic(hN, hE);
+    return rsaKey;
+  };
+
+  obj.verify = function(keypem, sig) {
+    var rsa = readPublicDER(publicKeyPemToDer(keypem));
+    var signer = new KJUR.crypto.Signature({alg: "SHA256withRSA", prov: "cryptojs/jsrsa"});
+    signer.initVerifyByPublicKey(rsa);
+    for (var i = 0; i < this.arr.length; i++)
+      signer.updateHex(this.arr[i].toString('hex'));
+    var hSig = sig.toString('hex');
+    return signer.verify(hSig);
+  };
+
+  return obj;
+};
+
+exports.randomBytes = function(size)
+{
+  // TODO: Use a cryptographic random number generator.
+  var result = new Buffer(size);
+  for (var i = 0; i < size; ++i)
+    result[i] = Math.floor(Math.random() * 256);
+  return result;
+};
+
+// contrib/feross/buffer.js needs base64.toByteArray. Define it here so that
+// we don't have to include the entire base64 module.
+exports.toByteArray = function(str) {
+  var hex = b64tohex(str);
+  var result = [];
+  hex.replace(/(..)/g, function(ss) {
+    result.push(parseInt(ss, 16));
+  });
+  return result;
+};
+
+module.exports = exports
+// After this we include contrib/feross/buffer.js to define the Buffer class.
+var lookup = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+var base64js = {};
+
+;(function (exports) {
+	'use strict';
+
+  var Arr = (typeof Uint8Array !== 'undefined')
+    ? Uint8Array
+    : Array
+
+	var PLUS   = '+'.charCodeAt(0)
+	var SLASH  = '/'.charCodeAt(0)
+	var NUMBER = '0'.charCodeAt(0)
+	var LOWER  = 'a'.charCodeAt(0)
+	var UPPER  = 'A'.charCodeAt(0)
+
+	function decode (elt) {
+		var code = elt.charCodeAt(0)
+		if (code === PLUS)
+			return 62 // '+'
+		if (code === SLASH)
+			return 63 // '/'
+		if (code < NUMBER)
+			return -1 //no match
+		if (code < NUMBER + 10)
+			return code - NUMBER + 26 + 26
+		if (code < UPPER + 26)
+			return code - UPPER
+		if (code < LOWER + 26)
+			return code - LOWER + 26
+	}
+
+	function b64ToByteArray (b64) {
+		var i, j, l, tmp, placeHolders, arr
+
+		if (b64.length % 4 > 0) {
+			throw new Error('Invalid string. Length must be a multiple of 4')
+		}
+
+		// the number of equal signs (place holders)
+		// if there are two placeholders, than the two characters before it
+		// represent one byte
+		// if there is only one, then the three characters before it represent 2 bytes
+		// this is just a cheap hack to not do indexOf twice
+		var len = b64.length
+		placeHolders = '=' === b64.charAt(len - 2) ? 2 : '=' === b64.charAt(len - 1) ? 1 : 0
+
+		// base64 is 4/3 + up to two characters of the original data
+		arr = new Arr(b64.length * 3 / 4 - placeHolders)
+
+		// if there are placeholders, only get up to the last complete 4 chars
+		l = placeHolders > 0 ? b64.length - 4 : b64.length
+
+		var L = 0
+
+		function push (v) {
+			arr[L++] = v
+		}
+
+		for (i = 0, j = 0; i < l; i += 4, j += 3) {
+			tmp = (decode(b64.charAt(i)) << 18) | (decode(b64.charAt(i + 1)) << 12) | (decode(b64.charAt(i + 2)) << 6) | decode(b64.charAt(i + 3))
+			push((tmp & 0xFF0000) >> 16)
+			push((tmp & 0xFF00) >> 8)
+			push(tmp & 0xFF)
+		}
+
+		if (placeHolders === 2) {
+			tmp = (decode(b64.charAt(i)) << 2) | (decode(b64.charAt(i + 1)) >> 4)
+			push(tmp & 0xFF)
+		} else if (placeHolders === 1) {
+			tmp = (decode(b64.charAt(i)) << 10) | (decode(b64.charAt(i + 1)) << 4) | (decode(b64.charAt(i + 2)) >> 2)
+			push((tmp >> 8) & 0xFF)
+			push(tmp & 0xFF)
+		}
+
+		return arr
+	}
+
+	function uint8ToBase64 (uint8) {
+		var i,
+			extraBytes = uint8.length % 3, // if we have 1 byte left, pad 2 bytes
+			output = "",
+			temp, length
+
+		function encode (num) {
+			return lookup.charAt(num)
+		}
+
+		function tripletToBase64 (num) {
+			return encode(num >> 18 & 0x3F) + encode(num >> 12 & 0x3F) + encode(num >> 6 & 0x3F) + encode(num & 0x3F)
+		}
+
+		// go through the array every three bytes, we'll deal with trailing stuff later
+		for (i = 0, length = uint8.length - extraBytes; i < length; i += 3) {
+			temp = (uint8[i] << 16) + (uint8[i + 1] << 8) + (uint8[i + 2])
+			output += tripletToBase64(temp)
+		}
+
+		// pad the end with zeros, but make sure to not forget the extra bytes
+		switch (extraBytes) {
+			case 1:
+				temp = uint8[uint8.length - 1]
+				output += encode(temp >> 2)
+				output += encode((temp << 4) & 0x3F)
+				output += '=='
+				break
+			case 2:
+				temp = (uint8[uint8.length - 2] << 8) + (uint8[uint8.length - 1])
+				output += encode(temp >> 10)
+				output += encode((temp >> 4) & 0x3F)
+				output += encode((temp << 2) & 0x3F)
+				output += '='
+				break
+		}
+
+		return output
+	}
+
+	exports.toByteArray = b64ToByteArray
+	exports.fromByteArray = uint8ToBase64
+})(base64js);
+var ieee = {};
+
+ieee.read = function(buffer, offset, isLE, mLen, nBytes) {
+  var e, m,
+      eLen = nBytes * 8 - mLen - 1,
+      eMax = (1 << eLen) - 1,
+      eBias = eMax >> 1,
+      nBits = -7,
+      i = isLE ? (nBytes - 1) : 0,
+      d = isLE ? -1 : 1,
+      s = buffer[offset + i];
+
+  i += d;
+
+  e = s & ((1 << (-nBits)) - 1);
+  s >>= (-nBits);
+  nBits += eLen;
+  for (; nBits > 0; e = e * 256 + buffer[offset + i], i += d, nBits -= 8);
+
+  m = e & ((1 << (-nBits)) - 1);
+  e >>= (-nBits);
+  nBits += mLen;
+  for (; nBits > 0; m = m * 256 + buffer[offset + i], i += d, nBits -= 8);
+
+  if (e === 0) {
+    e = 1 - eBias;
+  } else if (e === eMax) {
+    return m ? NaN : ((s ? -1 : 1) * Infinity);
+  } else {
+    m = m + Math.pow(2, mLen);
+    e = e - eBias;
+  }
+  return (s ? -1 : 1) * m * Math.pow(2, e - mLen);
+};
+
+ieee.write = function(buffer, value, offset, isLE, mLen, nBytes) {
+  var e, m, c,
+      eLen = nBytes * 8 - mLen - 1,
+      eMax = (1 << eLen) - 1,
+      eBias = eMax >> 1,
+      rt = (mLen === 23 ? Math.pow(2, -24) - Math.pow(2, -77) : 0),
+      i = isLE ? 0 : (nBytes - 1),
+      d = isLE ? 1 : -1,
+      s = value < 0 || (value === 0 && 1 / value < 0) ? 1 : 0;
+
+  value = Math.abs(value);
+
+  if (isNaN(value) || value === Infinity) {
+    m = isNaN(value) ? 1 : 0;
+    e = eMax;
+  } else {
+    e = Math.floor(Math.log(value) / Math.LN2);
+    if (value * (c = Math.pow(2, -e)) < 1) {
+      e--;
+      c *= 2;
+    }
+    if (e + eBias >= 1) {
+      value += rt / c;
+    } else {
+      value += rt * Math.pow(2, 1 - eBias);
+    }
+    if (value * c >= 2) {
+      e++;
+      c /= 2;
+    }
+
+    if (e + eBias >= eMax) {
+      m = 0;
+      e = eMax;
+    } else if (e + eBias >= 1) {
+      m = (value * c - 1) * Math.pow(2, mLen);
+      e = e + eBias;
+    } else {
+      m = value * Math.pow(2, eBias - 1) * Math.pow(2, mLen);
+      e = 0;
+    }
+  }
+
+  for (; mLen >= 8; buffer[offset + i] = m & 0xff, i += d, m /= 256, mLen -= 8);
+
+  e = (e << mLen) | m;
+  eLen += mLen;
+  for (; eLen > 0; buffer[offset + i] = e & 0xff, i += d, e /= 256, eLen -= 8);
+
+  buffer[offset + i - d] |= s * 128;
+};
+
+exports.ieee = ieee;
+/**
+ * The buffer module from node.js, for the browser.
+ * @author   Feross Aboukhadijeh <feross@feross.org> <http://feross.org>
+ *
+ * Copyright (C) 2013 Feross Aboukhadijeh, and other contributors.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * @license  MIT
+ */
+
+var base64 = base64js;
+var ieee754 = require('./ieee754.js').ieee
+
+exports.Buffer = Buffer
+exports.SlowBuffer = Buffer
+exports.INSPECT_MAX_BYTES = 50
+Buffer.poolSize = 8192
+
+/**
+ * If `Buffer._useTypedArrays`:
+ *   === true    Use Uint8Array implementation (fastest)
+ *   === false   Use Object implementation (compatible down to IE6)
+ */
+Buffer._useTypedArrays = (function () {
+  // Detect if browser supports Typed Arrays. Supported browsers are IE 10+, Firefox 4+,
+  // Chrome 7+, Safari 5.1+, Opera 11.6+, iOS 4.2+. If the browser does not support adding
+  // properties to `Uint8Array` instances, then that's the same as no `Uint8Array` support
+  // because we need to be able to add all the node Buffer API methods. This is an issue
+  // in Firefox 4-29. Now fixed: https://bugzilla.mozilla.org/show_bug.cgi?id=695438
+  try {
+    var buf = new ArrayBuffer(0)
+    var arr = new Uint8Array(buf)
+    arr.foo = function () { return 42 }
+    return 42 === arr.foo() &&
+        typeof arr.subarray === 'function' // Chrome 9-10 lack `subarray`
+  } catch (e) {
+    return false
+  }
+})()
+
+/**
+ * Class: Buffer
+ * =============
+ *
+ * The Buffer constructor returns instances of `Uint8Array` that are augmented
+ * with function properties for all the node `Buffer` API functions. We use
+ * `Uint8Array` so that square bracket notation works as expected -- it returns
+ * a single octet.
+ *
+ * By augmenting the instances, we can avoid modifying the `Uint8Array`
+ * prototype.
+ */
+function Buffer (subject, encoding, noZero) {
+  if (!(this instanceof Buffer))
+    return new Buffer(subject, encoding, noZero)
+
+  var type = typeof subject
+
+  // Workaround: node's base64 implementation allows for non-padded strings
+  // while base64-js does not.
+  if (encoding === 'base64' && type === 'string') {
+    subject = Buffer.stringtrim(subject)
+    while (subject.length % 4 !== 0) {
+      subject = subject + '='
+    }
+  }
+
+  // Find the length
+  var length
+  if (type === 'number')
+    length = Buffer.coerce(subject)
+  else if (type === 'string')
+    length = Buffer.byteLength(subject, encoding)
+  else if (type === 'object')
+    length = Buffer.coerce(subject.length) // assume that object is array-like
+  else
+    throw new Error('First argument needs to be a number, array or string.')
+
+  var buf
+  if (Buffer._useTypedArrays) {
+    // Preferred: Return an augmented `Uint8Array` instance for best performance
+    buf = Buffer._augment(new Uint8Array(length))
+  } else {
+    // Fallback: Return THIS instance of Buffer (created by `new`)
+    buf = this
+    buf.length = length
+    buf._isBuffer = true
+  }
+
+  var i
+  if (Buffer._useTypedArrays && typeof subject.byteLength === 'number') {
+    // Speed optimization -- use set if we're copying from a typed array
+    buf._set(subject)
+  } else if (Buffer.isArrayish(subject)) {
+    // Treat array-ish objects as a byte array
+    if (Buffer.isBuffer(subject)) {
+      for (i = 0; i < length; i++)
+        buf[i] = subject.readUInt8(i)
+    } else {
+      for (i = 0; i < length; i++)
+        buf[i] = ((subject[i] % 256) + 256) % 256
+    }
+  } else if (type === 'string') {
+    buf.write(subject, 0, encoding)
+  } else if (type === 'number' && !Buffer._useTypedArrays && !noZero) {
+    for (i = 0; i < length; i++) {
+      buf[i] = 0
+    }
+  }
+
+  return buf
+}
+
+// STATIC METHODS
+// ==============
+
+Buffer.isEncoding = function (encoding) {
+  switch (String(encoding).toLowerCase()) {
+    case 'hex':
+    case 'utf8':
+    case 'utf-8':
+    case 'ascii':
+    case 'binary':
+    case 'base64':
+    case 'raw':
+    case 'ucs2':
+    case 'ucs-2':
+    case 'utf16le':
+    case 'utf-16le':
+      return true
+    default:
+      return false
+  }
+}
+
+Buffer.isBuffer = function (b) {
+  return !!(b !== null && b !== undefined && b._isBuffer)
+}
+
+Buffer.byteLength = function (str, encoding) {
+  var ret
+  str = str.toString()
+  switch (encoding || 'utf8') {
+    case 'hex':
+      ret = str.length / 2
+      break
+    case 'utf8':
+    case 'utf-8':
+      ret = Buffer.utf8ToBytes(str).length
+      break
+    case 'ascii':
+    case 'binary':
+    case 'raw':
+      ret = str.length
+      break
+    case 'base64':
+      ret = Buffer.base64ToBytes(str).length
+      break
+    case 'ucs2':
+    case 'ucs-2':
+    case 'utf16le':
+    case 'utf-16le':
+      ret = str.length * 2
+      break
+    default:
+      throw new Error('Unknown encoding')
+  }
+  return ret
+}
+
+Buffer.concat = function (list, totalLength) {
+  Buffer.assert(Buffer.isArray(list), 'Usage: Buffer.concat(list[, length])')
+
+  if (list.length === 0) {
+    return new Buffer(0)
+  } else if (list.length === 1) {
+    return list[0]
+  }
+
+  var i
+  if (totalLength === undefined) {
+    totalLength = 0
+    for (i = 0; i < list.length; i++) {
+      totalLength += list[i].length
+    }
+  }
+
+  var buf = new Buffer(totalLength)
+  var pos = 0
+  for (i = 0; i < list.length; i++) {
+    var item = list[i]
+    item.copy(buf, pos)
+    pos += item.length
+  }
+  return buf
+}
+
+Buffer.compare = function (a, b) {
+  Buffer.assert(Buffer.isBuffer(a) && Buffer.isBuffer(b), 'Arguments must be Buffers')
+  var x = a.length
+  var y = b.length
+  for (var i = 0, len = Math.min(x, y); i < len && a[i] === b[i]; i++) {}
+  if (i !== len) {
+    x = a[i]
+    y = b[i]
+  }
+  if (x < y) {
+    return -1
+  }
+  if (y < x) {
+    return 1
+  }
+  return 0
+}
+
+// BUFFER INSTANCE METHODS
+// =======================
+
+Buffer.hexWrite = function(buf, string, offset, length) {
+  offset = Number(offset) || 0
+  var remaining = buf.length - offset
+  if (!length) {
+    length = remaining
+  } else {
+    length = Number(length)
+    if (length > remaining) {
+      length = remaining
+    }
+  }
+
+  // must be an even number of digits
+  var strLen = string.length
+  Buffer.assert(strLen % 2 === 0, 'Invalid hex string')
+
+  if (length > strLen / 2) {
+    length = strLen / 2
+  }
+  for (var i = 0; i < length; i++) {
+    var b = parseInt(string.substr(i * 2, 2), 16)
+    Buffer.assert(!isNaN(b), 'Invalid hex string')
+    buf[offset + i] = b
+  }
+  return i
+}
+
+Buffer.utf8Write = function(buf, string, offset, length) {
+  var charsWritten = Buffer.blitBuffer(Buffer.utf8ToBytes(string), buf, offset, length)
+  return charsWritten
+}
+
+Buffer.asciiWrite = function(buf, string, offset, length) {
+  var charsWritten = Buffer.blitBuffer(Buffer.asciiToBytes(string), buf, offset, length)
+  return charsWritten
+}
+
+Buffer.binaryWrite = function(buf, string, offset, length) {
+  return Buffer.asciiWrite(buf, string, offset, length)
+}
+
+Buffer.base64Write = function(buf, string, offset, length) {
+  var charsWritten = Buffer.blitBuffer(Buffer.base64ToBytes(string), buf, offset, length)
+  return charsWritten
+}
+
+Buffer.utf16leWrite = function(buf, string, offset, length) {
+  var charsWritten = Buffer.blitBuffer(Buffer.utf16leToBytes(string), buf, offset, length)
+  return charsWritten
+}
+
+Buffer.prototype.write = function (string, offset, length, encoding) {
+  // Support both (string, offset, length, encoding)
+  // and the legacy (string, encoding, offset, length)
+  if (isFinite(offset)) {
+    if (!isFinite(length)) {
+      encoding = length
+      length = undefined
+    }
+  } else {  // legacy
+    var swap = encoding
+    encoding = offset
+    offset = length
+    length = swap
+  }
+
+  offset = Number(offset) || 0
+  var remaining = this.length - offset
+  if (!length) {
+    length = remaining
+  } else {
+    length = Number(length)
+    if (length > remaining) {
+      length = remaining
+    }
+  }
+  encoding = String(encoding || 'utf8').toLowerCase()
+
+  var ret
+  switch (encoding) {
+    case 'hex':
+      ret = Buffer.hexWrite(this, string, offset, length)
+      break
+    case 'utf8':
+    case 'utf-8':
+      ret = Buffer.utf8Write(this, string, offset, length)
+      break
+    case 'ascii':
+      ret = Buffer.asciiWrite(this, string, offset, length)
+      break
+    case 'binary':
+      ret = Buffer.binaryWrite(this, string, offset, length)
+      break
+    case 'base64':
+      ret = Buffer.base64Write(this, string, offset, length)
+      break
+    case 'ucs2':
+    case 'ucs-2':
+    case 'utf16le':
+    case 'utf-16le':
+      ret = Buffer.utf16leWrite(this, string, offset, length)
+      break
+    default:
+      throw new Error('Unknown encoding')
+  }
+  return ret
+}
+
+Buffer.prototype.toString = function (encoding, start, end) {
+  var self = this
+
+  encoding = String(encoding || 'utf8').toLowerCase()
+  start = Number(start) || 0
+  end = (end === undefined) ? self.length : Number(end)
+
+  // Fastpath empty strings
+  if (end === start)
+    return ''
+
+  var ret
+  switch (encoding) {
+    case 'hex':
+      ret = Buffer.hexSlice(self, start, end)
+      break
+    case 'utf8':
+    case 'utf-8':
+      ret = Buffer.utf8Slice(self, start, end)
+      break
+    case 'ascii':
+      ret = Buffer.asciiSlice(self, start, end)
+      break
+    case 'binary':
+      ret = Buffer.binarySlice(self, start, end)
+      break
+    case 'base64':
+      ret = Buffer.base64Slice(self, start, end)
+      break
+    case 'ucs2':
+    case 'ucs-2':
+    case 'utf16le':
+    case 'utf-16le':
+      ret = utf16leSlice(self, start, end)
+      break
+    default:
+      throw new Error('Unknown encoding')
+  }
+  return ret
+}
+
+Buffer.prototype.toJSON = function () {
+  return {
+    type: 'Buffer',
+    data: Array.prototype.slice.call(this._arr || this, 0)
+  }
+}
+
+Buffer.prototype.equals = function (b) {
+  Buffer.assert(Buffer.isBuffer(b), 'Argument must be a Buffer')
+  return Buffer.compare(this, b) === 0
+}
+
+Buffer.prototype.compare = function (b) {
+  Buffer.assert(Buffer.isBuffer(b), 'Argument must be a Buffer')
+  return Buffer.compare(this, b)
+}
+
+// copy(targetBuffer, targetStart=0, sourceStart=0, sourceEnd=buffer.length)
+Buffer.prototype.copy = function (target, target_start, start, end) {
+  var source = this
+
+  if (!start) start = 0
+  if (!end && end !== 0) end = this.length
+  if (!target_start) target_start = 0
+
+  // Copy 0 bytes; we're done
+  if (end === start) return
+  if (target.length === 0 || source.length === 0) return
+
+  // Fatal error conditions
+  Buffer.assert(end >= start, 'sourceEnd < sourceStart')
+  Buffer.assert(target_start >= 0 && target_start < target.length,
+      'targetStart out of bounds')
+  Buffer.assert(start >= 0 && start < source.length, 'sourceStart out of bounds')
+  Buffer.assert(end >= 0 && end <= source.length, 'sourceEnd out of bounds')
+
+  // Are we oob?
+  if (end > this.length)
+    end = this.length
+  if (target.length - target_start < end - start)
+    end = target.length - target_start + start
+
+  var len = end - start
+
+  if (len < 100 || !Buffer._useTypedArrays) {
+    for (var i = 0; i < len; i++) {
+      target[i + target_start] = this[i + start]
+    }
+  } else {
+    target._set(this.subarray(start, start + len), target_start)
+  }
+}
+
+Buffer.base64Slice = function(buf, start, end) {
+  if (start === 0 && end === buf.length) {
+    return base64.fromByteArray(buf)
+  } else {
+    return base64.fromByteArray(buf.slice(start, end))
+  }
+}
+
+Buffer.utf8Slice = function(buf, start, end) {
+  var res = ''
+  var tmp = ''
+  end = Math.min(buf.length, end)
+
+  for (var i = start; i < end; i++) {
+    if (buf[i] <= 0x7F) {
+      res += Buffer.decodeUtf8Char(tmp) + String.fromCharCode(buf[i])
+      tmp = ''
+    } else {
+      tmp += '%' + buf[i].toString(16)
+    }
+  }
+
+  return res + Buffer.decodeUtf8Char(tmp)
+}
+
+Buffer.asciiSlice = function(buf, start, end) {
+  var ret = ''
+  end = Math.min(buf.length, end)
+
+  for (var i = start; i < end; i++) {
+    ret += String.fromCharCode(buf[i])
+  }
+  return ret
+}
+
+Buffer.binarySlice = function(buf, start, end) {
+  return Buffer.asciiSlice(buf, start, end)
+}
+
+Buffer.hexSlice = function(buf, start, end) {
+  var len = buf.length
+
+  if (!start || start < 0) start = 0
+  if (!end || end < 0 || end > len) end = len
+
+  var out = ''
+  for (var i = start; i < end; i++) {
+    out += Buffer.toHex(buf[i])
+  }
+  return out
+}
+
+function utf16leSlice (buf, start, end) {
+  var bytes = buf.slice(start, end)
+  var res = ''
+  for (var i = 0; i < bytes.length; i += 2) {
+    res += String.fromCharCode(bytes[i] + bytes[i + 1] * 256)
+  }
+  return res
+}
+
+Buffer.prototype.slice = function (start, end) {
+  var len = this.length
+  start = Buffer.clamp(start, len, 0)
+  end = Buffer.clamp(end, len, len)
+
+  if (Buffer._useTypedArrays) {
+    return Buffer._augment(this.subarray(start, end))
+  } else {
+    var sliceLen = end - start
+    var newBuf = new Buffer(sliceLen, undefined, true)
+    for (var i = 0; i < sliceLen; i++) {
+      newBuf[i] = this[i + start]
+    }
+    return newBuf
+  }
+}
+
+// `get` will be removed in Node 0.13+
+Buffer.prototype.get = function (offset) {
+  console.log('.get() is deprecated. Access using array indexes instead.')
+  return this.readUInt8(offset)
+}
+
+// `set` will be removed in Node 0.13+
+Buffer.prototype.set = function (v, offset) {
+  console.log('.set() is deprecated. Access using array indexes instead.')
+  return this.writeUInt8(v, offset)
+}
+
+Buffer.prototype.readUInt8 = function (offset, noAssert) {
+  if (!noAssert) {
+    Buffer.assert(offset !== undefined && offset !== null, 'missing offset')
+    Buffer.assert(offset < this.length, 'Trying to read beyond buffer length')
+  }
+
+  if (offset >= this.length)
+    return
+
+  return this[offset]
+}
+
+Buffer.readUInt16 = function(buf, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    Buffer.assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    Buffer.assert(offset !== undefined && offset !== null, 'missing offset')
+    Buffer.assert(offset + 1 < buf.length, 'Trying to read beyond buffer length')
+  }
+
+  var len = buf.length
+  if (offset >= len)
+    return
+
+  var val
+  if (littleEndian) {
+    val = buf[offset]
+    if (offset + 1 < len)
+      val |= buf[offset + 1] << 8
+  } else {
+    val = buf[offset] << 8
+    if (offset + 1 < len)
+      val |= buf[offset + 1]
+  }
+  return val
+}
+
+Buffer.prototype.readUInt16LE = function (offset, noAssert) {
+  return Buffer.readUInt16(this, offset, true, noAssert)
+}
+
+Buffer.prototype.readUInt16BE = function (offset, noAssert) {
+  return Buffer.readUInt16(this, offset, false, noAssert)
+}
+
+Buffer.readUInt32 = function(buf, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    Buffer.assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    Buffer.assert(offset !== undefined && offset !== null, 'missing offset')
+    Buffer.assert(offset + 3 < buf.length, 'Trying to read beyond buffer length')
+  }
+
+  var len = buf.length
+  if (offset >= len)
+    return
+
+  var val
+  if (littleEndian) {
+    if (offset + 2 < len)
+      val = buf[offset + 2] << 16
+    if (offset + 1 < len)
+      val |= buf[offset + 1] << 8
+    val |= buf[offset]
+    if (offset + 3 < len)
+      val = val + (buf[offset + 3] << 24 >>> 0)
+  } else {
+    if (offset + 1 < len)
+      val = buf[offset + 1] << 16
+    if (offset + 2 < len)
+      val |= buf[offset + 2] << 8
+    if (offset + 3 < len)
+      val |= buf[offset + 3]
+    val = val + (buf[offset] << 24 >>> 0)
+  }
+  return val
+}
+
+Buffer.prototype.readUInt32LE = function (offset, noAssert) {
+  return Buffer.readUInt32(this, offset, true, noAssert)
+}
+
+Buffer.prototype.readUInt32BE = function (offset, noAssert) {
+  return Buffer.readUInt32(this, offset, false, noAssert)
+}
+
+Buffer.prototype.readInt8 = function (offset, noAssert) {
+  if (!noAssert) {
+    Buffer.assert(offset !== undefined && offset !== null,
+        'missing offset')
+    Buffer.assert(offset < this.length, 'Trying to read beyond buffer length')
+  }
+
+  if (offset >= this.length)
+    return
+
+  var neg = this[offset] & 0x80
+  if (neg)
+    return (0xff - this[offset] + 1) * -1
+  else
+    return this[offset]
+}
+
+Buffer.readInt16 = function(buf, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    Buffer.assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    Buffer.assert(offset !== undefined && offset !== null, 'missing offset')
+    Buffer.assert(offset + 1 < buf.length, 'Trying to read beyond buffer length')
+  }
+
+  var len = buf.length
+  if (offset >= len)
+    return
+
+  var val = Buffer.readUInt16(buf, offset, littleEndian, true)
+  var neg = val & 0x8000
+  if (neg)
+    return (0xffff - val + 1) * -1
+  else
+    return val
+}
+
+Buffer.prototype.readInt16LE = function (offset, noAssert) {
+  return Buffer.readInt16(this, offset, true, noAssert)
+}
+
+Buffer.prototype.readInt16BE = function (offset, noAssert) {
+  return Buffer.readInt16(this, offset, false, noAssert)
+}
+
+Buffer.readInt32 = function(buf, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    Buffer.assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    Buffer.assert(offset !== undefined && offset !== null, 'missing offset')
+    Buffer.assert(offset + 3 < buf.length, 'Trying to read beyond buffer length')
+  }
+
+  var len = buf.length
+  if (offset >= len)
+    return
+
+  var val = Buffer.readUInt32(buf, offset, littleEndian, true)
+  var neg = val & 0x80000000
+  if (neg)
+    return (0xffffffff - val + 1) * -1
+  else
+    return val
+}
+
+Buffer.prototype.readInt32LE = function (offset, noAssert) {
+  return Buffer.readInt32(this, offset, true, noAssert)
+}
+
+Buffer.prototype.readInt32BE = function (offset, noAssert) {
+  return Buffer.readInt32(this, offset, false, noAssert)
+}
+
+Buffer.readFloat = function(buf, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    Buffer.assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    Buffer.assert(offset + 3 < buf.length, 'Trying to read beyond buffer length')
+  }
+
+  return ieee754.read(buf, offset, littleEndian, 23, 4)
+}
+
+Buffer.prototype.readFloatLE = function (offset, noAssert) {
+  return Buffer.readFloat(this, offset, true, noAssert)
+}
+
+Buffer.prototype.readFloatBE = function (offset, noAssert) {
+  return Buffer.readFloat(this, offset, false, noAssert)
+}
+
+Buffer.readDouble = function(buf, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    Buffer.assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    Buffer.assert(offset + 7 < buf.length, 'Trying to read beyond buffer length')
+  }
+
+  return ieee754.read(buf, offset, littleEndian, 52, 8)
+}
+
+Buffer.prototype.readDoubleLE = function (offset, noAssert) {
+  return Buffer.readDouble(this, offset, true, noAssert)
+}
+
+Buffer.prototype.readDoubleBE = function (offset, noAssert) {
+  return Buffer.readDouble(this, offset, false, noAssert)
+}
+
+Buffer.prototype.writeUInt8 = function (value, offset, noAssert) {
+  if (!noAssert) {
+    Buffer.assert(value !== undefined && value !== null, 'missing value')
+    Buffer.assert(offset !== undefined && offset !== null, 'missing offset')
+    Buffer.assert(offset < this.length, 'trying to write beyond buffer length')
+    Buffer.verifuint(value, 0xff)
+  }
+
+  if (offset >= this.length) return
+
+  this[offset] = value
+  return offset + 1
+}
+
+Buffer.writeUInt16 = function(buf, value, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    Buffer.assert(value !== undefined && value !== null, 'missing value')
+    Buffer.assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    Buffer.assert(offset !== undefined && offset !== null, 'missing offset')
+    Buffer.assert(offset + 1 < buf.length, 'trying to write beyond buffer length')
+    Buffer.verifuint(value, 0xffff)
+  }
+
+  var len = buf.length
+  if (offset >= len)
+    return
+
+  for (var i = 0, j = Math.min(len - offset, 2); i < j; i++) {
+    buf[offset + i] =
+        (value & (0xff << (8 * (littleEndian ? i : 1 - i)))) >>>
+            (littleEndian ? i : 1 - i) * 8
+  }
+  return offset + 2
+}
+
+Buffer.prototype.writeUInt16LE = function (value, offset, noAssert) {
+  return Buffer.writeUInt16(this, value, offset, true, noAssert)
+}
+
+Buffer.prototype.writeUInt16BE = function (value, offset, noAssert) {
+  return Buffer.writeUInt16(this, value, offset, false, noAssert)
+}
+
+Buffer.writeUInt32 = function(buf, value, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    Buffer.assert(value !== undefined && value !== null, 'missing value')
+    Buffer.assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    Buffer.assert(offset !== undefined && offset !== null, 'missing offset')
+    Buffer.assert(offset + 3 < buf.length, 'trying to write beyond buffer length')
+    Buffer.verifuint(value, 0xffffffff)
+  }
+
+  var len = buf.length
+  if (offset >= len)
+    return
+
+  for (var i = 0, j = Math.min(len - offset, 4); i < j; i++) {
+    buf[offset + i] =
+        (value >>> (littleEndian ? i : 3 - i) * 8) & 0xff
+  }
+  return offset + 4
+}
+
+Buffer.prototype.writeUInt32LE = function (value, offset, noAssert) {
+  return Buffer.writeUInt32(this, value, offset, true, noAssert)
+}
+
+Buffer.prototype.writeUInt32BE = function (value, offset, noAssert) {
+  return Buffer.writeUInt32(this, value, offset, false, noAssert)
+}
+
+Buffer.prototype.writeInt8 = function (value, offset, noAssert) {
+  if (!noAssert) {
+    Buffer.assert(value !== undefined && value !== null, 'missing value')
+    Buffer.assert(offset !== undefined && offset !== null, 'missing offset')
+    Buffer.assert(offset < this.length, 'Trying to write beyond buffer length')
+    Buffer.verifsint(value, 0x7f, -0x80)
+  }
+
+  if (offset >= this.length)
+    return
+
+  if (value >= 0)
+    this.writeUInt8(value, offset, noAssert)
+  else
+    this.writeUInt8(0xff + value + 1, offset, noAssert)
+  return offset + 1
+}
+
+Buffer.writeInt16 = function(buf, value, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    Buffer.assert(value !== undefined && value !== null, 'missing value')
+    Buffer.assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    Buffer.assert(offset !== undefined && offset !== null, 'missing offset')
+    Buffer.assert(offset + 1 < buf.length, 'Trying to write beyond buffer length')
+    Buffer.verifsint(value, 0x7fff, -0x8000)
+  }
+
+  var len = buf.length
+  if (offset >= len)
+    return
+
+  if (value >= 0)
+    Buffer.writeUInt16(buf, value, offset, littleEndian, noAssert)
+  else
+    Buffer.writeUInt16(buf, 0xffff + value + 1, offset, littleEndian, noAssert)
+  return offset + 2
+}
+
+Buffer.prototype.writeInt16LE = function (value, offset, noAssert) {
+  return Buffer.writeInt16(this, value, offset, true, noAssert)
+}
+
+Buffer.prototype.writeInt16BE = function (value, offset, noAssert) {
+  return Buffer.writeInt16(this, value, offset, false, noAssert)
+}
+
+Buffer.writeInt32 = function(buf, value, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    Buffer.assert(value !== undefined && value !== null, 'missing value')
+    Buffer.assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    Buffer.assert(offset !== undefined && offset !== null, 'missing offset')
+    Buffer.assert(offset + 3 < buf.length, 'Trying to write beyond buffer length')
+    Buffer.verifsint(value, 0x7fffffff, -0x80000000)
+  }
+
+  var len = buf.length
+  if (offset >= len)
+    return
+
+  if (value >= 0)
+    Buffer.writeUInt32(buf, value, offset, littleEndian, noAssert)
+  else
+    Buffer.writeUInt32(buf, 0xffffffff + value + 1, offset, littleEndian, noAssert)
+  return offset + 4
+}
+
+Buffer.prototype.writeInt32LE = function (value, offset, noAssert) {
+  return Buffer.writeInt32(this, value, offset, true, noAssert)
+}
+
+Buffer.prototype.writeInt32BE = function (value, offset, noAssert) {
+  return Buffer.writeInt32(this, value, offset, false, noAssert)
+}
+
+Buffer.writeFloat = function(buf, value, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    Buffer.assert(value !== undefined && value !== null, 'missing value')
+    Buffer.assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    Buffer.assert(offset !== undefined && offset !== null, 'missing offset')
+    Buffer.assert(offset + 3 < buf.length, 'Trying to write beyond buffer length')
+    Buffer.verifIEEE754(value, 3.4028234663852886e+38, -3.4028234663852886e+38)
+  }
+
+  var len = buf.length
+  if (offset >= len)
+    return
+
+  ieee754.write(buf, value, offset, littleEndian, 23, 4)
+  return offset + 4
+}
+
+Buffer.prototype.writeFloatLE = function (value, offset, noAssert) {
+  return Buffer.writeFloat(this, value, offset, true, noAssert)
+}
+
+Buffer.prototype.writeFloatBE = function (value, offset, noAssert) {
+  return Buffer.writeFloat(this, value, offset, false, noAssert)
+}
+
+Buffer.writeDouble = function(buf, value, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    Buffer.assert(value !== undefined && value !== null, 'missing value')
+    Buffer.assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    Buffer.assert(offset !== undefined && offset !== null, 'missing offset')
+    Buffer.assert(offset + 7 < buf.length,
+        'Trying to write beyond buffer length')
+    Buffer.verifIEEE754(value, 1.7976931348623157E+308, -1.7976931348623157E+308)
+  }
+
+  var len = buf.length
+  if (offset >= len)
+    return
+
+  ieee754.write(buf, value, offset, littleEndian, 52, 8)
+  return offset + 8
+}
+
+Buffer.prototype.writeDoubleLE = function (value, offset, noAssert) {
+  return Buffer.writeDouble(this, value, offset, true, noAssert)
+}
+
+Buffer.prototype.writeDoubleBE = function (value, offset, noAssert) {
+  return Buffer.writeDouble(this, value, offset, false, noAssert)
+}
+
+// fill(value, start=0, end=buffer.length)
+Buffer.prototype.fill = function (value, start, end) {
+  if (!value) value = 0
+  if (!start) start = 0
+  if (!end) end = this.length
+
+  Buffer.assert(end >= start, 'end < start')
+
+  // Fill 0 bytes; we're done
+  if (end === start) return
+  if (this.length === 0) return
+
+  Buffer.assert(start >= 0 && start < this.length, 'start out of bounds')
+  Buffer.assert(end >= 0 && end <= this.length, 'end out of bounds')
+
+  var i
+  if (typeof value === 'number') {
+    for (i = start; i < end; i++) {
+      this[i] = value
+    }
+  } else {
+    var bytes = Buffer.utf8ToBytes(value.toString())
+    var len = bytes.length
+    for (i = start; i < end; i++) {
+      this[i] = bytes[i % len]
+    }
+  }
+
+  return this
+}
+
+Buffer.prototype.inspect = function () {
+  var out = []
+  var len = this.length
+  for (var i = 0; i < len; i++) {
+    out[i] = Buffer.toHex(this[i])
+    if (i === exports.INSPECT_MAX_BYTES) {
+      out[i + 1] = '...'
+      break
+    }
+  }
+  return '<Buffer ' + out.join(' ') + '>'
+}
+
+/**
+ * Creates a new `ArrayBuffer` with the *copied* memory of the buffer instance.
+ * Added in Node 0.12. Only available in browsers that support ArrayBuffer.
+ */
+Buffer.prototype.toArrayBuffer = function () {
+  if (typeof Uint8Array !== 'undefined') {
+    if (Buffer._useTypedArrays) {
+      return (new Buffer(this)).buffer
+    } else {
+      var buf = new Uint8Array(this.length)
+      for (var i = 0, len = buf.length; i < len; i += 1) {
+        buf[i] = this[i]
+      }
+      return buf.buffer
+    }
+  } else {
+    throw new Error('Buffer.toArrayBuffer not supported in this browser')
+  }
+}
+
+// HELPER FUNCTIONS
+// ================
+
+var BP = Buffer.prototype
+
+/**
+ * Augment a Uint8Array *instance* (not the Uint8Array class!) with Buffer methods
+ */
+Buffer._augment = function (arr) {
+  arr._isBuffer = true
+
+  // save reference to original Uint8Array get/set methods before overwriting
+  arr._get = arr.get
+  arr._set = arr.set
+
+  // deprecated, will be removed in node 0.13+
+  arr.get = BP.get
+  arr.set = BP.set
+
+  arr.write = BP.write
+  arr.toString = BP.toString
+  arr.toLocaleString = BP.toString
+  arr.toJSON = BP.toJSON
+  arr.equals = BP.equals
+  arr.compare = BP.compare
+  arr.copy = BP.copy
+  arr.slice = BP.slice
+  arr.readUInt8 = BP.readUInt8
+  arr.readUInt16LE = BP.readUInt16LE
+  arr.readUInt16BE = BP.readUInt16BE
+  arr.readUInt32LE = BP.readUInt32LE
+  arr.readUInt32BE = BP.readUInt32BE
+  arr.readInt8 = BP.readInt8
+  arr.readInt16LE = BP.readInt16LE
+  arr.readInt16BE = BP.readInt16BE
+  arr.readInt32LE = BP.readInt32LE
+  arr.readInt32BE = BP.readInt32BE
+  arr.readFloatLE = BP.readFloatLE
+  arr.readFloatBE = BP.readFloatBE
+  arr.readDoubleLE = BP.readDoubleLE
+  arr.readDoubleBE = BP.readDoubleBE
+  arr.writeUInt8 = BP.writeUInt8
+  arr.writeUInt16LE = BP.writeUInt16LE
+  arr.writeUInt16BE = BP.writeUInt16BE
+  arr.writeUInt32LE = BP.writeUInt32LE
+  arr.writeUInt32BE = BP.writeUInt32BE
+  arr.writeInt8 = BP.writeInt8
+  arr.writeInt16LE = BP.writeInt16LE
+  arr.writeInt16BE = BP.writeInt16BE
+  arr.writeInt32LE = BP.writeInt32LE
+  arr.writeInt32BE = BP.writeInt32BE
+  arr.writeFloatLE = BP.writeFloatLE
+  arr.writeFloatBE = BP.writeFloatBE
+  arr.writeDoubleLE = BP.writeDoubleLE
+  arr.writeDoubleBE = BP.writeDoubleBE
+  arr.fill = BP.fill
+  arr.inspect = BP.inspect
+  arr.toArrayBuffer = BP.toArrayBuffer
+
+  return arr
+}
+
+Buffer.stringtrim = function(str) {
+  if (str.trim) return str.trim()
+  return str.replace(/^\s+|\s+$/g, '')
+}
+
+// slice(start, end)
+Buffer.clamp = function(index, len, defaultValue) {
+  if (typeof index !== 'number') return defaultValue
+  index = ~~index;  // Coerce to integer.
+  if (index >= len) return len
+  if (index >= 0) return index
+  index += len
+  if (index >= 0) return index
+  return 0
+}
+
+Buffer.coerce = function(length) {
+  // Coerce length to a number (possibly NaN), round up
+  // in case it's fractional (e.g. 123.456) then do a
+  // double negate to coerce a NaN to 0. Easy, right?
+  length = ~~Math.ceil(+length)
+  return length < 0 ? 0 : length
+}
+
+Buffer.isArray = function(subject) {
+  return (Array.isArray || function (subject) {
+    return Object.prototype.toString.call(subject) === '[object Array]'
+  })(subject)
+}
+
+Buffer.isArrayish = function(subject) {
+  return Buffer.isArray(subject) || Buffer.isBuffer(subject) ||
+      subject && typeof subject === 'object' &&
+      typeof subject.length === 'number'
+}
+
+Buffer.toHex = function(n) {
+  if (n < 16) return '0' + n.toString(16)
+  return n.toString(16)
+}
+
+Buffer.utf8ToBytes = function(str) {
+  var byteArray = []
+  for (var i = 0; i < str.length; i++) {
+    var b = str.charCodeAt(i)
+    if (b <= 0x7F) {
+      byteArray.push(b)
+    } else {
+      var start = i
+      if (b >= 0xD800 && b <= 0xDFFF) i++
+      var h = encodeURIComponent(str.slice(start, i+1)).substr(1).split('%')
+      for (var j = 0; j < h.length; j++) {
+        byteArray.push(parseInt(h[j], 16))
+      }
+    }
+  }
+  return byteArray
+}
+
+Buffer.asciiToBytes = function(str) {
+  var byteArray = []
+  for (var i = 0; i < str.length; i++) {
+    // Node's code seems to be doing this and not & 0x7F..
+    byteArray.push(str.charCodeAt(i) & 0xFF)
+  }
+  return byteArray
+}
+
+Buffer.utf16leToBytes = function(str) {
+  var c, hi, lo
+  var byteArray = []
+  for (var i = 0; i < str.length; i++) {
+    c = str.charCodeAt(i)
+    hi = c >> 8
+    lo = c % 256
+    byteArray.push(lo)
+    byteArray.push(hi)
+  }
+
+  return byteArray
+}
+
+Buffer.base64ToBytes = function(str) {
+  return base64.toByteArray(str)
+}
+
+Buffer.blitBuffer = function(src, dst, offset, length) {
+  for (var i = 0; i < length; i++) {
+    if ((i + offset >= dst.length) || (i >= src.length))
+      break
+    dst[i + offset] = src[i]
+  }
+  return i
+}
+
+Buffer.decodeUtf8Char = function(str) {
+  try {
+    return decodeURIComponent(str)
+  } catch (err) {
+    return String.fromCharCode(0xFFFD) // UTF 8 invalid char
+  }
+}
+
+/*
+ * We have to make sure that the value is a valid integer. This means that it
+ * is non-negative. It has no fractional component and that it does not
+ * exceed the maximum allowed value.
+ */
+Buffer.verifuint = function(value, max) {
+  Buffer.assert(typeof value === 'number', 'cannot write a non-number as a number')
+  Buffer.assert(value >= 0, 'specified a negative value for writing an unsigned value')
+  Buffer.assert(value <= max, 'value is larger than maximum value for type')
+  Buffer.assert(Math.floor(value) === value, 'value has a fractional component')
+}
+
+Buffer.verifsint = function(value, max, min) {
+  Buffer.assert(typeof value === 'number', 'cannot write a non-number as a number')
+  Buffer.assert(value <= max, 'value larger than maximum allowed value')
+  Buffer.assert(value >= min, 'value smaller than minimum allowed value')
+  Buffer.assert(Math.floor(value) === value, 'value has a fractional component')
+}
+
+Buffer.verifIEEE754 = function(value, max, min) {
+  Buffer.assert(typeof value === 'number', 'cannot write a non-number as a number')
+  Buffer.assert(value <= max, 'value larger than maximum allowed value')
+  Buffer.assert(value >= min, 'value smaller than minimum allowed value')
+}
+
+Buffer.assert = function(test, message) {
+  if (!test) throw new Error(message || 'Failed assertion')
+}
+/**
+ * Copyright (C) 2013-2015 Regents of the University of California.
  * @author: Jeff Thompson <jefft0@remap.ucla.edu>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -4774,11 +6190,11 @@ BigInteger.prototype.square = bnSquare;
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 /**
@@ -4796,8 +6212,44 @@ exports.Log = Log;
  */
 Log.LOG = 0;
 /**
+ * Encapsulate a Buffer and support dynamic reallocation.
+ * Copyright (C) 2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+/**
+ * NdnCommon has static NDN utility methods and constants.
+ * @constructor
+ */
+var NdnCommon = {};
+
+exports.NdnCommon = NdnCommon;
+
+/**
+ * The practical limit of the size of a network-layer packet. If a packet is
+ * larger than this, the library or application MAY drop it. This constant is
+ * defined in this low-level class so that internal code can use it, but
+ * applications should use the static API method
+ * Face.getMaxNdnPacketSize() which is equivalent.
+ */
+NdnCommon.MAX_NDN_PACKET_SIZE = 8800;
+/**
  * This class contains all NDNx tags
- * Copyright (C) 2013-2014 Regents of the University of California.
+ * Copyright (C) 2013-2015 Regents of the University of California.
  * @author: Meki Cheraoui
  *
  * This program is free software: you can redistribute it and/or modify
@@ -4808,11 +6260,11 @@ Log.LOG = 0;
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 
@@ -4966,7 +6418,7 @@ var NDNProtocolDTagsStrings = [
 exports.NDNProtocolDTagsStrings = NDNProtocolDTagsStrings;
 /**
  * This class represents NDNTime Objects
- * Copyright (C) 2013-2014 Regents of the University of California.
+ * Copyright (C) 2013-2015 Regents of the University of California.
  * @author: Meki Cheraoui
  *
  * This program is free software: you can redistribute it and/or modify
@@ -4977,17 +6429,17 @@ exports.NDNProtocolDTagsStrings = NDNProtocolDTagsStrings;
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 var LOG = require('../log.js').Log.LOG;
 
 /**
- * @constructor
+ * @deprecated This is only used for NDNx support which is deprecated.
  */
 var NDNTime = function NDNTime(input)
 {
@@ -5010,7 +6462,7 @@ NDNTime.prototype.getJavascriptDate = function()
 };
 /**
  * This is the closure class for use in expressInterest to re express with exponential falloff.
- * Copyright (C) 2013-2014 Regents of the University of California.
+ * Copyright (C) 2013-2015 Regents of the University of California.
  * @author: Jeff Thompson <jefft0@remap.ucla.edu>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -5021,26 +6473,17 @@ NDNTime.prototype.getJavascriptDate = function()
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 var Closure = require('../closure.js').Closure;
 
 /**
- * Create a new ExponentialReExpressClosure where upcall responds to UPCALL_INTEREST_TIMED_OUT
- *   by expressing the interest again with double the interestLifetime. If the interesLifetime goes
- *   over maxInterestLifetime, then call callerClosure.upcall with UPCALL_INTEREST_TIMED_OUT.
- * When upcall is not UPCALL_INTEREST_TIMED_OUT, just call callerClosure.upcall.
- * @constructor
- * @param {Closure} callerClosure
- * @param {Object} settings if not null, an associative array with the following defaults:
- * {
- *   maxInterestLifetime: 16000 // milliseconds
- * }
+ * @deprecated Use ExponentialReExpress.makeOnTimeout().
  */
 var ExponentialReExpressClosure = function ExponentialReExpressClosure(callerClosure, settings)
 {
@@ -5084,6 +6527,97 @@ ExponentialReExpressClosure.prototype.upcall = function(kind, upcallInfo)
   }
 };
 /**
+ * This is the closure class for use in expressInterest to re express with exponential falloff.
+ * Copyright (C) 2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+/**
+ * An ExponentialReExpress is used by onTimeout to express the interest again
+ * with double the interestLifetime. See ExponentialReExpress.makeOnTimeout,
+ * which you should call instead of the private constructor.
+ * Create a new ExponentialReExpressClosure where upcall responds to UPCALL_INTEREST_TIMED_OUT
+ *   by expressing the interest again with double the interestLifetime. If the interesLifetime goes
+ *   over maxInterestLifetime, then call callerClosure.upcall with UPCALL_INTEREST_TIMED_OUT.
+ * When upcall is not UPCALL_INTEREST_TIMED_OUT, just call callerClosure.upcall.
+ */
+var ExponentialReExpress = function ExponentialReExpress
+  (face, onData, onTimeout, settings)
+{
+  settings = (settings || {});
+  this.face = face;
+  this.callerOnData = onData;
+  this.callerOnTimeout = onTimeout;
+
+  this.maxInterestLifetime = (settings.maxInterestLifetime || 16000);
+};
+
+exports.ExponentialReExpress = ExponentialReExpress;
+
+/**
+ * Return a callback to use in expressInterest for onTimeout which will express
+ * the interest again with double the interestLifetime. If the interesLifetime
+ * goes over maxInterestLifetime (see settings below), then call the provided
+ * onTimeout. If a Data packet is received, this calls the provided onData.
+ * Use it like this:
+ *   var onData = function() { ... };
+ *   var onTimeout = function() { ... };
+ *   face.expressInterest
+ *     (interest, onData,
+ *      ExponentialReExpress.makeOnTimeout(face, onData, onTimeout));
+ * @param {Face} face This calls face.expressInterest.
+ * @param {function} onData When a matching data packet is received, this calls
+ * onData(interest, data) where interest is the interest given to
+ * expressInterest and data is the received Data object. This is normally the
+ * same onData you initially passed to expressInterest.
+ * @param {function} onTimeout If the interesLifetime goes over
+ * maxInterestLifetime, this calls onTimeout(interest).
+ * @param {Object} settings (optional) If not null, an associative array with
+ * the following defaults:
+ * {
+ *   maxInterestLifetime: 16000 // milliseconds
+ * }
+ * @returns {function} The onTimeout callback to pass to expressInterest.
+ */
+ExponentialReExpress.makeOnTimeout = function(face, onData, onTimeout, settings)
+{
+  var reExpress = new ExponentialReExpress(face, onData, onTimeout, settings);
+  return function(interest) { reExpress.onTimeout(interest); };
+};
+
+ExponentialReExpress.prototype.onTimeout = function(interest)
+{
+  var interestLifetime = interest.getInterestLifetimeMilliseconds();
+  if (interestLifetime == null)
+    // Can't re-express.
+    return this.callerOnTimeout(interest);
+
+  var nextInterestLifetime = interestLifetime * 2;
+  if (nextInterestLifetime > this.maxInterestLifetime)
+    return this.callerOnTimeout(interest);
+
+  var nextInterest = interest.clone();
+  nextInterest.setInterestLifetimeMilliseconds(nextInterestLifetime);
+  var thisObject = this;
+  this.face.expressInterest
+    (nextInterest, this.callerOnData,
+     function(localInterest) { thisObject.onTimeout(localInterest); });
+};
+/**
  * Copyright (C) 2013 Regents of the University of California.
  * @author: Jeff Thompson <jefft0@remap.ucla.edu>
  *
@@ -5095,11 +6629,11 @@ ExponentialReExpressClosure.prototype.upcall = function(kind, upcallInfo)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 /**
@@ -5194,7 +6728,45 @@ Blob.prototype.toHex = function()
     return "";
   else
     return this.buffer.toString('hex');
-};/**
+};
+
+/**
+ * Decode the byte array as UTF8 and return the Unicode string.
+ * @return A unicode string, or "" if the buffer is null.
+ */
+Blob.prototype.toString = function()
+{
+  if (this.buffer == null)
+    return "";
+  else
+    return this.buffer.toString('utf8');
+};
+
+/**
+ * Check if the value of this Blob equals the other blob.
+ * @param {Blob} other The other Blob to check.
+ * @returns {boolean} if this isNull and other isNull or if the bytes of this
+ * blob equal the bytes of the other.
+ */
+Blob.prototype.equals = function(other)
+{
+  if (this.isNull())
+    return other.isNull();
+  else if (other.isNull())
+    return false;
+  else {
+    if (this.buffer.length != other.buffer.length)
+      return false;
+
+    for (var i = 0; i < this.buffer.length; ++i) {
+      if (this.buffer[i] != other.buffer[i])
+        return false;
+    }
+
+    return true;
+  }
+};
+/**
  * Copyright (C) 2013 Regents of the University of California.
  * @author: Jeff Thompson <jefft0@remap.ucla.edu>
  *
@@ -5206,11 +6778,11 @@ Blob.prototype.toHex = function()
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 var Blob = require('./blob.js').Blob;
@@ -5304,7 +6876,7 @@ SignedBlob.prototype.getSignedPortionEndOffset = function()
 };
 /**
  * Encapsulate a Buffer and support dynamic reallocation.
- * Copyright (C) 2013-2014 Regents of the University of California.
+ * Copyright (C) 2013-2015 Regents of the University of California.
  * @author: Jeff Thompson <jefft0@remap.ucla.edu>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -5315,11 +6887,11 @@ SignedBlob.prototype.getSignedPortionEndOffset = function()
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 /**
@@ -5363,6 +6935,7 @@ DynamicBuffer.prototype.ensureLength = function(length)
  * Copy the value to this.array at offset, reallocating if necessary.
  * @param {Buffer} value The buffer to copy.
  * @param {number} offset The offset in the buffer to start copying into.
+ * @returns {number} The new offset which is offset + value.length.
  */
 DynamicBuffer.prototype.copy = function(value, offset)
 {
@@ -5373,6 +6946,8 @@ DynamicBuffer.prototype.copy = function(value, offset)
   else
     // Need to make value a Buffer to copy.
     new Buffer(value).copy(this.array, offset);
+
+  return offset + value.length;
 };
 
 /**
@@ -5403,7 +6978,7 @@ DynamicBuffer.prototype.ensureLengthFromBack = function(length)
  * offsetFromBack bytes, then copy value into the array starting
  * offsetFromBack bytes from the back of the array.
  * @param {Buffer} value The buffer to copy.
- * @param {offsetFromBack} offset The offset from the back of the array to start
+ * @param {number} offsetFromBack The offset from the back of the array to start
  * copying.
  */
 DynamicBuffer.prototype.copyFromBack = function(value, offsetFromBack)
@@ -5420,17 +6995,100 @@ DynamicBuffer.prototype.copyFromBack = function(value, offsetFromBack)
 /**
  * Return this.array.slice(begin, end);
  * @param {number} begin The begin index for the slice.
- * @param {number} end The end index for the slice.
+ * @param {number} end (optional) The end index for the slice.
  * @returns {Buffer} The buffer slice.
  */
 DynamicBuffer.prototype.slice = function(begin, end)
 {
-  return this.array.slice(begin, end);
+  if (end == undefined)
+    return this.array.slice(begin);
+  else
+    return this.array.slice(begin, end);
+};
+/**
+ * Copyright (C) 2014-2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+/**
+ * A ChangeCounter keeps a target object whose change count is tracked by a
+ * local change count.  You can set to a new target which updates the local
+ * change count, and you can call checkChanged to check if the target (or one of
+ * the target's targets) has been changed. The target object must have a method
+ * getChangeCount.
+ *
+ * Create a new ChangeCounter to track the given target.  This sets the local
+ * change counter to target.getChangeCount().
+ * @param {object} target The target to track, as an object with the method
+ * getChangeCount().
+ * @constructor
+ */
+var ChangeCounter = function ChangeCounter(target)
+{
+  this.target = target;
+  this.changeCount = target.getChangeCount();
+};
+
+exports.ChangeCounter = ChangeCounter;
+
+/**
+ * Get the target object. If the target is changed, then checkChanged will
+ * detect it.
+ * @returns {object} The target, as an object with the method
+ * getChangeCount().
+ */
+ChangeCounter.prototype.get = function()
+{
+  return this.target;
+};
+
+/**
+ * Set the target to the given target. This sets the local change counter to
+ * target.getChangeCount().
+ * @param {object} target The target to track, as an object with the method
+ * getChangeCount().
+ */
+ChangeCounter.prototype.set = function(target)
+{
+  this.target = target;
+  this.changeCount = target.getChangeCount();
+};
+
+/**
+ * If the target's change count is different than the local change count, then
+ * update the local change count and return true. Otherwise return false,
+ * meaning that the target has not changed. This is useful since the target (or
+ * one of the target's targets) may be changed and you need to find out.
+ * @returns {boolean} True if the change count has been updated, false if not.
+ */
+ChangeCounter.prototype.checkChanged = function()
+{
+  var targetChangeCount = this.target.getChangeCount();
+  if (this.changeCount != targetChangeCount) {
+    this.changeCount = targetChangeCount;
+    return true;
+  }
+  else
+    return false;
 };
 /**
  * This class contains utilities to help parse the data
  *
- * Copyright (C) 2013-2014 Regents of the University of California.
+ * Copyright (C) 2013-2015 Regents of the University of California.
  * @author: Meki Cheraoui
  * @author: Jeff Thompson <jefft0@remap.ucla.edu>
  *
@@ -5442,20 +7100,18 @@ DynamicBuffer.prototype.slice = function(begin, end)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 /**
  * A DataUtils has static methods for converting data.
  * @constructor
  */
-var DataUtils = function DataUtils()
-{
-};
+var DataUtils = {};
 
 exports.DataUtils = DataUtils;
 
@@ -5705,7 +7361,8 @@ DataUtils.bigEndianToUnsignedInt = function(bytes)
 {
   var result = 0;
   for (var i = 0; i < bytes.length; ++i) {
-    result <<= 8;
+    // Multiply by 0x100 instead of shift by 8 because << is restricted to 32 bits.
+    result *= 0x100;
     result += bytes[i];
   }
   return result;
@@ -5728,7 +7385,8 @@ DataUtils.nonNegativeIntToBigEndian = function(value)
   while (value != 0) {
     ++i;
     result[size - i] = value & 0xff;
-    value >>= 8;
+    // Divide by 0x100 and floor instead of shift by 8 because >> is restricted to 32 bits.
+    value = Math.floor(value / 0x100);
   }
   return result.slice(size - i, size);
 };
@@ -5746,8 +7404,26 @@ DataUtils.shuffle = function(array)
     array[j] = temp;
   }
 };
+
 /**
- * Copyright (C) 2014 Regents of the University of California.
+ * Decode the base64-encoded private key PEM and return the binary DER.
+ * @param {string} The PEM-encoded private key.
+ * @returns {Buffer} The binary DER.
+ *
+ */
+DataUtils.privateKeyPemToDer = function(privateKeyPem)
+{
+  // Remove the '-----XXX-----' from the beginning and the end of the key and
+  // also remove any \n in the key string.
+  var lines = privateKeyPem.split('\n');
+  var privateKey = "";
+  for (var i = 1; i < lines.length - 1; i++)
+    privateKey += lines[i];
+
+  return new Buffer(privateKey, 'base64');
+};
+/**
+ * Copyright (C) 2014-2015 Regents of the University of California.
  * @author: Jeff Thompson <jefft0@remap.ucla.edu>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -5758,11 +7434,11 @@ DataUtils.shuffle = function(array)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 /**
@@ -5773,10 +7449,14 @@ DataUtils.shuffle = function(array)
  */
 function DecodingException(error)
 {
-  this.message = error.message;
-  // Copy lineNumber, etc. from where new Error was called.
-  for (var prop in error)
+  if (error) {
+    // Copy lineNumber, etc. from where new Error was called.
+    for (var prop in error)
       this[prop] = error[prop];
+    // Make sure these are copied.
+    this.message = error.message;
+    this.stack = error.stack;
+  }
 }
 DecodingException.prototype = new Error();
 DecodingException.prototype.name = "DecodingException";
@@ -5785,7 +7465,7 @@ exports.DecodingException = DecodingException;
 /**
  * This class is used to encode ndnb binary elements (blob, type/value pairs).
  *
- * Copyright (C) 2013-2014 Regents of the University of California.
+ * Copyright (C) 2013-2015 Regents of the University of California.
  * @author: Meki Cheraoui
  *
  * This program is free software: you can redistribute it and/or modify
@@ -5796,11 +7476,11 @@ exports.DecodingException = DecodingException;
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 var LOG = require('../log.js').Log.LOG;
@@ -6231,7 +7911,7 @@ BinaryXMLEncoder.prototype.getReducedOstream = function()
 /**
  * This class is used to decode ndnb binary elements (blob, type/value pairs).
  *
- * Copyright (C) 2013-2014 Regents of the University of California.
+ * Copyright (C) 2013-2015 Regents of the University of California.
  * @author: Meki Cheraoui
  *
  * This program is free software: you can redistribute it and/or modify
@@ -6242,11 +7922,11 @@ BinaryXMLEncoder.prototype.getReducedOstream = function()
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 var NDNProtocolDTags = require('../util/ndn-protoco-id-tags.js').NDNProtocolDTags;
@@ -6956,7 +8636,7 @@ BinaryXMLDecoder.prototype.seek = function(offset)
  * This class uses BinaryXMLDecoder to follow the structure of a ndnb binary element to
  * determine its end.
  *
- * Copyright (C) 2013-2014 Regents of the University of California.
+ * Copyright (C) 2013-2015 Regents of the University of California.
  * @author: Jeff Thompson <jefft0@remap.ucla.edu>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -6967,11 +8647,11 @@ BinaryXMLDecoder.prototype.seek = function(offset)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 var BinaryXMLDecoder = require('./binary-xml-decoder.js').BinaryXMLDecoder;
@@ -7159,7 +8839,7 @@ BinaryXMLStructureDecoder.prototype.seek = function(offset)
   this.offset = offset;
 };
 /**
- * Copyright (C) 2014 Regents of the University of California.
+ * Copyright (C) 2014-2015 Regents of the University of California.
  * @author: Jeff Thompson <jefft0@remap.ucla.edu>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -7170,11 +8850,11 @@ BinaryXMLStructureDecoder.prototype.seek = function(offset)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 /**
@@ -7228,8 +8908,49 @@ Tlv.StatusText =       140;
 
 Tlv.SignatureType_DigestSha256 = 0;
 Tlv.SignatureType_SignatureSha256WithRsa = 1;
+Tlv.SignatureType_SignatureSha256WithEcdsa = 3;
+
+Tlv.ContentType_Default = 0;
+Tlv.ContentType_Link =    1;
+Tlv.ContentType_Key =     2;
+
+Tlv.NfdCommand_ControlResponse = 101;
+Tlv.NfdCommand_StatusCode =      102;
+Tlv.NfdCommand_StatusText =      103;
+
+Tlv.ControlParameters_ControlParameters =   104;
+Tlv.ControlParameters_FaceId =              105;
+Tlv.ControlParameters_Uri =                 114;
+Tlv.ControlParameters_LocalControlFeature = 110;
+Tlv.ControlParameters_Origin =              111;
+Tlv.ControlParameters_Cost =                106;
+Tlv.ControlParameters_Flags =               108;
+Tlv.ControlParameters_Strategy =            107;
+Tlv.ControlParameters_ExpirationPeriod =    109;
+
+Tlv.LocalControlHeader_LocalControlHeader = 80;
+Tlv.LocalControlHeader_IncomingFaceId = 81;
+Tlv.LocalControlHeader_NextHopFaceId = 82;
+Tlv.LocalControlHeader_CachingPolicy = 83;
+Tlv.LocalControlHeader_NoCache = 96;
+
 /**
- * Copyright (C) 2014 Regents of the University of California.
+ * Strip off the lower 32 bits of x and divide by 2^32, returning the "high
+ * bytes" above 32 bits.  This is necessary because JavaScript << and >> are
+ * restricted to 32 bits.
+ * (This could be a general function, but we define it here so that the
+ * Tlv encoder/decoder is self-contained.)
+ * @param {number} x
+ * @returns {number}
+ */
+Tlv.getHighBytes = function(x)
+{
+  // Don't use floor because we expect the caller to use & and >> on the result
+  // which already strip off the fraction.
+  return (x - (x % 0x100000000)) / 0x100000000;
+};
+/**
+ * Copyright (C) 2014-2015 Regents of the University of California.
  * @author: Jeff Thompson <jefft0@remap.ucla.edu>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -7240,14 +8961,15 @@ Tlv.SignatureType_SignatureSha256WithRsa = 1;
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 var DynamicBuffer = require('../../util/dynamic-buffer.js').DynamicBuffer;
+var Tlv = require('./tlv.js').Tlv;
 
 /**
  * Create a new TlvEncoder with an initialCapacity for the encoding buffer.
@@ -7312,10 +9034,11 @@ TlvEncoder.prototype.writeVarNumber = function(varNumber)
     this.output.ensureLengthFromBack(this.length);
     var offset = this.output.array.length - this.length;
     this.output.array[offset] = 255;
-    this.output.array[offset + 1] = (varNumber >> 56) & 0xff;
-    this.output.array[offset + 2] = (varNumber >> 48) & 0xff;
-    this.output.array[offset + 3] = (varNumber >> 40) & 0xff;
-    this.output.array[offset + 4] = (varNumber >> 32) & 0xff;
+    var highBytes = Tlv.getHighBytes(varNumber);
+    this.output.array[offset + 1] = (highBytes >> 24) & 0xff;
+    this.output.array[offset + 2] = (highBytes >> 16) & 0xff;
+    this.output.array[offset + 3] = (highBytes >> 8)  & 0xff;
+    this.output.array[offset + 4] = (highBytes)       & 0xff;
     this.output.array[offset + 5] = (varNumber >> 24) & 0xff;
     this.output.array[offset + 6] = (varNumber >> 16) & 0xff;
     this.output.array[offset + 7] = (varNumber >> 8) & 0xff;
@@ -7337,23 +9060,19 @@ TlvEncoder.prototype.writeTypeAndLength = function(type, length)
 };
 
 /**
- * Write the type, then the length of the encoded value then encode value as a
- * non-negative integer and write it to this.output just before this.length from
- * the back. Advance this.length.
- * @param {number} type The type of the TLV.
+ * Write value as a non-negative integer and write it to this.output just before
+ * this.length from the back. Advance this.length.
  * @param {number} value The non-negative integer to encode.
  */
-TlvEncoder.prototype.writeNonNegativeIntegerTlv = function(type, value)
+TlvEncoder.prototype.writeNonNegativeInteger = function(value)
 {
   if (value < 0)
     throw new Error("TLV integer value may not be negative");
 
   // JavaScript doesn't distinguish int from float, so round.
-  value = Math.round(value)
+  value = Math.round(value);
 
-  // Write backwards.
-  var saveNBytes = this.length;
-  if (value < 253) {
+  if (value <= 0xff) {
     this.length += 1;
     this.output.ensureLengthFromBack(this.length);
     this.output.array[this.output.array.length - this.length] = value & 0xff;
@@ -7378,16 +9097,30 @@ TlvEncoder.prototype.writeNonNegativeIntegerTlv = function(type, value)
     this.length += 8;
     this.output.ensureLengthFromBack(this.length);
     var offset = this.output.array.length - this.length;
-    this.output.array[offset]     = (value >> 56) & 0xff;
-    this.output.array[offset + 1] = (value >> 48) & 0xff;
-    this.output.array[offset + 2] = (value >> 40) & 0xff;
-    this.output.array[offset + 3] = (value >> 32) & 0xff;
+    var highBytes = Tlv.getHighBytes(value);
+    this.output.array[offset]     = (highBytes >> 24) & 0xff;
+    this.output.array[offset + 1] = (highBytes >> 16) & 0xff;
+    this.output.array[offset + 2] = (highBytes >> 8)  & 0xff;
+    this.output.array[offset + 3] = (highBytes)       & 0xff;
     this.output.array[offset + 4] = (value >> 24) & 0xff;
     this.output.array[offset + 5] = (value >> 16) & 0xff;
     this.output.array[offset + 6] = (value >> 8) & 0xff;
     this.output.array[offset + 7] = value & 0xff;
   }
+};
 
+/**
+ * Write the type, then the length of the encoded value then encode value as a
+ * non-negative integer and write it to this.output just before this.length from
+ * the back. Advance this.length.
+ * @param {number} type The type of the TLV.
+ * @param {number} value The non-negative integer to encode.
+ */
+TlvEncoder.prototype.writeNonNegativeIntegerTlv = function(type, value)
+{
+  // Write backwards.
+  var saveNBytes = this.length;
+  this.writeNonNegativeInteger(value);
   this.writeTypeAndLength(type, this.length - saveNBytes);
 };
 
@@ -7447,7 +9180,7 @@ TlvEncoder.prototype.getOutput = function()
   return this.output.array.slice(this.output.array.length - this.length);
 };
 /**
- * Copyright (C) 2014 Regents of the University of California.
+ * Copyright (C) 2014-2015 Regents of the University of California.
  * @author: Jeff Thompson <jefft0@remap.ucla.edu>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -7458,11 +9191,11 @@ TlvEncoder.prototype.getOutput = function()
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 var DecodingException = require('../decoding-exception.js').DecodingException;
@@ -7487,7 +9220,7 @@ exports.TlvDecoder = TlvDecoder;
 TlvDecoder.prototype.readVarNumber = function()
 {
   // Assume array values are in the range 0 to 255.
-  firstOctet = this.input[this.offset];
+  var firstOctet = this.input[this.offset];
   this.offset += 1;
   if (firstOctet < 253)
     return firstOctet;
@@ -7504,6 +9237,7 @@ TlvDecoder.prototype.readVarNumber = function()
  */
 TlvDecoder.prototype.readExtendedVarNumber = function(firstOctet)
 {
+  var result;
   // This is a private function so we know firstOctet >= 253.
   if (firstOctet == 253) {
     result = ((this.input[this.offset] << 8) +
@@ -7511,17 +9245,21 @@ TlvDecoder.prototype.readExtendedVarNumber = function(firstOctet)
     this.offset += 2;
   }
   else if (firstOctet == 254) {
-    result = ((this.input[this.offset] << 24) +
+    // Use abs because << 24 can set the high bit of the 32-bit int making it negative.
+    result = (Math.abs(this.input[this.offset] << 24) +
           (this.input[this.offset + 1] << 16) +
           (this.input[this.offset + 2] << 8) +
            this.input[this.offset + 3]);
     this.offset += 4;
   }
   else {
-    result = ((this.input[this.offset] << 56) +
-          (this.input[this.offset + 1] << 48) +
-          (this.input[this.offset + 2] << 40) +
-          (this.input[this.offset + 3] << 32) +
+    // Get the high byte first because JavaScript << is restricted to 32 bits.
+    // Use abs because << 24 can set the high bit of the 32-bit int making it negative.
+    var highByte = Math.abs(this.input[this.offset] << 24) +
+                           (this.input[this.offset + 1] << 16) +
+                           (this.input[this.offset + 2] << 8) +
+                            this.input[this.offset + 3];
+    result = (highByte * 0x100000000 +
           (this.input[this.offset + 4] << 24) +
           (this.input[this.offset + 5] << 16) +
           (this.input[this.offset + 6] << 8) +
@@ -7546,11 +9284,11 @@ TlvDecoder.prototype.readTypeAndLength = function(expectedType)
 {
   var type = this.readVarNumber();
   if (type != expectedType)
-    throw new DecodingException("Did not get the expected TLV type");
+    throw new DecodingException(new Error("Did not get the expected TLV type"));
 
   var length = this.readVarNumber();
   if (this.offset + length > this.input.length)
-    throw new DecodingException("TLV length exceeds the buffer length");
+    throw new DecodingException(new Error("TLV length exceeds the buffer length"));
 
   return length;
 };
@@ -7595,12 +9333,12 @@ TlvDecoder.prototype.finishNestedTlvs = function(endOffset)
     this.offset += length;
 
     if (this.offset > this.input.length)
-      throw new DecodingException("TLV length exceeds the buffer length");
+      throw new DecodingException(new Error("TLV length exceeds the buffer length"));
   }
 
   if (this.offset != endOffset)
-    throw new DecodingException
-      ("TLV length does not equal the total length of the nested TLVs");
+    throw new DecodingException(new Error
+      ("TLV length does not equal the total length of the nested TLVs"));
 };
 
 /**
@@ -7646,21 +9384,25 @@ TlvDecoder.prototype.readNonNegativeInteger = function(length)
     result = ((this.input[this.offset] << 8) +
            this.input[this.offset + 1]);
   else if (length == 4)
-    result = ((this.input[this.offset] << 24) +
+    // Use abs because << 24 can set the high bit of the 32-bit int making it negative.
+    result = (Math.abs(this.input[this.offset] << 24) +
           (this.input[this.offset + 1] << 16) +
           (this.input[this.offset + 2] << 8) +
            this.input[this.offset + 3]);
-  else if (length == 8)
-    result = ((this.input[this.offset] << 56) +
-          (this.input[this.offset + 1] << 48) +
-          (this.input[this.offset + 2] << 40) +
-          (this.input[this.offset + 3] << 32) +
-          (this.input[this.offset + 4] << 24) +
+  else if (length == 8) {
+    // Use abs because << 24 can set the high bit of the 32-bit int making it negative.
+    var highByte = Math.abs(this.input[this.offset] << 24) +
+                       (this.input[this.offset + 1] << 16) +
+                       (this.input[this.offset + 2] << 8) +
+                        this.input[this.offset + 3];
+    result = (highByte * 0x100000000 +
+          Math.abs(this.input[this.offset + 4] << 24) +
           (this.input[this.offset + 5] << 16) +
           (this.input[this.offset + 6] << 8) +
            this.input[this.offset + 7]);
+  }
   else
-    throw new DecodingException("Invalid length for a TLV nonNegativeInteger");
+    throw new DecodingException(new Error("Invalid length for a TLV nonNegativeInteger"));
 
   this.offset += length;
   return result;
@@ -7783,7 +9525,7 @@ TlvDecoder.prototype.seek = function(offset)
   this.offset = offset;
 };
 /**
- * Copyright (C) 2014 Regents of the University of California.
+ * Copyright (C) 2014-2015 Regents of the University of California.
  * @author: Jeff Thompson <jefft0@remap.ucla.edu>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -7794,11 +9536,11 @@ TlvDecoder.prototype.seek = function(offset)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 var TlvDecoder = require('./tlv-decoder.js').TlvDecoder;
@@ -8004,7 +9746,7 @@ TlvStructureDecoder.prototype.seek = function(offset)
   this.offset = offset;
 };
 /**
- * Copyright (C) 2014 Regents of the University of California.
+ * Copyright (C) 2014-2015 Regents of the University of California.
  * @author: Jeff Thompson <jefft0@remap.ucla.edu>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -8015,11 +9757,11 @@ TlvStructureDecoder.prototype.seek = function(offset)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 var TlvEncoder = require('./tlv/tlv-encoder.js').TlvEncoder;
@@ -8095,13 +9837,6 @@ ProtobufTlv.decode = function(message, descriptor, input)
 {
   ProtobufTlv.establishField();
 
-  if (ProtobufTlv._Field === null) {
-    if (dcodeIO)
-      ProtobufTlv._Field = dcodeIO.ProtoBuf.Reflect.Message.Field;
-    else
-      ProtobufTlv._Field = require("protobufjs").Reflect.Message.Field;
-  }
-
   // If input is a blob, get its buf().
   var decodeBuffer = typeof input === 'object' && input instanceof Blob ?
                      input.buf() : input;
@@ -8149,8 +9884,14 @@ ProtobufTlv._encodeMessageValue = function(message, descriptor, encoder)
           throw new Error("ProtobufTlv::encode: ENUM value may not be negative");
         encoder.writeNonNegativeIntegerTlv(tlvType, value);
       }
-      else if (field.type.name == "bytes")
-        encoder.writeBlobTlv(tlvType, value.toBinary());
+      else if (field.type.name == "bytes") {
+        var buffer = value.toBuffer();
+        if (buffer.length == undefined)
+          // We are not running in Node.js, so assume we are using the dcodeIO
+          // browser implementation based on ArrayBuffer.
+          buffer = new Uint8Array(value.toArrayBuffer());
+        encoder.writeBlobTlv(tlvType, buffer);
+      }
       else if (field.type.name == "string")
         // Use Blob to convert.
         encoder.writeBlobTlv(tlvType, new Blob(value, false).buf());
@@ -8227,8 +9968,78 @@ ProtobufTlv._decodeFieldValue = function(field, tlvType, decoder, endOffset)
     throw new Error("ProtobufTlv.decode: Unknown field type");
 };
 /**
- * This class represents Interest Objects
- * Copyright (C) 2013-2014 Regents of the University of California.
+ * Copyright (C) 2014-2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ * @author: From code in ndn-cxx by Yingdi Yu <yingdi@cs.ucla.edu>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+var OID = function OID(oid)
+{
+  if (typeof oid === 'string') {
+    var splitString = oid.split(".");
+    this.oid = [];
+    for (var i = 0; i < splitString.length; ++i)
+      this.oid.push(parseInt(splitString[i]));
+  }
+  else
+    // Assume oid is an array of int.  Make a copy.
+    this.oid = oid.slice(0, oid.length);
+};
+
+exports.OID = OID;
+
+OID.prototype.getIntegerList = function()
+{
+  return this.oid;
+};
+
+OID.prototype.setIntegerList = function(oid)
+{
+  // Make a copy.
+  this.oid = oid.slice(0, oid.length);
+};
+
+OID.prototype.toString = function()
+{
+  var result = "";
+  for (var i = 0; i < this.oid.length; ++i) {
+    if (i !== 0)
+      result += ".";
+    result += this.oid[i];
+  }
+
+  return result;
+};
+
+OID.prototype.equals = function(other)
+{
+  if (!(other instanceof OID))
+    return false;
+  if (this.oid.length !== other.oid.length)
+    return false;
+
+  for (var i = 0; i < this.oid.length; ++i) {
+    if (this.oid[i] != other.oid[i])
+      return false;
+  }
+  return true;
+};
+/**
+ * Copyright (C) 2013-2015 Regents of the University of California.
  * @author: Jeff Thompson <jefft0@remap.ucla.edu>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -8239,11 +10050,11 @@ ProtobufTlv._decodeFieldValue = function(field, tlvType, decoder, endOffset)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 /**
@@ -8255,10 +10066,47 @@ var WireFormat = function WireFormat() {
 
 exports.WireFormat = WireFormat;
 
+/** NDNx support and binary XML (ccnb or ndnb) encoding is deprecated and code
+ * with throw an exception. To enable support while you upgrade your code to
+ * use NFD, set WireFormat.ENABLE_NDNX = true . NDNx support will be
+ * completely removed in an upcoming release.
+ */
+WireFormat.ENABLE_NDNX = false;
+
+/**
+ * Encode name and return the encoding.  Your derived class should override.
+ * @param {Name} name The Name to encode.
+ * @returns {Blob} A Blob containing the encoding.
+ * @throws Error This always throws an "unimplemented" error. The derived class should override.
+ */
+WireFormat.prototype.encodeName = function(name)
+{
+  throw new Error("encodeName is unimplemented in the base WireFormat class.  You should use a derived class.");
+};
+
+/**
+ * Decode input as a name and set the fields of the Name object.
+ * Your derived class should override.
+ * @param {Name} name The Name object whose fields are updated.
+ * @param {Buffer} input The buffer with the bytes to decode.
+ * @throws Error This always throws an "unimplemented" error. The derived class should override.
+ */
+WireFormat.prototype.decodeName = function(name, input)
+{
+  throw new Error("decodeName is unimplemented in the base WireFormat class.  You should use a derived class.");
+};
+
 /**
  * Encode interest and return the encoding.  Your derived class should override.
  * @param {Interest} interest The Interest to encode.
- * @returns {Blob} A Blob containing the encoding.
+ * @returns {object} An associative array with fields
+ * (encoding, signedPortionBeginOffset, signedPortionEndOffset) where encoding
+ * is a Blob containing the encoding, signedPortionBeginOffset is the offset in
+ * the encoding of the beginning of the signed portion, and
+ * signedPortionEndOffset is the offset in the encoding of the end of the signed
+ * portion. The signed portion starts from the first name component and ends
+ * just before the final name component (which is assumed to be a signature for
+ * a signed interest).
  * @throws Error This always throws an "unimplemented" error. The derived class should override.
  */
 WireFormat.prototype.encodeInterest = function(interest)
@@ -8271,6 +10119,13 @@ WireFormat.prototype.encodeInterest = function(interest)
  * Your derived class should override.
  * @param {Interest} interest The Interest object whose fields are updated.
  * @param {Buffer} input The buffer with the bytes to decode.
+ * @returns {object} An associative array with fields
+ * (signedPortionBeginOffset, signedPortionEndOffset) where
+ * signedPortionBeginOffset is the offset in the encoding of the beginning of
+ * the signed portion, and signedPortionEndOffset is the offset in the encoding
+ * of the end of the signed portion. The signed portion starts from the first
+ * name component and ends just before the final name component (which is
+ * assumed to be a signature for a signed interest).
  * @throws Error This always throws an "unimplemented" error. The derived class should override.
  */
 WireFormat.prototype.decodeInterest = function(interest, input)
@@ -8313,6 +10168,73 @@ WireFormat.prototype.decodeData = function(data, input)
 };
 
 /**
+ * Encode controlParameters and return the encoding.  Your derived class should
+ * override.
+ * @param {ControlParameters} controlParameters The ControlParameters object to
+ * encode.
+ * @returns {Blob} A Blob containing the encoding.
+ * @throws Error This always throws an "unimplemented" error. The derived class should override.
+ */
+WireFormat.prototype.encodeControlParameters = function(controlParameters)
+{
+  throw new Error("encodeControlParameters is unimplemented in the base WireFormat class.  You should use a derived class.");
+};
+
+/**
+ * Decode input as a controlParameters and set the fields of the
+ * controlParameters object. Your derived class should override.
+ * @param {ControlParameters} controlParameters The ControlParameters object
+ * whose fields are updated.
+ * @param {Buffer} input The buffer with the bytes to decode.
+ * @throws Error This always throws an "unimplemented" error. The derived class should override.
+ */
+WireFormat.prototype.decodeControlParameters = function(controlParameters, input)
+{
+  throw new Error("decodeControlParameters is unimplemented in the base WireFormat class.  You should use a derived class.");
+};
+
+/**
+ * Encode signature as a SignatureInfo and return the encoding. Your derived
+ * class should override.
+ * @param {Signature} signature An object of a subclass of Signature to encode.
+ * @returns {Blob} A Blob containing the encoding.
+ * @throws Error This always throws an "unimplemented" error. The derived class should override.
+ */
+WireFormat.prototype.encodeSignatureInfo = function(signature)
+{
+  throw new Error("encodeSignatureInfo is unimplemented in the base WireFormat class.  You should use a derived class.");
+};
+
+/**
+ * Decode signatureInfo as a signature info and signatureValue as the related
+ * SignatureValue, and return a new object which is a subclass of Signature.
+ * Your derived class should override.
+ * @param {Buffer} signatureInfo The buffer with the signature info bytes to
+ * decode.
+ * @param {Buffer} signatureValue The buffer with the signature value to decode.
+ * @returns {Signature} A new object which is a subclass of Signature.
+ * @throws Error This always throws an "unimplemented" error. The derived class should override.
+ */
+WireFormat.prototype.decodeSignatureInfoAndValue = function
+  (signatureInfo, signatureValue)
+{
+  throw new Error("decodeSignatureInfoAndValue is unimplemented in the base WireFormat class.  You should use a derived class.");
+};
+
+/**
+ * Encode the signatureValue in the Signature object as a SignatureValue (the
+ * signature bits) and return the encoding. Your derived class should override.
+ * @param {Signature} signature An object of a subclass of Signature with the
+ * signature value to encode.
+ * @returns {Blob} A Blob containing the encoding.
+ * @throws Error This always throws an "unimplemented" error. The derived class should override.
+ */
+WireFormat.prototype.encodeSignatureValue = function(signature)
+{
+  throw new Error("encodeSignatureValue is unimplemented in the base WireFormat class.  You should use a derived class.");
+};
+
+/**
  * Set the static default WireFormat used by default encoding and decoding
  * methods.
  * @param wireFormat {WireFormat} An object of a subclass of WireFormat.
@@ -8337,7 +10259,7 @@ WireFormat.getDefaultWireFormat = function()
 // to avoid problems with cycles of require.
 var TlvWireFormat = require('./tlv-wire-format.js').TlvWireFormat;
 /**
- * Copyright (C) 2013-2014 Regents of the University of California.
+ * Copyright (C) 2013-2015 Regents of the University of California.
  * @author: Jeff Thompson <jefft0@remap.ucla.edu>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -8348,17 +10270,19 @@ var TlvWireFormat = require('./tlv-wire-format.js').TlvWireFormat;
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 var DataUtils = require('./data-utils.js').DataUtils;
 var BinaryXMLStructureDecoder = require('./binary-xml-structure-decoder.js').BinaryXMLStructureDecoder;
 var Tlv = require('./tlv/tlv.js').Tlv;
 var TlvStructureDecoder = require('./tlv/tlv-structure-decoder.js').TlvStructureDecoder;
+var DecodingException = require('./decoding-exception.js').DecodingException;
+var NdnCommon = require('../util/ndn-common.js').NdnCommon;
 var LOG = require('../log.js').Log.LOG;
 
 /**
@@ -8385,35 +10309,45 @@ ElementReader.prototype.onReceivedData = function(/* Buffer */ data)
 {
   // Process multiple objects in the data.
   while (true) {
-    if (this.dataParts.length == 0) {
-      // This is the beginning of an element.  Check whether it is binaryXML or TLV.
-      if (data.length <= 0)
-        // Wait for more data.
-        return;
-
-      // The type codes for TLV Interest and Data packets are chosen to not
-      //   conflict with the first byte of a binary XML packet, so we can
-      //   just look at the first byte.
-      if (data[0] == Tlv.Interest || data[0] == Tlv.Data || data[0] == 0x80)
-        this.useTlv = true;
-      else
-        // Binary XML.
-        this.useTlv = false;
-    }
-
     var gotElementEnd;
     var offset;
-    if (this.useTlv) {
-      // Scan the input to check if a whole TLV object has been read.
-      this.tlvStructureDecoder.seek(0);
-      gotElementEnd = this.tlvStructureDecoder.findElementEnd(data);
-      offset = this.tlvStructureDecoder.getOffset();
-    }
-    else {
-      // Scan the input to check if a whole Binary XML object has been read.
-      this.binaryXmlStructureDecoder.seek(0);
-      gotElementEnd = this.binaryXmlStructureDecoder.findElementEnd(data);
-      offset = this.binaryXmlStructureDecoder.offset;
+
+    try {
+      if (this.dataParts.length == 0) {
+        // This is the beginning of an element.  Check whether it is binaryXML or TLV.
+        if (data.length <= 0)
+          // Wait for more data.
+          return;
+
+        // The type codes for TLV Interest and Data packets are chosen to not
+        //   conflict with the first byte of a binary XML packet, so we can
+        //   just look at the first byte.
+        if (data[0] == Tlv.Interest || data[0] == Tlv.Data || data[0] == 80 || data[0] == 100)
+          this.useTlv = true;
+        else
+          // Binary XML.
+          this.useTlv = false;
+      }
+
+      if (this.useTlv) {
+        // Scan the input to check if a whole TLV object has been read.
+        this.tlvStructureDecoder.seek(0);
+        gotElementEnd = this.tlvStructureDecoder.findElementEnd(data);
+        offset = this.tlvStructureDecoder.getOffset();
+      }
+      else {
+        // Scan the input to check if a whole Binary XML object has been read.
+        this.binaryXmlStructureDecoder.seek(0);
+        gotElementEnd = this.binaryXmlStructureDecoder.findElementEnd(data);
+        offset = this.binaryXmlStructureDecoder.offset;
+      }
+    } catch (ex) {
+      // Reset to read a new element on the next call.
+      this.dataParts = [];
+      this.binaryXmlStructureDecoder = new BinaryXMLStructureDecoder();
+      this.tlvStructureDecoder = new TlvStructureDecoder();
+
+      throw ex;
     }
 
     if (gotElementEnd) {
@@ -8421,16 +10355,14 @@ ElementReader.prototype.onReceivedData = function(/* Buffer */ data)
       this.dataParts.push(data.slice(0, offset));
       var element = DataUtils.concatArrays(this.dataParts);
       this.dataParts = [];
-      try {
-        this.elementListener.onReceivedElement(element);
-      } catch (ex) {
-          console.log("ElementReader: ignoring exception from onReceivedElement: " + ex);
-      }
 
-      // Need to read a new object.
+      // Reset to read a new object. Do this before calling onReceivedElement
+      // in case it throws an exception.
       data = data.slice(offset, data.length);
       this.binaryXmlStructureDecoder = new BinaryXMLStructureDecoder();
       this.tlvStructureDecoder = new TlvStructureDecoder();
+
+      this.elementListener.onReceivedElement(element);
       if (data.length == 0)
         // No more data in the packet.
         return;
@@ -8438,15 +10370,28 @@ ElementReader.prototype.onReceivedData = function(/* Buffer */ data)
       // else loop back to decode.
     }
     else {
-      // Save for a later call to concatArrays so that we only copy data once.
-      this.dataParts.push(data);
+      // Save a copy. We will call concatArrays later.
+      var totalLength = data.length;
+      for (var i = 0; i < this.dataParts.length; ++i)
+        totalLength += this.dataParts[i].length;
+      if (totalLength > NdnCommon.MAX_NDN_PACKET_SIZE) {
+        // Reset to read a new element on the next call.
+        this.dataParts = [];
+        this.binaryXmlStructureDecoder = new BinaryXMLStructureDecoder();
+        this.tlvStructureDecoder = new TlvStructureDecoder();
+
+        throw new DecodingException(new Error
+          ("The incoming packet exceeds the maximum limit Face.getMaxNdnPacketSize()"));
+      }
+
+      this.dataParts.push(new Buffer(data));
       if (LOG > 3) console.log('Incomplete packet received. Length ' + data.length + '. Wait for more input.');
         return;
     }
   }
 };
 /**
- * Copyright (C) 2013-2014 Regents of the University of California.
+ * Copyright (C) 2014-2015 Regents of the University of California.
  * @author: Jeff Thompson <jefft0@remap.ucla.edu>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -8457,11 +10402,946 @@ ElementReader.prototype.onReceivedData = function(/* Buffer */ data)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+/**
+ * Create a new DerDecodingException wrapping the given error object.
+ * Call with: throw new DerDecodingException(new Error("message")).
+ * @constructor
+ * @param {Error} error The exception created with new Error.
+ */
+function DerDecodingException(error)
+{
+  if (error) {
+    // Copy lineNumber, etc. from where new Error was called.
+    for (var prop in error)
+      this[prop] = error[prop];
+    // Make sure these are copied.
+    this.message = error.message;
+    this.stack = error.stack;
+  }
+}
+DerDecodingException.prototype = new Error();
+DerDecodingException.prototype.name = "DerDecodingException";
+
+exports.DerDecodingException = DerDecodingException;
+/**
+ * Copyright (C) 2014-2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+/**
+ * Create a new DerEncodingException wrapping the given error object.
+ * Call with: throw new DerEncodingException(new Error("message")).
+ * @constructor
+ * @param {Error} error The exception created with new Error.
+ */
+function DerEncodingException(error)
+{
+  if (error) {
+    // Copy lineNumber, etc. from where new Error was called.
+    for (var prop in error)
+      this[prop] = error[prop];
+    // Make sure these are copied.
+    this.message = error.message;
+    this.stack = error.stack;
+  }
+}
+DerEncodingException.prototype = new Error();
+DerEncodingException.prototype.name = "DerEncodingException";
+
+exports.DerEncodingException = DerEncodingException;
+/**
+ * Copyright (C) 2014-2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ * @author: From PyNDN der.py by Adeola Bannis <thecodemaiden@gmail.com>.
+ * @author: Originally from code in ndn-cxx by Yingdi Yu <yingdi@cs.ucla.edu>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+/**
+ * The DerNodeType enum defines the known DER node types.
+ */
+var DerNodeType = function DerNodeType()
+{
+}
+
+exports.DerNodeType = DerNodeType;
+
+DerNodeType.Eoc = 0;
+DerNodeType.Boolean = 1;
+DerNodeType.Integer = 2;
+DerNodeType.BitString = 3;
+DerNodeType.OctetString = 4;
+DerNodeType.Null = 5;
+DerNodeType.ObjectIdentifier = 6;
+DerNodeType.ObjectDescriptor = 7;
+DerNodeType.External = 40;
+DerNodeType.Real = 9;
+DerNodeType.Enumerated = 10;
+DerNodeType.EmbeddedPdv = 43;
+DerNodeType.Utf8String = 12;
+DerNodeType.RelativeOid = 13;
+DerNodeType.Sequence = 48;
+DerNodeType.Set = 49;
+DerNodeType.NumericString = 18;
+DerNodeType.PrintableString = 19;
+DerNodeType.T61String = 20;
+DerNodeType.VideoTexString = 21;
+DerNodeType.Ia5String = 22;
+DerNodeType.UtcTime = 23;
+DerNodeType.GeneralizedTime = 24;
+DerNodeType.GraphicString = 25;
+DerNodeType.VisibleString = 26;
+DerNodeType.GeneralString = 27;
+DerNodeType.UniversalString = 28;
+DerNodeType.CharacterString = 29;
+DerNodeType.BmpString = 30;
+/**
+ * Copyright (C) 2014-2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ * @author: From PyNDN der_node.py by Adeola Bannis <thecodemaiden@gmail.com>.
+ * @author: Originally from code in ndn-cxx by Yingdi Yu <yingdi@cs.ucla.edu>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+var DynamicBuffer = require('../../util/dynamic-buffer.js').DynamicBuffer;
+var Blob = require('../../util/blob.js').Blob;
+var DerDecodingException = require('./der-decoding-exception.js').DerDecodingException;
+var DerEncodingException = require('./der-encoding-exception.js').DerEncodingException;
+var DerNodeType = require('./der-node-type.js').DerNodeType;
+
+/**
+ * DerNode implements the DER node types used in encoding/decoding DER-formatted
+ * data.
+ *
+ * Create a generic DER node with the given nodeType. This is a private
+ * constructor used by one of the public DerNode subclasses defined below.
+ * @param {number} nodeType One of the defined DER DerNodeType constants.
+ */
+var DerNode = function DerNode(nodeType)
+{
+  this.nodeType = nodeType;
+  this.parent = null;
+  this.header = new Buffer(0);
+  this.payload = new DynamicBuffer(0);
+  this.payloadPosition = 0;
+};
+
+exports.DerNode = DerNode;
+
+/**
+ * Return the number of bytes in DER
+ * @returns {number}
+ */
+DerNode.prototype.getSize = function()
+{
+  return this.header.length + this.payloadPosition;
+};
+
+/**
+ * Encode the given size and update the header.
+ * @param {number} size
+ */
+DerNode.prototype.encodeHeader = function(size)
+{
+  var buffer = new DynamicBuffer(10);
+  var bufferPosition = 0;
+  buffer.array[bufferPosition++] = this.nodeType;
+  if (size < 0)
+    // We don't expect this to happen since this is an internal method and
+    // always called with the non-negative size() of some buffer.
+    throw new Error("encodeHeader: DER object has negative length");
+  else if (size <= 127)
+    buffer.array[bufferPosition++] = size & 0xff;
+  else {
+    var tempBuf = new DynamicBuffer(10);
+    // We encode backwards from the back.
+
+    var val = size;
+    var n = 0;
+    while (val != 0) {
+      ++n;
+      tempBuf.ensureLengthFromBack(n);
+      tempBuf.array[tempBuf.array.length - n] = val & 0xff;
+      val >>= 8;
+    }
+    var nTempBufBytes = n + 1;
+    tempBuf.ensureLengthFromBack(nTempBufBytes);
+    tempBuf.array[tempBuf.array.length - nTempBufBytes] = ((1<<7) | n) & 0xff;
+
+    buffer.copy(tempBuf.slice(tempBuf.array.length - nTempBufBytes), bufferPosition);
+    bufferPosition += nTempBufBytes;
+  }
+
+  this.header = buffer.slice(0, bufferPosition);
+};
+
+/**
+ * Extract the header from an input buffer and return the size.
+ * @param {Buffer} inputBuf The input buffer to read from.
+ * @param {number} startIdx The offset into the buffer.
+ * @returns {number} The parsed size in the header.
+ */
+DerNode.prototype.decodeHeader = function(inputBuf, startIdx)
+{
+  var idx = startIdx;
+
+  var nodeType = inputBuf[idx] & 0xff;
+  idx += 1;
+
+  this.nodeType = nodeType;
+
+  var sizeLen = inputBuf[idx] & 0xff;
+  idx += 1;
+
+  var header = new DynamicBuffer(10);
+  var headerPosition = 0;
+  header.array[headerPosition++] = nodeType;
+  header.array[headerPosition++] = sizeLen;
+
+  var size = sizeLen;
+  var isLongFormat = (sizeLen & (1 << 7)) != 0;
+  if (isLongFormat) {
+    var lenCount = sizeLen & ((1<<7) - 1);
+    size = 0;
+    while (lenCount > 0) {
+      var b = inputBuf[idx];
+      idx += 1;
+      header.ensureLength(headerPosition + 1);
+      header.array[headerPosition++] = b;
+      size = 256 * size + (b & 0xff);
+      lenCount -= 1;
+    }
+  }
+
+  this.header = header.slice(0, headerPosition);
+  return size;
+};
+
+/**
+ * Get the raw data encoding for this node.
+ * @returns {Blob} The raw data encoding.
+ */
+DerNode.prototype.encode = function()
+{
+  var buffer = new Buffer(this.getSize());
+
+  this.header.copy(buffer);
+  this.payload.slice(0, this.payloadPosition).copy(buffer, this.header.length);
+
+  return new Blob(buffer, false);
+};
+
+/**
+ * Decode and store the data from an input buffer.
+ * @param {Buffer} inputBuf The input buffer to read from. This reads from
+ * startIdx (regardless of the buffer's position) and does not change the
+ * position.
+ * @param {number} startIdx The offset into the buffer.
+ */
+DerNode.prototype.decode = function(inputBuf, startIdx)
+{
+  var idx = startIdx;
+  var payloadSize = this.decodeHeader(inputBuf, idx);
+  var skipBytes = this.header.length;
+  if (payloadSize > 0) {
+    idx += skipBytes;
+    this.payloadAppend(inputBuf.slice(idx, idx + payloadSize));
+  }
+};
+
+/**
+ * Copy buffer to this.payload at this.payloadPosition and update
+ * this.payloadPosition.
+ * @param {Buffer} buffer The buffer to copy.
+ */
+DerNode.prototype.payloadAppend = function(buffer)
+{
+  this.payloadPosition = this.payload.copy(buffer, this.payloadPosition);
+}
+
+/**
+ * Parse the data from the input buffer recursively and return the root as an
+ * object of a subclass of DerNode.
+ * @param {type} inputBuf The input buffer to read from.
+ * @param {type} startIdx (optional) The offset into the buffer. If omitted, use 0.
+ * @returns {DerNode} An object of a subclass of DerNode.
+ */
+DerNode.parse = function(inputBuf, startIdx)
+{
+  if (startIdx == undefined)
+    startIdx = 0;
+
+  var nodeType = inputBuf[startIdx] & 0xff;
+  // Don't increment idx. We're just peeking.
+
+  var newNode;
+  if (nodeType === DerNodeType.Boolean)
+    newNode = new DerNode.DerBoolean();
+  else if (nodeType === DerNodeType.Integer)
+    newNode = new DerNode.DerInteger();
+  else if (nodeType === DerNodeType.BitString)
+    newNode = new DerNode.DerBitString();
+  else if (nodeType === DerNodeType.OctetString)
+    newNode = new DerNode.DerOctetString();
+  else if (nodeType === DerNodeType.Null)
+    newNode = new DerNode.DerNull();
+  else if (nodeType === DerNodeType.ObjectIdentifier)
+    newNode = new DerNode.DerOid();
+  else if (nodeType === DerNodeType.Sequence)
+    newNode = new DerNode.DerSequence();
+  else if (nodeType === DerNodeType.PrintableString)
+    newNode = new DerNode.DerPrintableString();
+  else if (nodeType === DerNodeType.GeneralizedTime)
+    newNode = new DerNode.DerGeneralizedTime();
+  else
+    throw new DerDecodingException(new Error("Unimplemented DER type " + nodeType));
+
+  newNode.decode(inputBuf, startIdx);
+  return newNode;
+};
+
+/**
+ * Convert the encoded data to a standard representation. Overridden by some
+ * subclasses (e.g. DerBoolean).
+ * @returns {Blob} The encoded data as a Blob.
+ */
+DerNode.prototype.toVal = function()
+{
+  return this.encode();
+};
+
+/**
+ * Get a copy of the payload bytes.
+ * @return {Blob} A copy of the payload.
+ */
+DerNode.prototype.getPayload = function()
+{
+  return new Blob(this.payload.slice(0, this.payloadPosition), true);
+};
+
+/**
+ * If this object is a DerNode.DerSequence, get the children of this node.
+ * Otherwise, throw an exception. (DerSequence overrides to implement this
+ * method.)
+ * @returns {Array<DerNode>} The children as an array of DerNode.
+ * @throws DerDecodingException if this object is not a DerSequence.
+ */
+DerNode.prototype.getChildren = function()
+{
+  throw new DerDecodingException(new Error
+    ("getChildren: This DerNode is not DerSequence"));
+};
+
+/**
+ * Check that index is in bounds for the children list, return children[index].
+ * @param {Array<DerNode>} children The list of DerNode, usually returned by
+ * another call to getChildren.
+ * @param {number} index The index of the children.
+ * @return {DerNode.DerSequence} children[index].
+ * @throws DerDecodingException if index is out of bounds or if children[index]
+ * is not a DerSequence.
+ */
+DerNode.getSequence = function(children, index)
+{
+  if (index < 0 || index >= children.length)
+    throw new DerDecodingException(new Error
+      ("getSequence: Child index is out of bounds"));
+
+  if (!(children[index] instanceof DerNode.DerSequence))
+    throw new DerDecodingException(new Error
+      ("getSequence: Child DerNode is not a DerSequence"));
+
+  return children[index];
+};
+
+/**
+ * A DerStructure extends DerNode to hold other DerNodes.
+ * Create a DerStructure with the given nodeType. This is a private
+ * constructor. To create an object, use DerSequence.
+ * @param {number} nodeType One of the defined DER DerNodeType constants.
+ */
+DerNode.DerStructure = function DerStructure(nodeType)
+{
+  // Call the base constructor.
+  DerNode.call(this, nodeType);
+
+  this.childChanged = false;
+  this.nodeList = []; // Of DerNode.
+  this.size = 0;
+};
+DerNode.DerStructure.prototype = new DerNode();
+DerNode.DerStructure.prototype.name = "DerStructure";
+
+/**
+ * Get the total length of the encoding, including children.
+ * @returns {number} The total (header + payload) length.
+ */
+DerNode.DerStructure.prototype.getSize = function()
+{
+  if (this.childChanged) {
+    this.updateSize();
+    this.childChanged = false;
+  }
+
+  this.encodeHeader(this.size);
+  return this.size + this.header.length;
+};
+
+/**
+ * Get the children of this node.
+ * @returns {Array<DerNode>} The children as an array of DerNode.
+ */
+DerNode.DerStructure.prototype.getChildren = function()
+{
+  return this.nodeList;
+};
+
+DerNode.DerStructure.prototype.updateSize = function()
+{
+  var newSize = 0;
+
+  for (var i = 0; i < this.nodeList.length; ++i) {
+    var n = this.nodeList[i];
+    newSize += n.getSize();
+  }
+
+  this.size = newSize;
+  this.childChanged = false;
+};
+
+/**
+ * Add a child to this node.
+ * @param {DerNode} node The child node to add.
+ * @param {boolean} (optional) notifyParent Set to true to cause any containing
+ * nodes to update their size.  If omitted, use false.
+ */
+DerNode.DerStructure.prototype.addChild = function(node, notifyParent)
+{
+  node.parent = this;
+  this.nodeList.push(node);
+
+  if (notifyParent) {
+    if (this.parent != null)
+      this.parent.setChildChanged();
+  }
+
+  this.childChanged = true;
+};
+
+/**
+ * Mark the child list as dirty, so that we update size when necessary.
+ */
+DerNode.DerStructure.prototype.setChildChanged = function()
+{
+  if (this.parent != null)
+    this.parent.setChildChanged();
+  this.childChanged = true;
+};
+
+/**
+ * Override the base encode to return raw data encoding for this node and its
+ * children.
+ * @returns {Blob} The raw data encoding.
+ */
+DerNode.DerStructure.prototype.encode = function()
+{
+  var buffer = new DynamicBuffer(10);
+  var bufferPosition = 0;
+  this.updateSize();
+  this.encodeHeader(this.size);
+  bufferPosition = buffer.copy(this.header, bufferPosition);
+
+  for (var i = 0; i < this.nodeList.length; ++i) {
+    var n = this.nodeList[i];
+    var encodedChild = n.encode();
+    bufferPosition = buffer.copy(encodedChild.buf(), bufferPosition);
+  }
+
+  return new Blob(buffer.slice(0, bufferPosition), false);
+};
+
+/**
+ * Override the base decode to decode and store the data from an input
+ * buffer. Recursively populates child nodes.
+ * @param {Buffer} inputBuf The input buffer to read from.
+ * @param {number} startIdx The offset into the buffer.
+ */
+DerNode.DerStructure.prototype.decode = function(inputBuf, startIdx)
+{
+  var idx = startIdx;
+  this.size = this.decodeHeader(inputBuf, idx);
+  idx += this.header.length;
+
+  var accSize = 0;
+  while (accSize < this.size) {
+    var node = DerNode.parse(inputBuf, idx);
+    idx += node.getSize();
+    accSize += node.getSize();
+    this.addChild(node, false);
+  }
+};
+
+////////
+// Now for all the node types...
+////////
+
+/**
+ * A DerByteString extends DerNode to handle byte strings.
+ * Create a DerByteString with the given inputData and nodeType. This is a
+ * private constructor used by one of the public subclasses such as
+ * DerOctetString or DerPrintableString.
+ * @param {Buffer} inputData An input buffer containing the string to encode.
+ * @param {number} nodeType One of the defined DER DerNodeType constants.
+ */
+DerNode.DerByteString = function DerByteString(inputData, nodeType)
+{
+  // Call the base constructor.
+  DerNode.call(this, nodeType);
+
+  if (inputData != null) {
+    this.payloadAppend(inputData);
+    this.encodeHeader(inputData.length);
+  }
+};
+DerNode.DerByteString.prototype = new DerNode();
+DerNode.DerByteString.prototype.name = "DerByteString";
+
+/**
+ * Override to return just the byte string.
+ * @returns {Blob} The byte string as a copy of the payload buffer.
+ */
+DerNode.DerByteString.prototype.toVal = function()
+{
+  return this.getPayload();
+};
+
+/**
+ * DerBoolean extends DerNode to encode a boolean value.
+ * Create a new DerBoolean for the value.
+ * @param {boolean} value The value to encode.
+ */
+DerNode.DerBoolean = function DerBoolean(value)
+{
+  // Call the base constructor.
+  DerNode.call(this, DerNodeType.Boolean);
+
+  if (value != undefined) {
+    var val = value ? 0xff : 0x00;
+    this.payload.ensureLength(this.payloadPosition + 1);
+    this.payload.array[this.payloadPosition++] = val;
+    this.encodeHeader(1);
+  }
+};
+DerNode.DerBoolean.prototype = new DerNode();
+DerNode.DerBoolean.prototype.name = "DerBoolean";
+
+DerNode.DerBoolean.prototype.toVal = function()
+{
+  var val = this.payload.array[0];
+  return val != 0x00;
+};
+
+/**
+ * DerInteger extends DerNode to encode an integer value.
+ * Create a new DerInteger for the value.
+ * @param {number} integer The value to encode.
+ */
+DerNode.DerInteger = function DerInteger(integer)
+{
+  // Call the base constructor.
+  DerNode.call(this, DerNodeType.Integer);
+
+  if (integer != undefined) {
+    // JavaScript doesn't distinguish int from float, so round.
+    integer = Math.round(integer);
+
+    // Convert the integer to bytes the easy/slow way.
+    var temp = new DynamicBuffer(10);
+    // We encode backwards from the back.
+    var length = 0;
+    while (true) {
+      ++length;
+      temp.ensureLengthFromBack(length);
+      temp.array[temp.array.length - length] = integer & 0xff;
+      integer >>= 8;
+
+      if (integer <= 0)
+        // We check for 0 at the end so we encode one byte if it is 0.
+        break;
+    }
+
+    this.payloadAppend(temp.slice(temp.array.length - length));
+    this.encodeHeader(this.payloadPosition);
+  }
+};
+DerNode.DerInteger.prototype = new DerNode();
+DerNode.DerInteger.prototype.name = "DerInteger";
+
+DerNode.DerInteger.prototype.toVal = function()
+{
+  var result = 0;
+  for (var i = 0; i < this.payloadPosition; ++i) {
+    result <<= 8;
+    result += this.payload.array[i];
+  }
+
+  return result;
+};
+
+/**
+ * A DerBitString extends DerNode to handle a bit string.
+ * Create a DerBitString with the given padding and inputBuf.
+ * @param {Buffer} inputBuf An input buffer containing the bit octets to encode.
+ * @param {number} paddingLen The number of bits of padding at the end of the bit
+ * string.  Should be less than 8.
+ */
+DerNode.DerBitString = function DerBitString(inputBuf, paddingLen)
+{
+  // Call the base constructor.
+  DerNode.call(this, DerNodeType.BitString);
+
+  if (inputBuf != undefined) {
+    this.payload.ensureLength(this.payloadPosition + 1);
+    this.payload.array[this.payloadPosition++] = paddingLen & 0xff;
+    this.payloadAppend(inputBuf);
+    this.encodeHeader(this.payloadPosition);
+  }
+};
+DerNode.DerBitString.prototype = new DerNode();
+DerNode.DerBitString.prototype.name = "DerBitString";
+
+/**
+ * DerOctetString extends DerByteString to encode a string of bytes.
+ * Create a new DerOctetString for the inputData.
+ * @param {Buffer} inputData An input buffer containing the string to encode.
+ */
+DerNode.DerOctetString = function DerOctetString(inputData)
+{
+  // Call the base constructor.
+  DerNode.DerByteString.call(this, inputData, DerNodeType.OctetString);
+};
+DerNode.DerOctetString.prototype = new DerNode.DerByteString();
+DerNode.DerOctetString.prototype.name = "DerOctetString";
+
+/**
+ * A DerNull extends DerNode to encode a null value.
+ * Create a DerNull.
+ */
+DerNode.DerNull = function DerNull()
+{
+  // Call the base constructor.
+  DerNode.call(this, DerNodeType.Null);
+  this.encodeHeader(0);
+};
+DerNode.DerNull.prototype = new DerNode();
+DerNode.DerNull.prototype.name = "DerNull";
+
+/**
+ * A DerOid extends DerNode to represent an object identifier.
+ * Create a DerOid with the given object identifier. The object identifier
+ * string must begin with 0,1, or 2 and must contain at least 2 digits.
+ * @param {string|OID} oid The OID string or OID object to encode.
+ */
+DerNode.DerOid = function DerOid(oid)
+{
+  // Call the base constructor.
+  DerNode.call(this, DerNodeType.ObjectIdentifier);
+
+  if (oid != undefined) {
+    if (typeof oid === 'string') {
+      var splitString = oid.split(".");
+      var parts = [];
+      for (var i = 0; i < splitString.length; ++i)
+        parts.push(parseInt(splitString[i]));
+
+      this.prepareEncoding(parts);
+    }
+    else
+      // Assume oid is of type OID.
+      this.prepareEncoding(oid.getIntegerList());
+  }
+};
+DerNode.DerOid.prototype = new DerNode();
+DerNode.DerOid.prototype.name = "DerOid";
+
+/**
+ * Encode a sequence of integers into an OID object and set the payload.
+ * @param {Array<number>} value The array of integers.
+ */
+DerNode.DerOid.prototype.prepareEncoding = function(value)
+{
+  var firstNumber;
+  if (value.length == 0)
+    throw new DerEncodingException(new Error("No integer in OID"));
+  else {
+    if (value[0] >= 0 && value[0] <= 2)
+      firstNumber = value[0] * 40;
+    else
+      throw new DerEncodingException(new Error("First integer in OID is out of range"));
+  }
+
+  if (value.length >= 2) {
+    if (value[1] >= 0 && value[1] <= 39)
+      firstNumber += value[1];
+    else
+      throw new DerEncodingException(new Error("Second integer in OID is out of range"));
+  }
+
+  var encodedBuffer = new DynamicBuffer(10);
+  var encodedBufferPosition = 0;
+  encodedBufferPosition = encodedBuffer.copy
+    (DerNode.DerOid.encode128(firstNumber), encodedBufferPosition);
+
+  if (value.length > 2) {
+    for (var i = 2; i < value.length; ++i)
+      encodedBufferPosition = encodedBuffer.copy
+        (DerNode.DerOid.encode128(value[i]), encodedBufferPosition);
+  }
+
+  this.encodeHeader(encodedBufferPosition);
+  this.payloadAppend(encodedBuffer.slice(0, encodedBufferPosition));
+};
+
+/**
+ * Compute the encoding for one part of an OID, where values greater than 128
+ * must be encoded as multiple bytes.
+ * @param {number} value A component of an OID.
+ * @returns {Buffer} The encoded buffer.
+ */
+DerNode.DerOid.encode128 = function(value)
+{
+  var mask = (1 << 7) - 1;
+  var outBytes = new DynamicBuffer(10);
+  var outBytesLength = 0;
+  // We encode backwards from the back.
+
+  if (value < 128) {
+    ++outBytesLength;
+    outBytes.array[outBytes.array.length - outBytesLength] = value & mask;
+  }
+  else {
+    ++outBytesLength;
+    outBytes.array[outBytes.array.length - outBytesLength] = value & mask;
+    value >>= 7;
+
+    while (value != 0) {
+      ++outBytesLength;
+      outBytes.ensureLengthFromBack(outBytesLength);
+      outBytes.array[outBytes.array.length - outBytesLength] =
+        (value & mask) | (1 << 7);
+      value >>= 7;
+    }
+  }
+
+  return outBytes.slice(outBytes.array.length - outBytesLength);
+};
+
+/**
+ * Convert an encoded component of the encoded OID to the original integer.
+ * @param {number} offset The offset into this node's payload.
+ * @param {Array<number>} skip Set skip[0] to the number of payload bytes to skip.
+ * @returns {number} The original integer.
+ */
+DerNode.DerOid.prototype.decode128 = function(offset, skip)
+{
+  var flagMask = 0x80;
+  var result = 0;
+  var oldOffset = offset;
+
+  while ((this.payload.array[offset] & flagMask) != 0) {
+    result = 128 * result + (this.payload.array[offset] & 0xff) - 128;
+    offset += 1;
+  }
+
+  result = result * 128 + (this.payload.array[offset] & 0xff);
+
+  skip[0] = offset - oldOffset + 1;
+  return result;
+};
+
+/**
+ * Override to return the string representation of the OID.
+ * @returns {string} The string representation of the OID.
+ */
+DerNode.DerOid.prototype.toVal = function()
+{
+  var offset = 0;
+  var components = []; // of number.
+
+  while (offset < this.payloadPosition) {
+    var skip = [0];
+    var nextVal = this.decode128(offset, skip);
+    offset += skip[0];
+    components.push(nextVal);
+  }
+
+  // For some odd reason, the first digits are represented in one byte.
+  var firstByte = components[0];
+  var firstDigit = Math.floor(firstByte / 40);
+  var secondDigit = firstByte % 40;
+
+  var result = firstDigit + "." + secondDigit;
+  for (var i = 1; i < components.length; ++i)
+    result += "." + components[i];
+
+  return result;
+};
+
+/**
+ * A DerSequence extends DerStructure to contains an ordered sequence of other
+ * nodes.
+ * Create a DerSequence.
+ */
+DerNode.DerSequence = function DerSequence()
+{
+  // Call the base constructor.
+  DerNode.DerStructure.call(this, DerNodeType.Sequence);
+};
+DerNode.DerSequence.prototype = new DerNode.DerStructure();
+DerNode.DerSequence.prototype.name = "DerSequence";
+
+/**
+ * A DerPrintableString extends DerByteString to handle a a printable string. No
+ * escaping or other modification is done to the string.
+ * Create a DerPrintableString with the given inputData.
+ * @param {Buffer} inputData An input buffer containing the string to encode.
+ */
+DerNode.DerPrintableString = function DerPrintableString(inputData)
+{
+  // Call the base constructor.
+  DerNode.DerByteString.call(this, inputData, DerNodeType.PrintableString);
+};
+DerNode.DerPrintableString.prototype = new DerNode.DerByteString();
+DerNode.DerPrintableString.prototype.name = "DerPrintableString";
+
+/**
+ * A DerGeneralizedTime extends DerNode to represent a date and time, with
+ * millisecond accuracy.
+ * Create a DerGeneralizedTime with the given milliseconds since 1970.
+ * @param {number} msSince1970 The timestamp as milliseconds since Jan 1, 1970.
+ */
+DerNode.DerGeneralizedTime = function DerGeneralizedTime(msSince1970)
+{
+  // Call the base constructor.
+  DerNode.call(this, DerNodeType.GeneralizedTime);
+
+  if (msSince1970 != undefined) {
+    var derTime = DerNode.DerGeneralizedTime.toDerTimeString(msSince1970);
+    // Use Blob to convert to a Buffer.
+    this.payloadAppend(new Blob(derTime).buf());
+    this.encodeHeader(this.payloadPosition);
+  }
+};
+DerNode.DerGeneralizedTime.prototype = new DerNode();
+DerNode.DerGeneralizedTime.prototype.name = "DerGeneralizedTime";
+
+/**
+ * Convert a UNIX timestamp to the internal string representation.
+ * @param {type} msSince1970 Timestamp as milliseconds since Jan 1, 1970.
+ * @returns {string} The string representation.
+ */
+DerNode.DerGeneralizedTime.toDerTimeString = function(msSince1970)
+{
+  var utcTime = new Date(Math.round(msSince1970));
+  return utcTime.getUTCFullYear() +
+         DerNode.DerGeneralizedTime.to2DigitString(utcTime.getUTCMonth() + 1) +
+         DerNode.DerGeneralizedTime.to2DigitString(utcTime.getUTCDate()) +
+         DerNode.DerGeneralizedTime.to2DigitString(utcTime.getUTCHours()) +
+         DerNode.DerGeneralizedTime.to2DigitString(utcTime.getUTCMinutes()) +
+         DerNode.DerGeneralizedTime.to2DigitString(utcTime.getUTCSeconds()) +
+         "Z";
+};
+
+/**
+ * A private method to zero pad an integer to 2 digits.
+ * @param {number} x The number to pad.  Assume it is a non-negative integer.
+ * @returns {string} The padded string.
+ */
+DerNode.DerGeneralizedTime.to2DigitString = function(x)
+{
+  var result = x.toString();
+  return result.length === 1 ? "0" + result : result;
+};
+
+/**
+ * Override to return the milliseconds since 1970.
+ * @returns {number} The timestamp value as milliseconds since 1970.
+ */
+DerNode.DerGeneralizedTime.prototype.toVal = function()
+{
+  var timeStr = this.payload.slice(0, this.payloadPosition).toString();
+  return Date.UTC
+    (parseInt(timeStr.substr(0, 4)),
+     parseInt(timeStr.substr(4, 2) - 1),
+     parseInt(timeStr.substr(6, 2)),
+     parseInt(timeStr.substr(8, 2)),
+     parseInt(timeStr.substr(10, 2)),
+     parseInt(timeStr.substr(12, 2)));
+};
+/**
+ * Copyright (C) 2013-2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 var DataUtils = require('../encoding/data-utils.js').DataUtils;
@@ -8470,7 +11350,7 @@ var NDNProtocolDTags = require('./ndn-protoco-id-tags.js').NDNProtocolDTags;
 var Name = require('../name.js').Name;
 
 /**
- * Create a context for getting the response from the name enumeration command, as neede by getComponents.
+ * Create a context for getting the response from the name enumeration command, as needed by getComponents.
  * (To do name enumeration, call the static method NameEnumeration.getComponents.)
  * @param {Face} face The Face object for using expressInterest.
  * @param {function} onComponents The onComponents callback given to getComponents.
@@ -8516,21 +11396,20 @@ NameEnumeration.prototype.processData = function(data)
       // We don't expect a name without a segment number.  Treat it as a bad packet.
       this.onComponents(null);
     else {
-      var segmentNumber = DataUtils.bigEndianToUnsignedInt
-          (data.getName().get(-1).getValue().buf());
+      var segmentNumber = data.getName().get(-1).toSegment();
 
       // Each time we get a segment, we put it in contentParts, so its length follows the segment numbers.
       var expectedSegmentNumber = this.contentParts.length;
       if (segmentNumber != expectedSegmentNumber)
         // Try again to get the expected segment.  This also includes the case where the first segment is not segment 0.
         this.face.expressInterest
-          (data.getName().getPrefix(-1).addSegment(expectedSegmentNumber), this.onData, this.onTimeout);
+          (data.getName().getPrefix(-1).appendSegment(expectedSegmentNumber), this.onData, this.onTimeout);
       else {
         // Save the content and check if we are finished.
         this.contentParts.push(data.getContent().buf());
 
-        if (data.getMetaInfo() != null && data.getMetaInfo().getFinalBlockID().getValue().size() > 0) {
-          var finalSegmentNumber = DataUtils.bigEndianToUnsignedInt(data.getMetaInfo().getFinalBlockID().getValue().buf());
+        if (data.getMetaInfo() != null && data.getMetaInfo().getFinalBlockId().getValue().size() > 0) {
+          var finalSegmentNumber = data.getMetaInfo().getFinalBlockId().toSegment();
           if (segmentNumber == finalSegmentNumber) {
             // We are finished.  Parse and return the result.
             this.onComponents(NameEnumeration.parseComponents(Buffer.concat(this.contentParts)));
@@ -8540,7 +11419,7 @@ NameEnumeration.prototype.processData = function(data)
 
         // Fetch the next segment.
         this.face.expressInterest
-          (data.getName().getPrefix(-1).addSegment(expectedSegmentNumber + 1), this.onData, this.onTimeout);
+          (data.getName().getPrefix(-1).appendSegment(expectedSegmentNumber + 1), this.onData, this.onTimeout);
       }
     }
   } catch (ex) {
@@ -8598,7 +11477,7 @@ NameEnumeration.endsWithSegmentNumber = function(name) {
          name.get(-1).getValue().buf()[0] == 0;
 };
 /**
- * Copyright (C) 2014 Regents of the University of California.
+ * Copyright (C) 2014-2015 Regents of the University of California.
  * @author: Jeff Thompson <jefft0@remap.ucla.edu>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -8609,14 +11488,15 @@ NameEnumeration.endsWithSegmentNumber = function(name) {
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 var Name = require('../name.js').Name;
+var LOG = require('../log.js').Log.LOG;
 
 /**
  * A MemoryContentCache holds a set of Data packets and answers an Interest to
@@ -8644,11 +11524,19 @@ var MemoryContentCache = function MemoryContentCache
   this.nextCleanupTime = new Date().getTime() + cleanupIntervalMilliseconds;
 
   this.onDataNotFoundForPrefix = {}; /**< The map key is the prefix.toUri().
- *                                        The value is an OnInterest function. */
+                                          The value is an OnInterest function. */
+  this.registeredPrefixIdList = []; /**< elements are number */
   this.noStaleTimeCache = []; /**< elements are MemoryContentCache.Content */
   this.staleTimeCache = [];   /**< elements are MemoryContentCache.StaleTimeContent */
   //StaleTimeContent::Compare contentCompare_;
   this.emptyComponent = new Name.Component();
+  this.pendingInterestTable = [];
+
+  var thisMemoryContentCache = this;
+  this.storePendingInterestCallback = function
+    (localPrefix, localInterest, localFace, localInterestFilterId, localFilter) {
+       thisMemoryContentCache.storePendingInterest(localInterest, localFace);
+    };
 };
 
 exports.MemoryContentCache = MemoryContentCache;
@@ -8660,9 +11548,16 @@ exports.MemoryContentCache = MemoryContentCache;
  * @param {function} onRegisterFailed If this fails to register the prefix for
  * any reason, this calls onRegisterFailed(prefix) where prefix is the prefix
  * given to registerPrefix.
- * @param {function} onDataNotFound (optional) If a data packet is not found in
- * the cache, this calls onInterest(prefix, interest, transport) to forward the
- * interest. If omitted, this does not use it.
+ * @param {function} onDataNotFound (optional) If a data packet for an interest
+ * is not found in the cache, this forwards the interest by calling
+ * onDataNotFound(prefix, interest, face, interestFilterId, filter). Your
+ * callback can find the Data packet for the interest and call
+ * face.putData(data). If your callback cannot find the Data packet, it can
+ * optionally call storePendingInterest(interest, face) to store the pending
+ * interest in this object to be satisfied by a later call to add(data). If you
+ * want to automatically store all pending interests, you can simply use
+ * getStorePendingInterest() for onDataNotFound. If onDataNotFound is omitted or
+ * null, this does not use it.
  * @param {ForwardingFlags} flags (optional) See Face.registerPrefix.
  * @param {WireFormat} wireFormat (optional) See Face.registerPrefix.
  */
@@ -8671,20 +11566,37 @@ MemoryContentCache.prototype.registerPrefix = function
 {
   if (onDataNotFound)
     this.onDataNotFoundForPrefix[prefix.toUri()] = onDataNotFound;
-  var thisMemoryContentCache = this;
-  this.face.registerPrefix
-    (prefix,
-     function(prefix, interest, transport)
-       { thisMemoryContentCache.onInterest(prefix, interest, transport); },
-     onRegisterFailed, flags, wireFormat);
+  var registeredPrefixId = this.face.registerPrefix
+    (prefix, this.onInterest.bind(this), onRegisterFailed, flags, wireFormat);
+  this.registeredPrefixIdList.push(registeredPrefixId);
+};
+
+/**
+ * Call Face.removeRegisteredPrefix for all the prefixes given to the
+ * registerPrefix method on this MemoryContentCache object so that it will not
+ * receive interests any more. You can call this if you want to "shut down"
+ * this MemoryContentCache while your application is still running.
+ */
+MemoryContentCache.prototype.unregisterAll = function()
+{
+  for (var i = 0; i < this.registeredPrefixIdList.length; ++i)
+    this.face.removeRegisteredPrefix(this.registeredPrefixIdList[i]);
+  this.registeredPrefixIdList = [];
+
+  // Also clear each onDataNotFoundForPrefix given to registerPrefix.
+  this.onDataNotFoundForPrefix = {};
 };
 
 /**
  * Add the Data packet to the cache so that it is available to use to answer
- * interests. If data.getFreshnessPeriod() is not null, set the staleness
- * time to now plus data.getFreshnessPeriod(), which is checked during cleanup
- * to remove stale content. This also checks if cleanupIntervalMilliseconds
- * milliseconds have passed and removes stale content from the cache.
+ * interests. If data.getMetaInfo().getFreshnessPeriod() is not null, set the
+ * staleness time to now plus data.getMetaInfo().getFreshnessPeriod(), which is
+ * checked during cleanup to remove stale content. This also checks if
+ * cleanupIntervalMilliseconds milliseconds have passed and removes stale
+ * content from the cache. After removing stale content, remove timed-out
+ * pending interests from storePendingInterest(), then if the added Data packet
+ * satisfies any interest, send it through the face and remove the interest
+ * from the pending interest table.
  * @param {Data} data The Data packet object to put in the cache. This copies
  * the fields from the object.
  */
@@ -8711,7 +11623,61 @@ MemoryContentCache.prototype.add = function(data)
   else
     // The data does not go stale, so use noStaleTimeCache.
     this.noStaleTimeCache.push(new MemoryContentCache.Content(data));
-}
+
+  // Remove timed-out interests and check if the data packet matches any pending
+  // interest.
+  // Go backwards through the list so we can erase entries.
+  var nowMilliseconds = new Date().getTime();
+  for (var i = this.pendingInterestTable.length - 1; i >= 0; --i) {
+    if (this.pendingInterestTable[i].isTimedOut(nowMilliseconds)) {
+      this.pendingInterestTable.splice(i, 1);
+      continue;
+    }
+    if (this.pendingInterestTable[i].getInterest().matchesName(data.getName())) {
+      try {
+        // Send to the same face from the original call to onInterest.
+        // wireEncode returns the cached encoding if available.
+        this.pendingInterestTable[i].getFace().send(data.wireEncode().buf());
+      }
+      catch (ex) {
+        if (LOG > 0)
+          console.log("" + ex);
+        return;
+      }
+
+      // The pending interest is satisfied, so remove it.
+      this.pendingInterestTable.splice(i, 1);
+    }
+  }
+};
+
+/**
+ * Store an interest from an OnInterest callback in the internal pending
+ * interest table (normally because there is no Data packet available yet to
+ * satisfy the interest). add(data) will check if the added Data packet
+ * satisfies any pending interest and send it through the face.
+ * @param {Interest} interest The Interest for which we don't have a Data packet
+ * yet. You should not modify the interest after calling this.
+ * @param {Face} face The Face with the connection which received
+ * the interest. This comes from the OnInterest callback.
+ */
+MemoryContentCache.prototype.storePendingInterest = function(interest, face)
+{
+  this.pendingInterestTable.push
+    (new MemoryContentCache.PendingInterest(interest, face));
+};
+
+/**
+ * Return a callback to use for onDataNotFound in registerPrefix which simply
+ * calls storePendingInterest() to store the interest that doesn't match a
+ * Data packet. add(data) will check if the added Data packet satisfies any
+ * pending interest and send it.
+ * @returns {function} A callback to use for onDataNotFound in registerPrefix().
+ */
+MemoryContentCache.prototype.getStorePendingInterest = function()
+{
+  return this.storePendingInterestCallback;
+};
 
 /**
  * This is the OnInterest callback which is called when the library receives
@@ -8719,10 +11685,11 @@ MemoryContentCache.prototype.add = function(data)
  * if cleanupIntervalMilliseconds milliseconds have passed and remove stale
  * content from the cache. Then search the cache for the Data packet, matching
  * any interest selectors including ChildSelector, and send the Data packet
- * to the transport. If no matching Data packet is in the cache, call
+ * to the face. If no matching Data packet is in the cache, call
  * the callback in onDataNotFoundForPrefix (if defined).
  */
-MemoryContentCache.prototype.onInterest = function(prefix, interest, transport)
+MemoryContentCache.prototype.onInterest = function
+  (prefix, interest, face, interestFilterId, filter)
 {
   this.doCleanup();
 
@@ -8741,7 +11708,7 @@ MemoryContentCache.prototype.onInterest = function(prefix, interest, transport)
     if (interest.matchesName(content.getName())) {
       if (interest.getChildSelector() < 0) {
         // No child selector, so send the first match that we have found.
-        transport.send(content.getDataEncoding());
+        face.send(content.getDataEncoding());
         return;
       }
       else {
@@ -8779,13 +11746,12 @@ MemoryContentCache.prototype.onInterest = function(prefix, interest, transport)
 
   if (selectedEncoding !== null)
     // We found the leftmost or rightmost child.
-    transport.send(selectedEncoding);
+    face.send(selectedEncoding);
   else {
     // Call the onDataNotFound callback (if defined).
     var onDataNotFound = this.onDataNotFoundForPrefix[prefix.toUri()];
     if (onDataNotFound)
-      // TODO: Include registeredPrefixId.
-      onDataNotFound(prefix, interest, transport);
+      onDataNotFound(prefix, interest, face, interestFilterId, filter);
   }
 };
 
@@ -8859,14 +11825,421 @@ MemoryContentCache.StaleTimeContent.prototype.name = "StaleTimeContent";
  * Check if this content is stale.
  * @param {number} nowMilliseconds The current time in milliseconds from
  * new Date().getTime().
- * @returns {boolean} true if this interest is stale, otherwise false.
+ * @returns {boolean} True if this content is stale, otherwise false.
  */
 MemoryContentCache.StaleTimeContent.prototype.isStale = function(nowMilliseconds)
 {
   return this.staleTimeMilliseconds <= nowMilliseconds;
 };
+
 /**
- * Copyright (C) 2014 Regents of the University of California.
+ * A PendingInterest holds an interest which onInterest received but could
+ * not satisfy. When we add a new data packet to the cache, we will also check
+ * if it satisfies a pending interest.
+ */
+MemoryContentCache.PendingInterest = function MemoryContentCachePendingInterest
+  (interest, face)
+{
+  this.interest = interest;
+  this.face = face;
+
+  if (this.interest.getInterestLifetimeMilliseconds() >= 0.0)
+    this.timeoutMilliseconds = (new Date()).getTime() +
+      this.interest.getInterestLifetimeMilliseconds();
+  else
+    this.timeoutMilliseconds = -1.0;
+};
+
+/**
+ * Return the interest given to the constructor.
+ */
+MemoryContentCache.PendingInterest.prototype.getInterest = function()
+{
+  return this.interest;
+};
+
+/**
+ * Return the face given to the constructor.
+ */
+MemoryContentCache.PendingInterest.prototype.getFace = function()
+{
+  return this.face;
+};
+
+/**
+ * Check if this interest is timed out.
+ * @param {number} nowMilliseconds The current time in milliseconds from
+ * new Date().getTime().
+ * @returns {boolean} True if this interest timed out, otherwise false.
+ */
+MemoryContentCache.PendingInterest.prototype.isTimedOut = function(nowMilliseconds)
+{
+  return this.timeoutTimeMilliseconds >= 0.0 &&
+         nowMilliseconds >= this.timeoutTimeMilliseconds;
+};
+/**
+ * Copyright (C) 2014-2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ * From PyNDN ndn_regex.py by Adeola Bannis.
+ * Originally from Yingdi Yu <http://irl.cs.ucla.edu/~yingdi/>.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+var Name = require('../name.js').Name;
+
+/**
+ * An NdnRegexMatcher has static methods to convert an NDN regex
+ * (http://redmine.named-data.net/projects/ndn-cxx/wiki/Regex) to a JavaScript
+ * RegExp that can match against URIs.
+ */
+var NdnRegexMatcher = function NdnRegexMatcher()
+{
+};
+
+exports.NdnRegexMatcher = NdnRegexMatcher;
+
+/**
+ * Determine if the provided NDN regex matches the given Name.
+ * @param {string} pattern The NDN regex.
+ * @param {Name} name The Name to match against the regex.
+ * @returns {Object} The match object from String.match, or null if the pattern
+ * does not match.
+ */
+NdnRegexMatcher.match = function(pattern, name)
+{
+  var nameUri = name.toUri();
+
+  pattern = NdnRegexMatcher.sanitizeSets(pattern);
+
+  pattern = pattern.replace(/<>/g, "(?:<.+?>)");
+  pattern = pattern.replace(/>/g, "");
+  pattern = pattern.replace(/<(?!!)/g, "/");
+
+  return nameUri.match(new RegExp(pattern));
+};
+
+NdnRegexMatcher.sanitizeSets = function(pattern)
+{
+  var newPattern = pattern;
+
+  // Positive sets can be changed to (comp1|comp2).
+  // Negative sets must be changed to negative lookahead assertions.
+
+  var regex1 = /\[(\^?)(.*?)\]/g;
+  var match;
+  while ((match = regex1.exec(pattern)) !== null) {
+    // Insert | between components.
+    // Match 2 is the last match, so we use the hack of working backwards from
+    //   lastIndex.  If possible, this should be changed to a more direct solution.
+    var start = regex1.lastIndex - "]".length - match[2].length;
+    var end = start + match[2].length;
+    if (start - end === 0)
+      continue;
+    var oldStr = match[2];
+    var newStr = oldStr.replace(/></g, ">|<");
+    newPattern = newPattern.substr(0, start) + newStr + newPattern.substr(end);
+  }
+
+  // Replace [] with (),  or (?! ) for negative lookahead.
+  // If we use negative lookahead, we also have to consume one component.
+  var isNegative = newPattern.indexOf("[^") >= 0;
+  if (isNegative) {
+    newPattern = newPattern.replace(/\[\^/g, "(?:(?!");
+    newPattern = newPattern.replace(/\]/g, ")(?:/.*)*)");
+  }
+  else {
+    newPattern = newPattern.replace(/\[/g, "(");
+    newPattern = newPattern.replace(/\]/g, ")");
+  }
+
+  return newPattern;
+};
+/**
+ * Copyright (C) 2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ * @author: From ndn-cxx util/segment-fetcher https://github.com/named-data/ndn-cxx
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+var Interest = require('../interest.js').Interest;
+var Blob = require('./blob.js').Blob;
+
+/**
+ * SegmentFetcher is a utility class to fetch the latest version of segmented data.
+ *
+ * SegmentFetcher assumes that the data is named /<prefix>/<version>/<segment>,
+ * where:
+ * - <prefix> is the specified name prefix,
+ * - <version> is an unknown version that needs to be discovered, and
+ * - <segment> is a segment number. (The number of segments is unknown and is
+ *   controlled by the `FinalBlockId` field in at least the last Data packet.
+ *
+ * The following logic is implemented in SegmentFetcher:
+ *
+ * 1. Express the first Interest to discover the version:
+ *
+ *    >> Interest: /<prefix>?ChildSelector=1&MustBeFresh=true
+ *
+ * 2. Infer the latest version of the Data: <version> = Data.getName().get(-2)
+ *
+ * 3. If the segment number in the retrieved packet == 0, go to step 5.
+ *
+ * 4. Send an Interest for segment 0:
+ *
+ *    >> Interest: /<prefix>/<version>/<segment=0>
+ *
+ * 5. Keep sending Interests for the next segment while the retrieved Data does
+ *    not have a FinalBlockId or the FinalBlockId != Data.getName().get(-1).
+ *
+ *    >> Interest: /<prefix>/<version>/<segment=(N+1))>
+ *
+ * 6. Call the onComplete callback with a Blob that concatenates the content
+ *    from all the segmented objects.
+ *
+ * If an error occurs during the fetching process, the onError callback is called
+ * with a proper error code.  The following errors are possible:
+ *
+ * - `INTEREST_TIMEOUT`: if any of the Interests times out
+ * - `DATA_HAS_NO_SEGMENT`: if any of the retrieved Data packets don't have a segment
+ *   as the last component of the name (not counting the implicit digest)
+ * - `SEGMENT_VERIFICATION_FAILED`: if any retrieved segment fails
+ *   the user-provided VerifySegment callback
+ * - `IO_ERROR`: for I/O errors when sending an Interest.
+ *
+ * In order to validate individual segments, a verifySegment callback needs to
+ * be specified. If the callback returns false, the fetching process is aborted
+ * with SEGMENT_VERIFICATION_FAILED. If data validation is not required, the
+ * provided DontVerifySegment object can be used.
+ *
+ * Example:
+ *     var onComplete = function(content) { ... }
+ *
+ *     var onError = function(errorCode, message) { ... }
+ *
+ *     var interest = new Interest(new Name("/data/prefix"));
+ *     interest.setInterestLifetimeMilliseconds(1000);
+ *
+ *     SegmentFetcher.fetch
+ *       (face, interest, SegmentFetcher.DontVerifySegment, onComplete, onError);
+ *
+ * This is a private constructor to create a new SegmentFetcher to use the Face.
+ * An application should use SegmentFetcher.fetch.
+ * @param {Face} face This calls face.expressInterest to fetch more segments.
+ * @param {function} verifySegment When a Data packet is received this calls
+ * verifySegment(data) where data is a Data object. If it returns False then
+ * abort fetching and call onError with
+ * SegmentFetcher.ErrorCode.SEGMENT_VERIFICATION_FAILED.
+ * @param {function} onComplete When all segments are received, call
+ * onComplete(content) where content is a Blob which has the concatenation of
+ * the content of all the segments.
+ * @param {function} onError Call onError.onError(errorCode, message) for
+ * timeout or an error processing segments. errorCode is a value from
+ * SegmentFetcher.ErrorCode and message is a related string.
+ * @constructor
+ */
+var SegmentFetcher = function SegmentFetcher
+  (face, verifySegment, onComplete, onError)
+{
+  this.face = face;
+  this.verifySegment = verifySegment;
+  this.onComplete = onComplete;
+  this.onError = onError;
+
+  this.contentParts = []; // of Buffer
+};
+
+exports.SegmentFetcher = SegmentFetcher;
+
+/**
+ * An ErrorCode value is passed in the onError callback.
+ */
+SegmentFetcher.ErrorCode = {
+  INTEREST_TIMEOUT: 1,
+  DATA_HAS_NO_SEGMENT: 2,
+  SEGMENT_VERIFICATION_FAILED: 3
+};
+
+/**
+ * DontVerifySegment may be used in fetch to skip validation of Data packets.
+ */
+SegmentFetcher.DontVerifySegment = function(data)
+{
+  return true;
+};
+
+/**
+ * Initiate segment fetching. For more details, see the documentation for the
+ * class.
+ * @param {Face} face This calls face.expressInterest to fetch more segments.
+ * @param {Interest} baseInterest An Interest for the initial segment of the
+ * requested data, where baseInterest.getName() has the name prefix. This
+ * interest may include a custom InterestLifetime and selectors that will
+ * propagate to all subsequent Interests. The only exception is that the initial
+ * Interest will be forced to include selectors "ChildSelector=1" and
+ * "MustBeFresh=true" which will be turned off in subsequent Interests.
+ * @param {function} verifySegment When a Data packet is received this calls
+ * verifySegment(data) where data is a Data object. If it returns False then
+ * abort fetching and call onError with
+ * SegmentFetcher.ErrorCode.SEGMENT_VERIFICATION_FAILED. If data validation is
+ * not required, use SegmentFetcher.DontVerifySegment.
+ * @param {function} onComplete When all segments are received, call
+ * onComplete(content) where content is a Blob which has the concatenation of
+ * the content of all the segments.
+ * @param {function} onError Call onError.onError(errorCode, message) for
+ * timeout or an error processing segments. errorCode is a value from
+ * SegmentFetcher.ErrorCode and message is a related string.
+ */
+SegmentFetcher.fetch = function
+  (face, baseInterest, verifySegment, onComplete, onError)
+{
+  new SegmentFetcher(face, verifySegment, onComplete, onError).fetchFirstSegment
+    (baseInterest);
+};
+
+SegmentFetcher.prototype.fetchFirstSegment = function(baseInterest)
+{
+  var interest = new Interest(baseInterest);
+  interest.setChildSelector(1);
+  interest.setMustBeFresh(true);
+  var thisSegmentFetcher = this;
+  this.face.expressInterest
+    (interest,
+     function(originalInterest, data)
+       { thisSegmentFetcher.onData(originalInterest, data); },
+     function(interest) { thisSegmentFetcher.onTimeout(interest); });
+};
+
+SegmentFetcher.prototype.fetchNextSegment = function
+  (originalInterest, dataName, segment)
+{
+  // Start with the original Interest to preserve any special selectors.
+  var interest = new Interest(originalInterest);
+  // Changing a field clears the nonce so that the library will generate a new
+  // one.
+  interest.setMustBeFresh(false);
+  interest.setName(dataName.getPrefix(-1).appendSegment(segment));
+  var thisSegmentFetcher = this;
+  this.face.expressInterest
+    (interest, function(originalInterest, data)
+       { thisSegmentFetcher.onData(originalInterest, data); },
+     function(interest) { thisSegmentFetcher.onTimeout(interest); });
+};
+
+SegmentFetcher.prototype.onData = function(originalInterest, data)
+{
+  if (!this.verifySegment(data)) {
+    this.onError
+      (SegmentFetcher.ErrorCode.SEGMENT_VERIFICATION_FAILED,
+       "Segment verification failed");
+    return;
+  }
+
+  if (!SegmentFetcher.endsWithSegmentNumber(data.getName()))
+    // We don't expect a name without a segment number.  Treat it as a bad packet.
+    this.onError
+      (SegmentFetcher.ErrorCode.DATA_HAS_NO_SEGMENT,
+       "Got an unexpected packet without a segment number: " +
+        data.getName().toUri());
+  else {
+    var currentSegment = 0;
+    try {
+      currentSegment = data.getName().get(-1).toSegment();
+    }
+    catch (ex) {
+      this.onError(
+        SegmentFetcher.ErrorCode.DATA_HAS_NO_SEGMENT,
+         "Error decoding the name segment number " +
+         data.getName().get(-1).toEscapedString() + ": " + ex);
+      return;
+    }
+
+    var expectedSegmentNumber = this.contentParts.length;
+    if (currentSegment != expectedSegmentNumber)
+      // Try again to get the expected segment.  This also includes the case
+      // where the first segment is not segment 0.
+      this.fetchNextSegment
+        (originalInterest, data.getName(), expectedSegmentNumber);
+    else {
+      // Save the content and check if we are finished.
+      this.contentParts.push(data.getContent().buf());
+
+      if (data.getMetaInfo().getFinalBlockId().getValue().size() > 0) {
+        var finalSegmentNumber = 0;
+        try {
+          finalSegmentNumber = (data.getMetaInfo().getFinalBlockId().toSegment());
+        }
+        catch (ex) {
+          this.onError
+            (SegmentFetcher.ErrorCode.DATA_HAS_NO_SEGMENT,
+             "Error decoding the FinalBlockId segment number " +
+             data.getMetaInfo().getFinalBlockId().toEscapedString() +
+             ": " + ex);
+          return;
+        }
+
+        if (currentSegment == finalSegmentNumber) {
+          // We are finished.
+
+          // Concatenate to get content.
+          var content = Buffer.concat(this.contentParts);
+          this.onComplete(new Blob(content, false));
+          return;
+        }
+      }
+
+      // Fetch the next segment.
+      this.fetchNextSegment
+        (originalInterest, data.getName(), expectedSegmentNumber + 1);
+    }
+  }
+};
+
+SegmentFetcher.prototype.onTimeout = function(interest)
+{
+  this.onError
+    (SegmentFetcher.ErrorCode.INTEREST_TIMEOUT,
+     "Time out for interest " + interest.getName().toUri());
+};
+
+/**
+ * Check if the last component in the name is a segment number.
+ * @param {Name} name The name to check.
+ * @returns {boolean} True if the name ends with a segment number, otherwise false.
+ */
+SegmentFetcher.endsWithSegmentNumber = function(name)
+{
+  return name.size() >= 1 &&
+         name.get(-1).getValue().size() >= 1 &&
+         name.get(-1).getValue().buf()[0] == 0;
+};
+/**
+ * Copyright (C) 2014-2015 Regents of the University of California.
  * @author: Jeff Thompson <jefft0@remap.ucla.edu>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -8877,11 +12250,11 @@ MemoryContentCache.StaleTimeContent.prototype.isStale = function(nowMilliseconds
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 /**
@@ -8899,8 +12272,28 @@ exports.Transport = Transport;
  */
 Transport.ConnectionInfo = function TransportConnectionInfo()
 {
-};/**
- * Copyright (C) 2013-2014 Regents of the University of California.
+};
+
+/**
+ * Determine whether this transport connecting according to connectionInfo is to
+ * a node on the current machine. This affects the processing of
+ * Face.registerPrefix(): if the NFD is local, registration occurs with the
+ * '/localhost/nfd...' prefix; if non-local, the library will attempt to use
+ * remote prefix registration using '/localhop/nfd...'
+ * @param {Transport.ConnectionInfo} connectionInfo A ConnectionInfo with the
+ * host to check.
+ * @param {function} onResult On success, this calls onResult(isLocal) where
+ * isLocal is true if the host is local, false if not. We use callbacks because
+ * this may need to do an asynchronous DNS lookup.
+ * @param {function} onError On failure for DNS lookup or other error, this
+ * calls onError(message) where message is an error string.
+ */
+Transport.prototype.isLocal = function(connectionInfo, onResult, onError)
+{
+  onError("Transport.isLocal is not implemented");
+};
+/**
+ * Copyright (C) 2013-2015 Regents of the University of California.
  * @author: Wentao Shang
  *
  * This program is free software: you can redistribute it and/or modify
@@ -8911,16 +12304,17 @@ Transport.ConnectionInfo = function TransportConnectionInfo()
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 var ElementReader = require('../encoding/element-reader.js').ElementReader;
 var LOG = require('../log.js').Log.LOG;
 var Transport = require('./transport.js').Transport;
+var Face;
 
 /**
  * @constructor
@@ -8947,6 +12341,10 @@ var WebSocketTransport = function WebSocketTransport()
 
 WebSocketTransport.prototype = new Transport();
 WebSocketTransport.prototype.name = "WebSocketTransport";
+
+WebSocketTransport.importFace = function(face){
+  Face = face;
+};
 
 exports.WebSocketTransport = WebSocketTransport;
 
@@ -8992,6 +12390,19 @@ WebSocketTransport.ConnectionInfo.prototype.toString = function()
 };
 
 /**
+ * Determine whether this transport connecting according to connectionInfo is to
+ * a node on the current machine. WebSocket transports are always non-local.
+ * @param {WebSocketTransport.ConnectionInfo} connectionInfo This is ignored.
+ * @param {function} onResult This calls onResult(false) because WebSocket
+ * transports are always non-local.
+ * @param {function} onError This is ignored.
+ */
+WebSocketTransport.prototype.isLocal = function(connectionInfo, onResult, onError)
+{
+  onResult(false);
+};
+
+/**
  * Connect to a WebSocket according to the info in connectionInfo. Listen on
  * the port to read an entire packet element and call
  * elementListener.onReceivedElement(element). Note: this connect method
@@ -9027,12 +12438,13 @@ WebSocketTransport.prototype.connect = function
       console.log('INVALID ANSWER');
     }
     else if (result instanceof ArrayBuffer) {
-      var bytearray = new Buffer(result);
+      // The Buffer constructor expects an instantiated array.
+      var bytearray = new Buffer(new Uint8Array(result));
 
       if (LOG > 3) console.log('BINARY RESPONSE IS ' + bytearray.toString('hex'));
 
       try {
-        // Find the end of the binary XML element and call face.onReceivedElement.
+        // Find the end of the binary XML element and call onReceivedElement.
         self.elementReader.onReceivedData(bytearray);
       } catch (ex) {
         console.log("NDN.ws.onmessage exception: " + ex);
@@ -9107,7 +12519,7 @@ WebSocketTransport.prototype.close = function()
 }
 
 /**
- * Copyright (C) 2013-2014 Regents of the University of California.
+ * Copyright (C) 2013-2015 Regents of the University of California.
  * @author: Jeff Thompson <jefft0@remap.ucla.edu>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -9118,18 +12530,18 @@ WebSocketTransport.prototype.close = function()
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 // The Face constructor uses TcpTransport by default which is not available in the browser, so override to WebSocketTransport.
-exports.TcpTransport = ndn.WebSocketTransport;
+exports.TcpTransport = require("./transport/web-socket-transport").WebSocketTransport;
 /**
  * Provide the callback closure for the async communication methods in the Face class.
- * Copyright (C) 2013-2014 Regents of the University of California.
+ * Copyright (C) 2013-2015 Regents of the University of California.
  * @author: Jeff Thompson <jefft0@remap.ucla.edu>
  * This is a port of Closure.py from PyNDN, written by:
  * Derek Kulinski <takeda@takeda.tk>
@@ -9143,11 +12555,11 @@ exports.TcpTransport = ndn.WebSocketTransport;
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 /**
@@ -9223,7 +12635,7 @@ UpcallInfo.prototype.toString = function()
 exports.UpcallInfo = UpcallInfo;
 /**
  * This class represents PublisherPublicKeyDigest Objects
- * Copyright (C) 2013-2014 Regents of the University of California.
+ * Copyright (C) 2013-2015 Regents of the University of California.
  * @author: Meki Cheraoui
  *
  * This program is free software: you can redistribute it and/or modify
@@ -9234,23 +12646,25 @@ exports.UpcallInfo = UpcallInfo;
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 var NDNProtocolDTags = require('./util/ndn-protoco-id-tags.js').NDNProtocolDTags;
 var LOG = require('./log.js').Log.LOG;
 
 /**
- * @constructor
+ * @deprecated This is only used for NDNx support which is deprecated.
  */
 var PublisherPublicKeyDigest = function PublisherPublicKeyDigest(pkd)
 {
- this.PUBLISHER_ID_LEN = 512/8;
- this.publisherPublicKeyDigest = pkd;
+  this.PUBLISHER_ID_LEN = 512/8;
+  this.publisherPublicKeyDigest = pkd;
+
+  this.changeCount = 0;
 };
 
 exports.PublisherPublicKeyDigest = PublisherPublicKeyDigest;
@@ -9272,6 +12686,7 @@ PublisherPublicKeyDigest.prototype.from_ndnb = function(decoder)
 
     //this.publisherPublicKeyDigest = new PublisherPublicKeyDigest(this.PublisherPublicKeyDigest).PublisherKeyDigest;
   }
+  ++this.changeCount;
 };
 
 PublisherPublicKeyDigest.prototype.to_ndnb= function(encoder)
@@ -9290,9 +12705,18 @@ PublisherPublicKeyDigest.prototype.validate = function()
 {
     return null != this.publisherPublicKeyDigest;
 };
+
+/**
+ * Get the change count, which is incremented each time this object is changed.
+ * @returns {number} The change count.
+ */
+PublisherPublicKeyDigest.prototype.getChangeCount = function()
+{
+  return this.changeCount;
+};
 /**
  * This class represents Publisher and PublisherType Objects
- * Copyright (C) 2013-2014 Regents of the University of California.
+ * Copyright (C) 2013-2015 Regents of the University of California.
  * @author: Meki Cheraoui
  *
  * This program is free software: you can redistribute it and/or modify
@@ -9303,11 +12727,11 @@ PublisherPublicKeyDigest.prototype.validate = function()
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 var NDNProtocolDTags = require('./util/ndn-protoco-id-tags.js').NDNProtocolDTags;
@@ -9328,7 +12752,7 @@ var PublisherType = function PublisherType(tag)
 };
 
 /**
- * @constructor
+ * @deprecated Use KeyLocator getKeyData and setKeyData.
  */
 var PublisherID = function PublisherID()
 {
@@ -9343,6 +12767,8 @@ var PublisherID = function PublisherID()
   //TODO implement generate key
   //CryptoUtil.generateKeyID(PUBLISHER_ID_DIGEST_ALGORITHM, key);
   this.publisherType = null;//isIssuer ? PublisherType.ISSUER_KEY : PublisherType.KEY;//publisher Type
+
+  this.changeCount = 0;
 };
 
 exports.PublisherID = PublisherID;
@@ -9360,6 +12786,7 @@ PublisherID.prototype.from_ndnb = function(decoder)
   this.publisherID = decoder.readBinaryDTagElement(nextTag);
   if (null == this.publisherID)
     throw new DecodingException(new Error("Cannot parse publisher ID of type : " + nextTag + "."));
+  ++this.changeCount;
 };
 
 PublisherID.prototype.to_ndnb = function(encoder)
@@ -9403,9 +12830,18 @@ PublisherID.prototype.validate = function()
 {
   return null != id() && null != type();
 };
+
+/**
+ * Get the change count, which is incremented each time this object is changed.
+ * @returns {number} The change count.
+ */
+PublisherID.prototype.getChangeCount = function()
+{
+  return this.changeCount;
+};
 /**
  * This class represents a Name as an array of components where each is a byte array.
- * Copyright (C) 2013-2014 Regents of the University of California.
+ * Copyright (C) 2013-2015 Regents of the University of California.
  * @author: Meki Cheraoui, Jeff Thompson <jefft0@remap.ucla.edu>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -9416,11 +12852,11 @@ PublisherID.prototype.validate = function()
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 var Blob = require('./util/blob.js').Blob;
@@ -9457,6 +12893,8 @@ var Name = function Name(components)
     this.components = [];
   else
     if (LOG > 1) console.log("NO CONTENT NAME GIVEN");
+
+  this.changeCount = 0;
 };
 
 exports.Name = Name;
@@ -9481,17 +12919,16 @@ Name.Component = function NameComponent(value)
   }
   else if (Buffer.isBuffer(value))
     this.value = new Buffer(value);
-  else if (typeof value === 'object' && typeof ArrayBuffer !== 'undefined' &&  value instanceof ArrayBuffer) {
-    // Make a copy.  Don't use ArrayBuffer.slice since it isn't always supported.
-    this.value = new Buffer(new ArrayBuffer(value.byteLength));
-    this.value.set(new Buffer(value));
-  }
+  else if (typeof value === 'object' && typeof ArrayBuffer !== 'undefined' &&  value instanceof ArrayBuffer)
+    // Make a copy.  Turn the value into a Uint8Array since the Buffer
+    //   constructor doesn't take an ArrayBuffer.
+    this.value = new Buffer(new Uint8Array(value));
+  else if (!value)
+    this.value = new Buffer(0);
   else if (typeof value === 'object')
     // Assume value is a byte array.  We can't check instanceof Array because
     //   this doesn't work in JavaScript if the array comes from a different module.
     this.value = new Buffer(value);
-  else if (!value)
-    this.value = new Buffer(0);
   else
     throw new Error("Name.Component constructor: Invalid type");
 }
@@ -9523,7 +12960,122 @@ Name.Component.prototype.getValueAsBuffer = function()
 Name.Component.prototype.toEscapedString = function()
 {
   return Name.toEscapedString(this.value);
-}
+};
+
+/**
+ * Interpret this name component as a network-ordered number and return an integer.
+ * @returns {number} The integer number.
+ */
+Name.Component.prototype.toNumber = function()
+{
+  return DataUtils.bigEndianToUnsignedInt(this.value);
+};
+
+/**
+ * Interpret this name component as a network-ordered number with a marker and
+ * return an integer.
+ * @param {number} marker The required first byte of the component.
+ * @returns {number} The integer number.
+ * @throws Error If the first byte of the component does not equal the marker.
+ */
+Name.Component.prototype.toNumberWithMarker = function(marker)
+{
+  if (this.value.length == 0 || this.value[0] != marker)
+    throw new Error("Name component does not begin with the expected marker");
+
+  return DataUtils.bigEndianToUnsignedInt(this.value.slice(1));
+};
+
+/**
+ * Interpret this name component as a segment number according to NDN naming
+ * conventions for "Segment number" (marker 0x00).
+ * http://named-data.net/doc/tech-memos/naming-conventions.pdf
+ * @returns {number} The integer segment number.
+ * @throws Error If the first byte of the component is not the expected marker.
+ */
+Name.Component.prototype.toSegment = function()
+{
+  return this.toNumberWithMarker(0x00);
+};
+
+/**
+ * Interpret this name component as a segment byte offset according to NDN
+ * naming conventions for segment "Byte offset" (marker 0xFB).
+ * http://named-data.net/doc/tech-memos/naming-conventions.pdf
+ * @returns The integer segment byte offset.
+ * @throws Error If the first byte of the component is not the expected marker.
+ */
+Name.Component.prototype.toSegmentOffset = function()
+{
+  return this.toNumberWithMarker(0xFB);
+};
+
+/**
+ * Interpret this name component as a version number  according to NDN naming
+ * conventions for "Versioning" (marker 0xFD). Note that this returns
+ * the exact number from the component without converting it to a time
+ * representation.
+ * @returns {number} The integer version number.
+ * @throws Error If the first byte of the component is not the expected marker.
+ */
+Name.Component.prototype.toVersion = function()
+{
+  return this.toNumberWithMarker(0xFD);
+};
+
+/**
+ * Interpret this name component as a timestamp  according to NDN naming
+ * conventions for "Timestamp" (marker 0xFC).
+ * http://named-data.net/doc/tech-memos/naming-conventions.pdf
+ * @returns The number of microseconds since the UNIX epoch (Thursday,
+ * 1 January 1970) not counting leap seconds.
+ * @throws Error If the first byte of the component is not the expected marker.
+ */
+Name.Component.prototype.toTimestamp = function()
+{
+  return this.toNumberWithMarker(0xFC);
+};
+
+/**
+ * Interpret this name component as a sequence number according to NDN naming
+ * conventions for "Sequencing" (marker 0xFE).
+ * http://named-data.net/doc/tech-memos/naming-conventions.pdf
+ * @returns The integer sequence number.
+ * @throws Error If the first byte of the component is not the expected marker.
+ */
+Name.Component.prototype.toSequenceNumber = function()
+{
+  return this.toNumberWithMarker(0xFE);
+};
+
+/**
+ * Create a component whose value is the nonNegativeInteger encoding of the
+ * number.
+ * @param {number} number
+ * @returns {Name.Component}
+ */
+Name.Component.fromNumber = function(number)
+{
+  var encoder = new TlvEncoder(8);
+  encoder.writeNonNegativeInteger(number);
+  return new Name.Component(new Blob(encoder.getOutput(), false));
+};
+
+/**
+ * Create a component whose value is the marker appended with the
+ * nonNegativeInteger encoding of the number.
+ * @param {number} number
+ * @param {number} marker
+ * @returns {Name.Component}
+ */
+Name.Component.fromNumberWithMarker = function(number, marker)
+{
+  var encoder = new TlvEncoder(9);
+  // Encode backwards.
+  encoder.writeNonNegativeInteger(number);
+  encoder.writeNonNegativeInteger(marker);
+  return new Name.Component(new Blob(encoder.getOutput(), false));
+};
 
 /**
  * Check if this is the same component as other.
@@ -9533,7 +13085,7 @@ Name.Component.prototype.toEscapedString = function()
 Name.Component.prototype.equals = function(other)
 {
   return DataUtils.arraysEqual(this.value, other.value);
-}
+};
 
 /**
  * Compare this to the other Component using NDN canonical ordering.
@@ -9547,7 +13099,7 @@ Name.Component.prototype.equals = function(other)
 Name.Component.prototype.compare = function(other)
 {
   return Name.Component.compareBuffers(this.value, other.value);
-}
+};
 
 /**
  * Do the work of Name.Component.compare to compare the component buffers.
@@ -9572,7 +13124,7 @@ Name.Component.compareBuffers = function(component1, component2)
   }
 
   return 0;
-}
+};
 
 /**
  * @deprecated Use toUri.
@@ -9619,7 +13171,7 @@ Name.createNameArray = function(uri)
   for (var i = 0; i < array.length; ++i) {
     var value = Name.fromEscapedString(array[i]);
 
-    if (value == null) {
+    if (value.isNull()) {
       // Ignore the illegal componenent.  This also gets rid of a trailing '/'.
       array.splice(i, 1);
       --i;
@@ -9640,31 +13192,69 @@ Name.createNameArray = function(uri)
 Name.prototype.set = function(uri)
 {
   this.components = Name.createNameArray(uri);
-}
+  ++this.changeCount;
+};
 
 Name.prototype.from_ndnb = function(/*XMLDecoder*/ decoder)
 {
   decoder.readElementStartDTag(this.getElementLabel());
+  var signedPortionBeginOffset = decoder.offset;
+  // In case there are no components, set signedPortionEndOffset arbitrarily.
+  var signedPortionEndOffset = signedPortionBeginOffset;
 
   this.components = [];
 
-  while (decoder.peekDTag(NDNProtocolDTags.Component))
+  while (decoder.peekDTag(NDNProtocolDTags.Component)) {
+    signedPortionEndOffset = decoder.offset;
     this.append(decoder.readBinaryDTagElement(NDNProtocolDTags.Component));
+  }
 
   decoder.readElementClose();
+  ++this.changeCount;
+
+  return { signedPortionBeginOffset: signedPortionBeginOffset,
+           signedPortionEndOffset: signedPortionEndOffset };
 };
 
-Name.prototype.to_ndnb = function(/*XMLEncoder*/ encoder)
+/**
+ * Encode this name to the encoder.
+ * @param {BinaryXMLEncoder} encoder The encoder to receive the encoding.
+ * @returns {object} An associative array with fields
+ * (signedPortionBeginOffset, signedPortionEndOffset) where
+ * signedPortionBeginOffset is the offset in the encoding of the beginning of
+ * the signed portion, and signedPortionEndOffset is the offset in the encoding
+ * of the end of the signed portion. The signed portion starts from the first
+ * name component and ends just before the final name component (which is
+ * assumed to be a signature for a signed interest).
+ */
+Name.prototype.to_ndnb = function(encoder)
 {
   if (this.components == null)
     throw new Error("CANNOT ENCODE EMPTY CONTENT NAME");
 
   encoder.writeElementStartDTag(this.getElementLabel());
+  var signedPortionBeginOffset = encoder.offset;
+  var signedPortionEndOffset;
+
   var count = this.size();
-  for (var i=0; i < count; i++)
-    encoder.writeDTagElement(NDNProtocolDTags.Component, this.components[i].getValue().buf());
+  if (count == 0)
+    // There is no "final component", so set signedPortionEndOffset arbitrarily.
+    signedPortionEndOffset = signedPortionBeginOffset;
+  else {
+    for (var i = 0; i < count; i++) {
+      if (i == count - 1)
+        // We will begin the final component.
+        signedPortionEndOffset = encoder.offset;
+
+      encoder.writeDTagElement
+        (NDNProtocolDTags.Component, this.components[i].getValue().buf());
+    }
+  }
 
   encoder.writeElementClose();
+
+  return { signedPortionBeginOffset: signedPortionBeginOffset,
+           signedPortionEndOffset: signedPortionEndOffset };
 };
 
 Name.prototype.getElementLabel = function()
@@ -9695,6 +13285,7 @@ Name.prototype.append = function(component)
     // Just use the Name.Component constructor.
     this.components.push(new Name.Component(component));
 
+  ++this.changeCount;
   return this;
 };
 
@@ -9712,18 +13303,23 @@ Name.prototype.add = function(component)
 Name.prototype.clear = function()
 {
   this.components = [];
+  ++this.changeCount;
 };
 
 /**
  * Return the escaped name string according to "NDNx URI Scheme".
+ * @param {boolean} includeScheme (optional) If true, include the "ndn:" scheme
+ * in the URI, e.g. "ndn:/example/name". If false, just return the path, e.g.
+ * "/example/name". If ommitted, then just return the path which is the default
+ * case where toUri() is used for display.
  * @returns {String}
  */
-Name.prototype.toUri = function()
+Name.prototype.toUri = function(includeScheme)
 {
   if (this.size() == 0)
-    return "/";
+    return includeScheme ? "ndn:/" : "/";
 
-  var result = "";
+  var result = includeScheme ? "ndn:" : "";
 
   for (var i = 0; i < this.size(); ++i)
     result += "/"+ Name.toEscapedString(this.components[i].getValue().buf());
@@ -9740,39 +13336,65 @@ Name.prototype.to_uri = function()
 };
 
 /**
- * Append a component with the encoded segment number.
+ * Append a component with the encoded segment number according to NDN
+ * naming conventions for "Segment number" (marker 0x00).
+ * http://named-data.net/doc/tech-memos/naming-conventions.pdf
  * @param {number} segment The segment number.
  * @returns {Name} This name so that you can chain calls to append.
  */
 Name.prototype.appendSegment = function(segment)
 {
-  var segmentNumberBigEndian = DataUtils.nonNegativeIntToBigEndian(segment);
-  // Put a 0 byte in front.
-  var segmentNumberComponent = new Buffer(segmentNumberBigEndian.length + 1);
-  segmentNumberComponent[0] = 0;
-  segmentNumberBigEndian.copy(segmentNumberComponent, 1);
-
-  this.components.push(new Name.Component(segmentNumberComponent));
-  return this;
+  return this.append(Name.Component.fromNumberWithMarker(segment, 0x00));
 };
 
 /**
- * Append a component with the encoded version number.
- * Note that this encodes the exact value of version without converting from a
- * time representation.
+ * Append a component with the encoded segment byte offset according to NDN
+ * naming conventions for segment "Byte offset" (marker 0xFB).
+ * http://named-data.net/doc/tech-memos/naming-conventions.pdf
+ * @param segmentOffset The segment byte offset.
+ * @returns This name so that you can chain calls to append.
+ */
+Name.prototype.appendSegmentOffset = function(segmentOffset)
+{
+  return this.append(Name.Component.fromNumberWithMarker(segmentOffset, 0xFB));
+};
+
+/**
+ * Append a component with the encoded version number according to NDN
+ * naming conventions for "Versioning" (marker 0xFD).
+ * http://named-data.net/doc/tech-memos/naming-conventions.pdf
+ * Note that this encodes the exact value of version without converting from a time representation.
  * @param {number} version The version number.
  * @returns {Name} This name so that you can chain calls to append.
  */
 Name.prototype.appendVersion = function(version)
 {
-  var segmentNumberBigEndian = DataUtils.nonNegativeIntToBigEndian(version);
-  // Put a 0 byte in front.
-  var segmentNumberComponent = new Buffer(segmentNumberBigEndian.length + 1);
-  segmentNumberComponent[0] = 0xfD;
-  segmentNumberBigEndian.copy(segmentNumberComponent, 1);
+  return this.append(Name.Component.fromNumberWithMarker(version, 0xFD));
+};
 
-  this.components.push(new Name.Component(segmentNumberComponent));
-  return this;
+/**
+ * Append a component with the encoded timestamp according to NDN naming
+ * conventions for "Timestamp" (marker 0xFC).
+ * http://named-data.net/doc/tech-memos/naming-conventions.pdf
+ * @param timestamp The number of microseconds since the UNIX epoch (Thursday,
+ * 1 January 1970) not counting leap seconds.
+ * @returns This name so that you can chain calls to append.
+ */
+Name.prototype.appendTimestamp = function(timestamp)
+{
+  return this.append(Name.Component.fromNumberWithMarker(timestamp, 0xFC));
+};
+
+/**
+ * Append a component with the encoded sequence number according to NDN naming
+ * conventions for "Sequencing" (marker 0xFE).
+ * http://named-data.net/doc/tech-memos/naming-conventions.pdf
+ * @param sequenceNumber The sequence number.
+ * @returns This name so that you can chain calls to append.
+ */
+Name.prototype.appendSequenceNumber = function(sequenceNumber)
+{
+  return this.append(Name.Component.fromNumberWithMarker(sequenceNumber, 0xFE));
 };
 
 /**
@@ -9785,13 +13407,18 @@ Name.prototype.addSegment = function(number)
 
 /**
  * Get a new name, constructed as a subset of components.
- * @param {number} iStartComponent The index if the first component to get.
+ * @param {number} iStartComponent The index if the first component to get. If
+ * iStartComponent is -N then return return components starting from
+ * name.size() - N.
  * @param {number} (optional) nComponents The number of components starting at iStartComponent.  If omitted,
  * return components starting at iStartComponent until the end of the name.
  * @returns {Name} A new name.
  */
 Name.prototype.getSubName = function(iStartComponent, nComponents)
 {
+  if (iStartComponent < 0)
+    iStartComponent = this.components.length - (-iStartComponent);
+
   if (nComponents == undefined)
     nComponents = this.components.length - iStartComponent;
 
@@ -9897,6 +13524,73 @@ Name.prototype.indexOfFileName = function()
 };
 
 /**
+ * Encode this Name for a particular wire format.
+ * @param {WireFormat} wireFormat (optional) A WireFormat object  used to encode
+ * this object. If omitted, use WireFormat.getDefaultWireFormat().
+ * @returns {Blob} The encoded buffer in a Blob object.
+ */
+Name.prototype.wireEncode = function(wireFormat)
+{
+  wireFormat = (wireFormat || WireFormat.getDefaultWireFormat());
+  return wireFormat.encodeName(this);
+};
+
+/**
+ * Decode the input using a particular wire format and update this Name.
+ * @param {Blob|Buffer} input The buffer with the bytes to decode.
+ * @param {WireFormat} wireFormat (optional) A WireFormat object used to decode
+ * this object. If omitted, use WireFormat.getDefaultWireFormat().
+ */
+Name.prototype.wireDecode = function(input, wireFormat)
+{
+  wireFormat = (wireFormat || WireFormat.getDefaultWireFormat());
+  // If input is a blob, get its buf().
+  var decodeBuffer = typeof input === 'object' && input instanceof Blob ?
+                     input.buf() : input;
+  wireFormat.decodeName(this, decodeBuffer);
+};
+
+/**
+ * Compare this to the other Name using NDN canonical ordering.  If the first
+ * components of each name are not equal, this returns -1 if the first comes
+ * before the second using the NDN canonical ordering for name components, or 1
+ * if it comes after. If they are equal, this compares the second components of
+ * each name, etc.  If both names are the same up to the size of the shorter
+ * name, this returns -1 if the first name is shorter than the second or 1 if it
+ * is longer. For example, std::sort gives: /a/b/d /a/b/cc /c /c/a /bb .  This
+ * is intuitive because all names with the prefix /a are next to each other.
+ * But it may be also be counter-intuitive because /c comes before /bb according
+ * to NDN canonical ordering since it is shorter.
+ * @param {Name} other The other Name to compare with.
+ * @returns {boolean} If they compare equal, -1 if *this comes before other in
+ * the canonical ordering, or 1 if *this comes after other in the canonical
+ * ordering.
+ *
+ * @see http://named-data.net/doc/0.2/technical/CanonicalOrder.html
+ */
+Name.prototype.compare = function(other)
+{
+  for (var i = 0; i < this.size() && i < other.size(); ++i) {
+    var comparison = this.components[i].compare(other.components[i]);
+    if (comparison == 0)
+      // The components at this index are equal, so check the next components.
+      continue;
+
+    // Otherwise, the result is based on the components at this index.
+    return comparison;
+  }
+
+  // The components up to min(this.size(), other.size()) are equal, so the
+  // shorter name is less.
+  if (this.size() < other.size())
+    return -1;
+  else if (this.size() > other.size())
+    return 1;
+  else
+    return 0;
+};
+
+/**
  * Return true if this Name has the same components as name.
  */
 Name.prototype.equals = function(name)
@@ -9974,6 +13668,8 @@ Name.toEscapedString = function(value)
 {
   if (typeof value == 'object' && value instanceof Name.Component)
     value = value.getValue().buf();
+  else if (typeof value === 'object' && value instanceof Blob)
+    value = value.buf();
 
   var result = "";
   var gotNonDot = false;
@@ -10005,10 +13701,11 @@ Name.toEscapedString = function(value)
 };
 
 /**
- * Return a Buffer byte array by decoding the escapedString according to "NDNx URI Scheme".
+ * Make a blob value by decoding the escapedString according to "NDNx URI Scheme".
  * If escapedString is "", "." or ".." then return null, which means to skip the component in the name.
  * @param {string} escapedString The escaped string to decode.
- * @returns {Buffer} The byte array, or null which means to skip the component in the name.
+ * @returns {Blob} The unescaped Blob value. If the escapedString is not a valid
+ * escaped component, then the Blob isNull().
  */
 Name.fromEscapedString = function(escapedString)
 {
@@ -10019,13 +13716,23 @@ Name.fromEscapedString = function(escapedString)
     if (value.length <= 2)
       // Zero, one or two periods is illegal.  Ignore this componenent to be
       //   consistent with the C implementation.
-      return null;
+      return new Blob();
     else
       // Remove 3 periods.
-      return DataUtils.toNumbersFromString(value.substr(3, value.length - 3));
+      return new Blob
+        (DataUtils.toNumbersFromString(value.substr(3, value.length - 3)), false);
   }
   else
-    return DataUtils.toNumbersFromString(value);
+    return new Blob(DataUtils.toNumbersFromString(value), false);
+};
+
+/**
+ * @deprecated Use fromEscapedString. This method returns a Buffer which is the former
+ * behavior of fromEscapedString, and should only be used while updating your code.
+ */
+Name.fromEscapedStringAsBuffer = function(escapedString)
+{
+  return Name.fromEscapedString(escapedString).buf();
 };
 
 /**
@@ -10042,17 +13749,31 @@ Name.prototype.match = function(name)
   if (i_name.length > o_name.length)
     return false;
 
-  // Check if at least one of given components doesn't match.
-  for (var i = 0; i < i_name.length; ++i) {
+  // Check if at least one of given components doesn't match. Check from last to
+  // first since the last components are more likely to differ.
+  for (var i = i_name.length - 1; i >= 0; --i) {
     if (!i_name[i].equals(o_name[i]))
       return false;
   }
 
   return true;
 };
+
+/**
+ * Get the change count, which is incremented each time this object is changed.
+ * @returns {number} The change count.
+ */
+Name.prototype.getChangeCount = function()
+{
+  return this.changeCount;
+};
+
+// Put these requires at the bottom to avoid circular references.
+var TlvEncoder = require('./encoding/tlv/tlv-encoder.js').TlvEncoder;
+var WireFormat = require('./encoding/wire-format.js').WireFormat;
 /**
  * This class represents Key Objects
- * Copyright (C) 2013-2014 Regents of the University of California.
+ * Copyright (C) 2013-2015 Regents of the University of California.
  * @author: Meki Cheraoui
  *
  * This program is free software: you can redistribute it and/or modify
@@ -10063,24 +13784,29 @@ Name.prototype.match = function(name)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
+// Use capitalized Crypto to not clash with the browser's crypto.subtle.
+var Crypto = require("crypto");
 var DataUtils = require('./encoding/data-utils.js').DataUtils;
 var LOG = require('./log.js').Log.LOG;
+var WireFormat = require('./encoding/wire-format.js').WireFormat;
 
 /**
+ * @deprecated NDNx-style key management is deprecated. Use KeyChain.
  * @constructor
- */
-/**
- * Key
  */
 var Key = function Key()
 {
+  if (!WireFormat.ENABLE_NDNX)
+    throw new Error
+      ("NDNx-style key management is deprecated. To enable while you upgrade your code to use KeyChain, set WireFormat.ENABLE_NDNX = true");
+
   this.publicKeyDer = null;     // Buffer
   this.publicKeyDigest = null;  // Buffer
   this.publicKeyPem = null;     // String
@@ -10134,7 +13860,7 @@ Key.prototype.readDerPublicKey = function(/*Buffer*/pub_der)
 
   this.publicKeyDer = pub_der;
 
-  var hash = require("crypto").createHash('sha256');
+  var hash = Crypto.createHash('sha256');
   hash.update(this.publicKeyDer);
   this.publicKeyDigest = new Buffer(DataUtils.toNumbersIfString(hash.digest()));
 
@@ -10171,7 +13897,7 @@ Key.prototype.fromPemString = function(pub, pri)
     this.publicKeyDer = new Buffer(pub, 'base64');
     if (LOG > 4) console.log("Key.publicKeyDer: \n" + this.publicKeyDer.toString('hex'));
 
-    var hash = require("crypto").createHash('sha256');
+    var hash = Crypto.createHash('sha256');
     hash.update(this.publicKeyDer);
     this.publicKeyDigest = new Buffer(DataUtils.toNumbersIfString(hash.digest()));
     if (LOG > 4) console.log("Key.publicKeyDigest: \n" + this.publicKeyDigest.toString('hex'));
@@ -10201,7 +13927,7 @@ Key.createFromPEM = function(obj)
 };
 /**
  * This class represents an NDN KeyLocator object.
- * Copyright (C) 2014 Regents of the University of California.
+ * Copyright (C) 2014-2015 Regents of the University of California.
  * @author: Meki Cheraoui
  * @author: Jeff Thompson <jefft0@remap.ucla.edu>
  *
@@ -10213,14 +13939,15 @@ Key.createFromPEM = function(obj)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 var Blob = require('./util/blob.js').Blob;
+var ChangeCounter = require('./util/change-counter.js').ChangeCounter;
 var Name = require('./name.js').Name;
 var NDNProtocolDTags = require('./util/ndn-protoco-id-tags.js').NDNProtocolDTags;
 var PublisherID = require('./publisher-id.js').PublisherID;
@@ -10232,6 +13959,7 @@ var LOG = require('./log.js').Log.LOG;
 var KeyLocatorType = {
   KEYNAME: 1,
   KEY_LOCATOR_DIGEST: 2,
+  // KeyLocatorType KEY and CERTIFICATE are not supported in NDN-TLV encoding and are deprecated.
   KEY: 3,
   CERTIFICATE: 4
 };
@@ -10241,40 +13969,40 @@ exports.KeyLocatorType = KeyLocatorType;
 /**
  * @constructor
  */
-var KeyLocator = function KeyLocator(input,type)
+var KeyLocator = function KeyLocator(input, type)
 {
   if (typeof input === 'object' && input instanceof KeyLocator) {
     // Copy from the input KeyLocator.
-    this.type = input.type;
-    this.keyName = new KeyName();
-    if (input.keyName != null) {
-      this.keyName.contentName = input.keyName.contentName == null ?
-        null : new Name(input.keyName.contentName);
-      this.keyName.publisherID = input.keyName.publisherID;
-    }
-    this.keyData = input.keyData == null ? null : new Buffer(input.keyData);
-    this.publicKey = input.publicKey == null ? null : new Buffer(input.publicKey);
-    this.certificate = input.certificate == null ? null : new Buffer(input.certificate);
+    this.type_ = input.type_;
+    this.keyName_ = new ChangeCounter(new KeyName());
+    this.keyName_.get().setContentName(input.keyName_.get().getContentName());
+    this.keyName_.get().publisherID = input.keyName_.get().publisherID;
+    this.keyData_ = input.keyData_;
+    this.publicKey_ = input.publicKey_ == null ? null : new Buffer(input.publicKey_);
+    this.certificate_ = input.certificate_ == null ? null : new Buffer(input.certificate_);
   }
   else {
-    this.type = type;
-    this.keyName = new KeyName();
+    this.type_ = type;
+    this.keyName_ = new ChangeCounter(new KeyName());
+    this.keyData_ = new Blob();
 
     if (type == KeyLocatorType.KEYNAME)
-      this.keyName = input;
+      this.keyName_.set(input);
     else if (type == KeyLocatorType.KEY_LOCATOR_DIGEST)
-      this.keyData = new Buffer(input);
+      this.keyData_ = new Blob(input);
     else if (type == KeyLocatorType.KEY) {
-      this.keyData = new Buffer(input);
+      this.keyData_ = new Blob(input);
       // Set for backwards compatibility.
-      this.publicKey = this.keyData;
+      this.publicKey_ = this.keyData_;
     }
     else if (type == KeyLocatorType.CERTIFICATE) {
-      this.keyData = new Buffer(input);
+      this.keyData_ = new Blob(input);
       // Set for backwards compatibility.
-      this.certificate = this.keyData;
+      this.certificate_ = this.keyData_;
     }
   }
+
+  this.changeCount_ = 0;
 };
 
 exports.KeyLocator = KeyLocator;
@@ -10285,7 +14013,7 @@ exports.KeyLocator = KeyLocator;
  * getKeyData() to get the digest.
  * @returns {number} The key locator type, or null if not specified.
  */
-KeyLocator.prototype.getType = function() { return this.type; };
+KeyLocator.prototype.getType = function() { return this.type_; };
 
 /**
  * Get the key name.  This is meaningful if getType() is KeyLocatorType.KEYNAME.
@@ -10293,12 +14021,7 @@ KeyLocator.prototype.getType = function() { return this.type; };
  */
 KeyLocator.prototype.getKeyName = function()
 {
-  if (this.keyName == null)
-    this.keyName = new KeyName();
-  if (this.keyName.contentName == null)
-    this.keyName.contentName = new Name();
-
-  return this.keyName.contentName;
+  return this.keyName_.get().getContentName();
 };
 
 /**
@@ -10310,8 +14033,12 @@ KeyLocator.prototype.getKeyName = function()
  */
 KeyLocator.prototype.getKeyData = function()
 {
-  // For temporary backwards compatibility, leave the fields as a Buffer but return a Blob.
-  return new Blob(this.getKeyDataAsBuffer(), false);
+  if (this.type_ == KeyLocatorType.KEY)
+    return new Blob(this.publicKey_);
+  else if (this.type_ == KeyLocatorType.CERTIFICATE)
+    return new Blob(this.certificate_);
+  else
+    return this.keyData_;
 };
 
 /**
@@ -10320,12 +14047,7 @@ KeyLocator.prototype.getKeyData = function()
  */
 KeyLocator.prototype.getKeyDataAsBuffer = function()
 {
-  if (this.type == KeyLocatorType.KEY)
-    return this.publicKey;
-  else if (this.type == KeyLocatorType.CERTIFICATE)
-    return this.certificate;
-  else
-    return this.keyData;
+  return this.getKeyData().buf();
 };
 
 /**
@@ -10334,7 +14056,11 @@ KeyLocator.prototype.getKeyDataAsBuffer = function()
  * setKeyData() to the digest.
  * @param {number} type The key locator type.  If null, the type is unspecified.
  */
-KeyLocator.prototype.setType = function(type) { this.type = type; };
+KeyLocator.prototype.setType = function(type)
+{
+  this.type_ = type;
+  ++this.changeCount_;
+};
 
 /**
  * Set key name to a copy of the given Name.  This is the name if getType()
@@ -10343,46 +14069,69 @@ KeyLocator.prototype.setType = function(type) { this.type = type; };
  */
 KeyLocator.prototype.setKeyName = function(name)
 {
-  if (this.keyName == null)
-    this.keyName = new KeyName();
-
-  this.keyName.contentName = typeof name === 'object' && name instanceof Name ?
-                             new Name(name) : new Name();
+  this.keyName_.get().setContentName(name);
+  ++this.changeCount_;
 };
 
 /**
  * Set the key data to the given value. This is the digest bytes if getType() is
  * KeyLocatorType.KEY_LOCATOR_DIGEST.
- * @param {Buffer} keyData The array with the key data bytes.
+ * @param {Blob} keyData A Blob with the key data bytes.
  */
 KeyLocator.prototype.setKeyData = function(keyData)
 {
-  var value = keyData;
-  if (value != null) {
-    if (typeof value === 'object' && value instanceof Blob)
-      value = new Buffer(value.buf());
-    else
-      // Make a copy.
-      value = new Buffer(value);
-  }
-
-  this.keyData = value;
+  this.keyData_ = typeof keyData === 'object' && keyData instanceof Blob ?
+    keyData : new Blob(keyData);
   // Set for backwards compatibility.
-  this.publicKey = value;
-  this.certificate = value;
+  this.publicKey_ = this.keyData_.buf();
+  this.certificate_ = this.keyData_.buf();
+  ++this.changeCount_;
 };
 
 /**
- * Clear the keyData and set the type to none.
+ * Clear the keyData and set the type to not specified.
  */
 KeyLocator.prototype.clear = function()
 {
-  this.type = null;
-  this.keyName = null;
-  this.keyData = null;
-  this.publicKey = null;
-  this.certificate = null;
+  this.type_ = null;
+  this.keyName_.set(new KeyName());
+  this.keyData_ = new Blob();
+  this.publicKey_ = null;
+  this.certificate_ = null;
+  ++this.changeCount_;
 };
+
+/**
+ * If the signature is a type that has a KeyLocator (so that
+ * getFromSignature will succeed), return true.
+ * Note: This is a static method of KeyLocator instead of a method of
+ * Signature so that the Signature base class does not need to be overloaded
+ * with all the different kinds of information that various signature
+ * algorithms may use.
+ * @param {Signature} signature An object of a subclass of Signature.
+ * @returns {boolean} True if the signature is a type that has a KeyLocator,
+ * otherwise false.
+ */
+KeyLocator.canGetFromSignature = function(signature)
+{
+  return signature instanceof Sha256WithRsaSignature;
+}
+
+/**
+ * If the signature is a type that has a KeyLocator, then return it. Otherwise
+ * throw an error.
+ * @param {Signature} signature An object of a subclass of Signature.
+ * @returns {KeyLocator} The signature's KeyLocator. It is an error if signature
+ * doesn't have a KeyLocator.
+ */
+KeyLocator.getFromSignature = function(signature)
+{
+  if (signature instanceof Sha256WithRsaSignature)
+    return signature.getKeyLocator();
+  else
+    throw new Error
+      ("KeyLocator.getFromSignature: Signature type does not have a KeyLocator");
+}
 
 KeyLocator.prototype.from_ndnb = function(decoder) {
 
@@ -10429,8 +14178,8 @@ KeyLocator.prototype.from_ndnb = function(decoder) {
   } else  {
     this.type = KeyLocatorType.KEYNAME;
 
-    this.keyName = new KeyName();
-    this.keyName.from_ndnb(decoder);
+    this.keyName_.set(new KeyName());
+    this.keyName_.get().from_ndnb(decoder);
   }
   decoder.readElementClose();
 };
@@ -10459,7 +14208,7 @@ KeyLocator.prototype.to_ndnb = function(encoder)
     }
   }
   else if (this.type == KeyLocatorType.KEYNAME)
-    this.keyName.to_ndnb(encoder);
+    this.keyName_.get().to_ndnb(encoder);
 
   encoder.writeElementClose();
 };
@@ -10470,16 +14219,77 @@ KeyLocator.prototype.getElementLabel = function()
 };
 
 /**
- * KeyName is only used by KeyLocator.
- * @constructor
+ * Get the change count, which is incremented each time this object (or a child
+ * object) is changed.
+ * @returns {number} The change count.
+ */
+KeyLocator.prototype.getChangeCount = function()
+{
+  // Make sure each of the checkChanged is called.
+  var changed = this.keyName_.checkChanged();
+  if (changed)
+    // A child object has changed, so update the change count.
+    ++this.changeCount_;
+
+  return this.changeCount_;
+};
+
+// Define properties so we can change member variable types and implement changeCount_.
+Object.defineProperty(KeyLocator.prototype, "type",
+  { get: function() { return this.getType(); },
+    set: function(val) { this.setType(val); } });
+/**
+ * @deprecated Use getKeyName and setKeyName.
+ */
+Object.defineProperty(KeyLocator.prototype, "keyName",
+  { get: function() { return this.keyName_.get(); },
+    set: function(val) {
+      this.keyName_.set(val == null ? new KeyName() : val);
+      ++this.changeCount_;
+    } });
+/**
+ * @@deprecated Use getKeyData and setKeyData.
+ */
+Object.defineProperty(KeyLocator.prototype, "keyData",
+  { get: function() { return this.getKeyDataAsBuffer(); },
+    set: function(val) { this.setKeyData(val); } });
+/**
+ * @deprecated
+ */
+Object.defineProperty(KeyLocator.prototype, "publicKey",
+  { get: function() { return this.publicKey_; },
+    set: function(val) { this.publicKey_ = val; ++this.changeCount_; } });
+/**
+ * @deprecated
+ */
+Object.defineProperty(KeyLocator.prototype, "certificate",
+  { get: function() { return this.certificate_; },
+    set: function(val) { this.certificate_ = val; ++this.changeCount_; } });
+
+/**
+ * @deprecated Use KeyLocator getKeyName and setKeyName. This is only needed to
+ * support NDNx and will be removed.
  */
 var KeyName = function KeyName()
 {
-  this.contentName = new Name();  //contentName
+  this.contentName_ = new ChangeCounter(new Name());
   this.publisherID = this.publisherID;  //publisherID
+  this.changeCount_ = 0;
 };
 
 exports.KeyName = KeyName;
+
+KeyName.prototype.getContentName = function()
+{
+  return this.contentName_.get();
+};
+
+KeyName.prototype.setContentName = function(name)
+{
+  this.contentName_.set(typeof name === 'object' && name instanceof Name ?
+    new Name(name) : new Name());
+  ++this.changeCount_;
+};
 
 KeyName.prototype.from_ndnb = function(decoder)
 {
@@ -10512,7 +14322,30 @@ KeyName.prototype.to_ndnb = function(encoder)
 KeyName.prototype.getElementLabel = function() { return NDNProtocolDTags.KeyName; };
 
 /**
- * Copyright (C) 2013-2014 Regents of the University of California.
+ * Get the change count, which is incremented each time this object (or a child
+ * object) is changed.
+ * @returns {number} The change count.
+ */
+KeyName.prototype.getChangeCount = function()
+{
+  // Make sure each of the checkChanged is called.
+  var changed = this.contentName_.checkChanged();
+  if (changed)
+    // A child object has changed, so update the change count.
+    ++this.changeCount_;
+
+  return this.changeCount_;
+};
+
+// Define properties so we can change member variable types and implement changeCount_.
+Object.defineProperty(KeyName.prototype, "contentName",
+  { get: function() { return this.getContentName(); },
+    set: function(val) { this.setContentName(val); } });
+
+// Put this last to avoid a require loop.
+var Sha256WithRsaSignature = require('./sha256-with-rsa-signature.js').Sha256WithRsaSignature;
+/**
+ * Copyright (C) 2013-2015 Regents of the University of California.
  * @author: Meki Cheraoui
  *
  * This program is free software: you can redistribute it and/or modify
@@ -10523,22 +14356,24 @@ KeyName.prototype.getElementLabel = function() { return NDNProtocolDTags.KeyName
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 var Key = require('../key.js').Key;
+var WireFormat = require('../encoding/wire-format.js').WireFormat;
 
 /**
+ * @deprecated NDNx-style key management is deprecated. Use KeyChain.
  * @constructor
  */
 var KeyManager = function KeyManager()
 {
   // Public Key
-    this.publicKey =
+    this.publicKey_ =
   "-----BEGIN PUBLIC KEY-----\n" +
   "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuAmnWYKE7E8G+hyy4TiT\n"	+
   "U7t91KyIGvglEeT6HWEkW4LKzXLO22a1jVS9+yP96I6vp7N5vpS1t7oXtgWuzkO+\n" +
@@ -10549,7 +14384,7 @@ var KeyManager = function KeyManager()
   "QQIDAQAB\n" +
   "-----END PUBLIC KEY-----";
   // Private Key
-    this.privateKey =
+    this.privateKey_ =
   "-----BEGIN RSA PRIVATE KEY-----\n" +
   "MIIEpQIBAAKCAQEAuAmnWYKE7E8G+hyy4TiTU7t91KyIGvglEeT6HWEkW4LKzXLO\n"	+
   "22a1jVS9+yP96I6vp7N5vpS1t7oXtgWuzkO+O85u6gfbvwp+67zJe2I89eHO4dmN\n" +
@@ -10585,274 +14420,40 @@ var KeyManager = function KeyManager()
  * Return a Key object for the keys in this KeyManager.  This creates the Key on the first
  * call and returns a cached copy after that.
  * @returns {Key}
+ * @deprecated NDNx-style key management is deprecated. Use KeyChain.
  */
 KeyManager.prototype.getKey = function()
 {
   if (this.key === null) {
     this.key = new Key();
-    this.key.fromPemString(this.publicKey, this.privateKey);
+    this.key.fromPemString(this.publicKey_, this.privateKey_);
   }
 
   return this.key;
 }
 
+Object.defineProperty(KeyManager.prototype, "publicKey",
+  { get: function() {
+      if (!WireFormat.ENABLE_NDNX)
+        throw new Error
+          ("NDNx-style key management is deprecated. To enable while you upgrade your code to use KeyChain, set WireFormat.ENABLE_NDNX = true");
+
+      return this.publicKey_;
+    } });
+Object.defineProperty(KeyManager.prototype, "privateKey",
+  { get: function() {
+      if (!WireFormat.ENABLE_NDNX)
+        throw new Error
+          ("NDNx-style key management is deprecated. To enable while you upgrade your code to use KeyChain, set WireFormat.ENABLE_NDNX = true");
+
+      return this.privateKey_;
+    } });
+
 var globalKeyManager = globalKeyManager || new KeyManager();
 exports.globalKeyManager = globalKeyManager;
 /**
- * Copyright (C) 2014 Regents of the University of California.
- * @author: Jeff Thompson <jefft0@remap.ucla.edu>
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
- */
-
-/**
- * Create a new SecurityException to report an exception from the security
- * library, wrapping the given error object.
- * Call with: throw new SecurityException(new Error("message")).
- * @constructor
- * @param {Error} error The exception created with new Error.
- */
-function SecurityException(error)
-{
-  this.message = error.message;
-  // Copy lineNumber, etc. from where new Error was called.
-  for (var prop in error)
-      this[prop] = error[prop];
-}
-SecurityException.prototype = new Error();
-SecurityException.prototype.name = "SecurityException";
-
-exports.SecurityException = SecurityException;
-/**
- * This class represents an Interest Exclude.
- * Copyright (C) 2014 Regents of the University of California.
- * @author: Jeff Thompson <jefft0@remap.ucla.edu>
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
- */
-
-/**
- * This module defines constants used by the security library.
- */
-
-/**
- * The KeyType integer is used by the Sqlite key storage, so don't change them.
- * Make these the same as ndn-cpp in case the Sqlite file is shared.
- * @constructor
- */
-var KeyType = function KeyType()
-{
-}
-
-exports.KeyType = KeyType;
-
-KeyType.RSA = 0;
-KeyType.AES = 1;
-// KeyType.DSA
-// KeyType.DES
-// KeyType.RC4
-// KeyType.RC2
-KeyType.EC = 2;
-
-var KeyClass = function KeyClass()
-{
-};
-
-exports.KeyClass = KeyClass;
-
-KeyClass.PUBLIC = 1;
-KeyClass.PRIVATE = 2;
-KeyClass.SYMMETRIC = 3;
-
-var DigestAlgorithm = function DigestAlgorithm()
-{
-};
-
-exports.DigestAlgorithm = DigestAlgorithm;
-
-DigestAlgorithm.SHA256 = 1;
-// DigestAlgorithm.MD2
-// DigestAlgorithm.MD5
-// DigestAlgorithm.SHA1
-
-var EncryptMode = function EncryptMode()
-{
-};
-
-exports.EncryptMode = EncryptMode;
-
-EncryptMode.DEFAULT = 1;
-EncryptMode.CFB_AES = 2;
-// EncryptMode.CBC_AES
-/**
- * This class represents an Interest Exclude.
- * Copyright (C) 2014 Regents of the University of California.
- * @author: Jeff Thompson <jefft0@remap.ucla.edu>
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
- */
-
-var SecurityException = require('../security-exception.js').SecurityException;
-var KeyType = require('../security-types.js').KeyType;
-
-/**
- * A PublicKey holds an encoded public key for use by the security library.
- * Create a new PublicKey with the given values.
- * @param {number} keyType The integer from KeyType, such as KeyType.RSA.
- * @param {Blob} keyDer The blob of the PublicKeyInfo in terms of DER.
- */
-var PublicKey = function PublicKey(keyType, keyDer)
-{
-  this.keyType = keyType;
-  this.keyDer = keyDer;
-};
-
-exports.PublicKey = PublicKey;
-
-/**
- * Encode the public key into DER.
- * @returns {DerNode} The encoded DER syntax tree.
- */
-PublicKey.prototype.toDer = function()
-{
-  throw new Error("PublicKey.toDer is not implemented");
-};
-
-/**
- * Decode the public key from the DER blob.
- * @param {number} keyType The integer from KeyType, such as KeyType.RSA.
- * @param {Blob} keyDer The DER blob.
- * @returns {PublicKey} The decoded public key.
- */
-PublicKey.fromDer = function(keyType, keyDer)
-{
-  if (keyType == KeyType.RSA) {
-    // TODO: Make sure we can decode the public key DER.
-  }
-  else
-    throw new SecurityException(new Error
-      ("PublicKey::fromDer: Unrecognized keyType"));
-
-  return new PublicKey(keyType, keyDer);
-};
-
-/**
- * 
- * @param {number} digestAlgorithm (optional) The integer from DigestAlgorithm, 
- * such as DigestAlgorithm.SHA256. If omitted, use DigestAlgorithm.SHA256 .
- * @returns {Blob} The digest value.
- */
-PublicKey.prototype.getDigest = function(digestAlgorithm)
-{
-  throw new Error("PublicKey.getDigest is not implemented");
-};
-
-/**
- * Get the key type.
- * @returns {number} The key type as an int from KeyType.
- */
-PublicKey.prototype.getKeyType = function()
-{
-  return this.keyType;
-};
-
-/**
- * Get the raw bytes of the public key in DER format.
- * @returns {Blob} The public key DER.
- */
-PublicKey.prototype.getKeyDer = function()
-{
-  return this.keyDer;
-};
-/**
- * Copyright (C) 2014 Regents of the University of California.
- * @author: Jeff Thompson <jefft0@remap.ucla.edu>
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
- */
-
-var IdentityCertificate = function IdentityCertificate()
-{
-};
-
-exports.IdentityCertificate = IdentityCertificate;
-
-/**
- * Get the public key name from the full certificate name.
- * @param {Name} certificateName The full certificate name.
- * @returns {Name} The related public key name.
- */
-IdentityCertificate.certificateNameToPublicKeyName = function(certificateName)
-{
-  var i = certificateName.size() - 1;
-  var idString = "ID-CERT";
-  while (i >= 0) {
-    if (certificateName.get(i).toEscapedString() == idString)
-      break;
-    i -= 1;
-  }
-
-  var tmpName = certificateName.getSubName(0, i);
-  var keyString = "KEY";
-  for (var i = 0; i < tmpName.size(); ++i) {
-    if (tmpName.get(i).toEscapedString() == keyString)
-      break;
-  }
-
-  return tmpName.getSubName(0, i).append
-    (tmpName.getSubName(i + 1, tmpName.size() - i - 1));
-};
-/**
  * This class represents an NDN Data MetaInfo object.
- * Copyright (C) 2014 Regents of the University of California.
+ * Copyright (C) 2014-2015 Regents of the University of California.
  * @author: Meki Cheraoui
  * @author: Jeff Thompson <jefft0@remap.ucla.edu>
  *
@@ -10864,11 +14465,11 @@ IdentityCertificate.certificateNameToPublicKeyName = function(certificateName)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 var BinaryXMLEncoder = require('./encoding/binary-xml-encoder.js').BinaryXMLEncoder;
@@ -10881,6 +14482,7 @@ var Name = require('./name.js').Name;
 var PublisherPublicKeyDigest = require('./publisher-public-key-digest.js').PublisherPublicKeyDigest;
 var NDNTime = require('./util/ndn-time.js').NDNTime;
 var globalKeyManager = require('./security/key-manager.js').globalKeyManager;
+var WireFormat = require('./encoding/wire-format.js').WireFormat;
 var LOG = require('./log.js').Log.LOG;
 
 var ContentType = {
@@ -10901,31 +14503,43 @@ exports.ContentType = ContentType;
  * Create a new MetaInfo with the optional values.
  * @constructor
  */
-var MetaInfo = function MetaInfo(publisherOrMetaInfo, timestamp, type, locator, freshnessSeconds, finalBlockID, skipSetFields)
+var MetaInfo = function MetaInfo(publisherOrMetaInfo, timestamp, type, locator, freshnessSeconds, finalBlockId, skipSetFields)
 {
   if (typeof publisherOrMetaInfo === 'object' &&
       publisherOrMetaInfo instanceof MetaInfo) {
     // Copy values.
     var metaInfo = publisherOrMetaInfo;
-    this.publisher = metaInfo.publisher;
-    this.timestamp = metaInfo.timestamp;
-    this.type = metaInfo.type;
-    this.locator = metaInfo.locator == null ?
-      new KeyLocator() : new KeyLocator(metaInfo.locator);
-    this.freshnessSeconds = metaInfo.freshnessSeconds;
-    this.finalBlockID = metaInfo.finalBlockID;
+    this.publisher_ = metaInfo.publisher_;
+    this.timestamp_ = metaInfo.timestamp; // NDNTime // deprecated
+    this.type_ = metaInfo.type_;
+    this.locator_ = metaInfo.locator_ == null ?
+      new KeyLocator() : new KeyLocator(metaInfo.locator_);
+    this.freshnessPeriod_ = metaInfo.freshnessPeriod_;
+    this.finalBlockId_ = metaInfo.finalBlockId_;
   }
   else {
-    this.publisher = publisherOrMetaInfo; //publisherPublicKeyDigest
-    this.timestamp = timestamp; // NDN Time
-    this.type = type == null || type < 0 ? ContentType.BLOB : type; // ContentType
+    this.publisher = publisherOrMetaInfo; // deprecated
+    this.timestamp = timestamp; // NDNTime // deprecated
+    this.type = type == null || type < 0 ? ContentType.BLOB : type;
+     // The KeyLocator in MetaInfo is deprecated. Use the one in the Signature.
     this.locator = locator == null ? new KeyLocator() : new KeyLocator(locator);
-    this.freshnessSeconds = freshnessSeconds; // Integer
-    this.finalBlockID = finalBlockID; //byte array
+    this.freshnessSeconds = freshnessSeconds; // deprecated
+    this.finalBlockID = finalBlockId; // byte array // deprecated
 
-    if (!skipSetFields)
-      this.setFields();
+    if (!skipSetFields) {
+      // Temporarily set ENABLE_NDNX so that setFields doesn't throw.
+      var saveEnableNdnx = WireFormat.ENABLE_NDNX;
+      try {
+        WireFormat.ENABLE_NDNX = true;
+        this.setFields();
+      }
+      finally {
+        WireFormat.ENABLE_NDNX = saveEnableNdnx;
+      }
+    }
   }
+
+  this.changeCount_ = 0;
 };
 
 exports.MetaInfo = MetaInfo;
@@ -10936,7 +14550,7 @@ exports.MetaInfo = MetaInfo;
  */
 MetaInfo.prototype.getType = function()
 {
-  return this.type;
+  return this.type_;
 };
 
 /**
@@ -10946,12 +14560,7 @@ MetaInfo.prototype.getType = function()
  */
 MetaInfo.prototype.getFreshnessPeriod = function()
 {
-  // Use attribute freshnessSeconds for backwards compatibility.
-  if (this.freshnessSeconds == null || this.freshnessSeconds < 0)
-    return null;
-  else
-    // Convert to milliseconds.
-    return this.freshnessSeconds * 1000.0;
+  return this.freshnessPeriod_;
 };
 
 /**
@@ -10959,19 +14568,26 @@ MetaInfo.prototype.getFreshnessPeriod = function()
  * @returns {Name.Component} The final block ID as a Name.Component. If the
  * Name.Component getValue().size() is 0, then the final block ID is not specified.
  */
-MetaInfo.prototype.getFinalBlockID = function()
+MetaInfo.prototype.getFinalBlockId = function()
 {
-  // For backwards-compatibility, leave this.finalBlockID as a Buffer but return a Name.Component.
-  return new Name.Component(new Blob(this.finalBlockID, true));
+  return this.finalBlockId_;
 };
 
 /**
- * @deprecated Use getFinalBlockID. This method returns a Buffer which is the former
- * behavior of getFinalBlockID, and should only be used while updating your code.
+ * @deprecated Use getFinalBlockId.
+ */
+MetaInfo.prototype.getFinalBlockID = function()
+{
+  return this.getFinalBlockId();
+};
+
+/**
+ * @deprecated Use getFinalBlockId. This method returns a Buffer which is the former
+ * behavior of getFinalBlockId, and should only be used while updating your code.
  */
 MetaInfo.prototype.getFinalBlockIDAsBuffer = function()
 {
-  return this.finalBlockID;
+  return this.finalBlockId_.getValue().buf();
 };
 
 /**
@@ -10981,7 +14597,8 @@ MetaInfo.prototype.getFinalBlockIDAsBuffer = function()
  */
 MetaInfo.prototype.setType = function(type)
 {
-  this.type = type == null || type < 0 ? ContentType.BLOB : type;
+  this.type_ = type == null || type < 0 ? ContentType.BLOB : type;
+  ++this.changeCount_;
 };
 
 /**
@@ -10993,27 +14610,37 @@ MetaInfo.prototype.setFreshnessPeriod = function(freshnessPeriod)
 {
   // Use attribute freshnessSeconds for backwards compatibility.
   if (freshnessPeriod == null || freshnessPeriod < 0)
-    this.freshnessSeconds = null;
+    this.freshnessPeriod_ = null;
   else
-    // Convert from milliseconds.
-    this.freshnessSeconds = freshnessPeriod / 1000.0;
+    this.freshnessPeriod_ = freshnessPeriod;
+  ++this.changeCount_;
 };
 
-MetaInfo.prototype.setFinalBlockID = function(finalBlockID)
+MetaInfo.prototype.setFinalBlockId = function(finalBlockId)
 {
-  // TODO: finalBlockID should be a Name.Component, not Buffer.
-  if (finalBlockID == null)
-    this.finalBlockID = null;
-  else if (typeof finalBlockID === 'object' && finalBlockID instanceof Blob)
-    this.finalBlockID = finalBlockID.buf();
-  else if (typeof finalBlockID === 'object' && finalBlockID instanceof Name.Component)
-    this.finalBlockID = finalBlockID.getValue().buf();
-  else
-    this.finalBlockID = new Buffer(finalBlockID);
+  this.finalBlockId_ = typeof finalBlockId === 'object' &&
+                       finalBlockId instanceof Name.Component ?
+    finalBlockId : new Name.Component(finalBlockId);
+  ++this.changeCount_;
 };
 
+/**
+ * @deprecated Use setFinalBlockId.
+ */
+MetaInfo.prototype.setFinalBlockID = function(finalBlockId)
+{
+  this.setFinalBlockId(finalBlockId);
+};
+
+/**
+ * @deprecated This sets fields for NDNx signing. Use KeyChain.
+ */
 MetaInfo.prototype.setFields = function()
 {
+  if (!WireFormat.ENABLE_NDNX)
+    throw new Error
+      ("Signing with NDNx-style keys is deprecated. To enable while you upgrade your code to use KeyChain.sign, set WireFormat.ENABLE_NDNX = true");
+
   var key = globalKeyManager.getKey();
   this.publisher = new PublisherPublicKeyDigest(key.getKeyID());
 
@@ -11034,6 +14661,7 @@ MetaInfo.prototype.setFields = function()
   if (LOG > 4) console.log(key.publicToDER().toString('hex'));
 
   this.locator = new KeyLocator(key.getKeyID(), KeyLocatorType.KEY_LOCATOR_DIGEST);
+  ++this.changeCount_;
 };
 
 MetaInfo.prototype.from_ndnb = function(decoder)
@@ -11082,6 +14710,7 @@ MetaInfo.prototype.from_ndnb = function(decoder)
   }
 
   decoder.readElementClose();
+  ++this.changeCount_;
 };
 
 /**
@@ -11140,22 +14769,82 @@ MetaInfo.prototype.getElementLabel = function() {
   return NDNProtocolDTags.SignedInfo;
 };
 
+/**
+ * @@deprecated This is only used with to_ndnb.
+ */
 MetaInfo.prototype.validate = function()
 {
   // We don't do partial matches any more, even though encoder/decoder
   // is still pretty generous.
-  if (null == this.timestamp)
+  if (null == this.timestamp_)
     return false;
   return true;
 };
 
 /**
+ * Get the change count, which is incremented each time this object is changed.
+ * @returns {number} The change count.
+ */
+MetaInfo.prototype.getChangeCount = function()
+{
+  return this.changeCount_;
+};
+
+// Define properties so we can change member variable types and implement changeCount_.
+Object.defineProperty(MetaInfo.prototype, "type",
+  { get: function() { return this.getType(); },
+    set: function(val) { this.setType(val); } });
+/**
+ * @deprecated Use getFreshnessPeriod and setFreshnessPeriod.
+ */
+Object.defineProperty(MetaInfo.prototype, "freshnessSeconds",
+  { get: function() {
+      if (this.freshnessPeriod_ == null || this.freshnessPeriod_ < 0)
+        return null;
+      else
+        // Convert from milliseconds.
+        return this.freshnessPeriod_ / 1000.0;
+    },
+    set: function(val) {
+      if (val == null || val < 0)
+        this.freshnessPeriod_ = null;
+      else
+        // Convert to milliseconds.
+        this.freshnessPeriod_ = val * 1000.0;
+      ++this.changeCount_;
+    } });
+/**
+ * @deprecated Use KeyLocator where keyLocatorType is KEY_LOCATOR_DIGEST.
+ */
+Object.defineProperty(MetaInfo.prototype, "publisher",
+  { get: function() { return this.publisher_; },
+    set: function(val) { this.publisher_ = val; ++this.changeCount_; } });
+/**
+ * @deprecated Use getFinalBlockId and setFinalBlockId.
+ */
+Object.defineProperty(MetaInfo.prototype, "finalBlockID",
+  { get: function() { return this.getFinalBlockIDAsBuffer(); },
+    set: function(val) { this.setFinalBlockId(val); } });
+/**
+ * @deprecated
+ */
+Object.defineProperty(MetaInfo.prototype, "timestamp",
+  { get: function() { return this.timestamp_; },
+    set: function(val) { this.timestamp_ = val; ++this.changeCount_; } });
+/**
+ * @deprecated
+ */
+Object.defineProperty(MetaInfo.prototype, "locator",
+  { get: function() { return this.locator_; },
+    set: function(val) { this.locator_ = val; ++this.changeCount_; } });
+
+/**
  * @deprecated Use new MetaInfo.
  */
-var SignedInfo = function SignedInfo(publisherOrMetaInfo, timestamp, type, locator, freshnessSeconds, finalBlockID)
+var SignedInfo = function SignedInfo(publisherOrMetaInfo, timestamp, type, locator, freshnessSeconds, finalBlockId)
 {
   // Call the base constructor.
-  MetaInfo.call(this, publisherOrMetaInfo, timestamp, type, locator, freshnessSeconds, finalBlockID);
+  MetaInfo.call(this, publisherOrMetaInfo, timestamp, type, locator, freshnessSeconds, finalBlockId);
 }
 
 // Set skipSetFields true since we only need the prototype functions.
@@ -11164,7 +14853,7 @@ SignedInfo.prototype = new MetaInfo(null, null, null, null, null, null, true);
 exports.SignedInfo = SignedInfo;
 /**
  * This class represents an NDN Data Signature object.
- * Copyright (C) 2014 Regents of the University of California.
+ * Copyright (C) 2014-2015 Regents of the University of California.
  * @author: Meki Cheraoui
  * @author: Jeff Thompson <jefft0@remap.ucla.edu>
  *
@@ -11176,110 +14865,116 @@ exports.SignedInfo = SignedInfo;
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 var Blob = require('./util/blob.js').Blob;
+var ChangeCounter = require('./util/change-counter.js').ChangeCounter;
 var BinaryXMLEncoder = require('./encoding/binary-xml-encoder.js').BinaryXMLEncoder;
 var BinaryXMLDecoder = require('./encoding/binary-xml-decoder.js').BinaryXMLDecoder;
 var NDNProtocolDTags = require('./util/ndn-protoco-id-tags.js').NDNProtocolDTags;
 var KeyLocator = require('./key-locator.js').KeyLocator;
 var LOG = require('./log.js').Log.LOG;
+var WireFormat = require('./encoding/wire-format.js').WireFormat;
 
 /**
- * Create a new Signature with the optional values.
+ * Create a new Sha256WithRsaSignature object, possibly copying values from
+ * another object.
+ *
+ * @param {Sha256WithRsaSignature} value (optional) If value is a
+ * Sha256WithRsaSignature, copy its values.  If value is omitted, the keyLocator
+ * is the default with unspecified values and the signature is unspecified.
  * @constructor
  */
-var Signature = function Signature(witnessOrSignatureObject, signature, digestAlgorithm)
+var Sha256WithRsaSignature = function Sha256WithRsaSignature(value)
 {
-  if (typeof witnessOrSignatureObject === 'object' &&
-      witnessOrSignatureObject instanceof Signature) {
+  if (typeof value === 'object' && value instanceof Sha256WithRsaSignature) {
     // Copy the values.
-    this.keyLocator = new KeyLocator(witnessOrSignatureObject.keyLocator);
-    this.signature = witnessOrSignatureObject.signature;
+    this.keyLocator_ = new ChangeCounter(new KeyLocator(value.getKeyLocator()));
+    this.signature_ = value.signature_;
     // witness is deprecated.
-    this.witness = witnessOrSignatureObject.witness;
+    this.witness_ = value.witness_;
     // digestAlgorithm is deprecated.
-    this.digestAlgorithm = witnessOrSignatureObject.digestAlgorithm;
+    this.digestAlgorithm_ = value.digestAlgorithm_;
   }
   else {
-    this.keyLocator = new KeyLocator();
-    this.signature = signature;
+    this.keyLocator_ = new ChangeCounter(new KeyLocator());
+    this.signature_ = new Blob();
     // witness is deprecated.
-    this.witness = witnessOrSignatureObject;
+    this.witness_ = null;
     // digestAlgorithm is deprecated.
-    this.digestAlgorithm = digestAlgorithm;
+    this.digestAlgorithm_ = null;
   }
+
+  this.changeCount_ = 0;
 };
 
-exports.Signature = Signature;
+exports.Sha256WithRsaSignature = Sha256WithRsaSignature;
 
 /**
- * Create a new Signature which is a copy of this object.
- * @returns {Signature} A new object which is a copy of this object.
+ * Create a new Sha256WithRsaSignature which is a copy of this object.
+ * @returns {Sha256WithRsaSignature} A new object which is a copy of this object.
  */
-Signature.prototype.clone = function()
+Sha256WithRsaSignature.prototype.clone = function()
 {
-  return new Signature(this);
+  return new Sha256WithRsaSignature(this);
 };
 
 /**
  * Get the key locator.
  * @returns {KeyLocator} The key locator.
  */
-Signature.prototype.getKeyLocator = function()
+Sha256WithRsaSignature.prototype.getKeyLocator = function()
 {
-  return this.keyLocator;
+  return this.keyLocator_.get();
 };
 
 /**
  * Get the data packet's signature bytes.
  * @returns {Blob} The signature bytes. If not specified, the value isNull().
  */
-Signature.prototype.getSignature = function()
+Sha256WithRsaSignature.prototype.getSignature = function()
 {
-  // For backwards-compatibility, leave this.signature as a Buffer but return a Blob.
-  return new Blob(this.signature, false);
+  return this.signature_;
 };
 
 /**
  * @deprecated Use getSignature. This method returns a Buffer which is the former
  * behavior of getSignature, and should only be used while updating your code.
  */
-Signature.prototype.getSignatureAsBuffer = function()
+Sha256WithRsaSignature.prototype.getSignatureAsBuffer = function()
 {
-  return this.signature;
+  return this.signature_.buf();
 };
 
 /**
  * Set the key locator to a copy of the given keyLocator.
  * @param {KeyLocator} keyLocator The KeyLocator to copy.
  */
-Signature.prototype.setKeyLocator = function(keyLocator)
+Sha256WithRsaSignature.prototype.setKeyLocator = function(keyLocator)
 {
-  this.keyLocator = typeof keyLocator === 'object' && keyLocator instanceof KeyLocator ?
-                    new KeyLocator(keyLocator) : new KeyLocator();
+  this.keyLocator_.set(typeof keyLocator === 'object' &&
+                       keyLocator instanceof KeyLocator ?
+    new KeyLocator(keyLocator) : new KeyLocator());
+  ++this.changeCount_;
 };
 
 /**
  * Set the data packet's signature bytes.
  * @param {Blob} signature
  */
-Signature.prototype.setSignature = function(signature)
+Sha256WithRsaSignature.prototype.setSignature = function(signature)
 {
-  if (signature == null)
-    this.signature = null;
-  else if (typeof signature === 'object' && signature instanceof Blob)
-    this.signature = new Buffer(signature.buf());
-  else
-    this.signature = new Buffer(signature);
+  this.signature_ = typeof signature === 'object' && signature instanceof Blob ?
+    signature : new Blob(signature);
+  ++this.changeCount_;
 };
 
-Signature.prototype.from_ndnb = function(decoder)
+Sha256WithRsaSignature.prototype.from_ndnb = function(decoder)
 {
   decoder.readElementStartDTag(this.getElementLabel());
 
@@ -11302,11 +14997,8 @@ Signature.prototype.from_ndnb = function(decoder)
   decoder.readElementClose();
 };
 
-Signature.prototype.to_ndnb = function(encoder)
+Sha256WithRsaSignature.prototype.to_ndnb = function(encoder)
 {
-  if (!this.validate())
-    throw new Error("Cannot encode: field values missing.");
-
   encoder.writeElementStartDTag(this.getElementLabel());
 
   if (null != this.digestAlgorithm && !this.digestAlgorithm.equals(NDNDigestHelper.DEFAULT_DIGEST_ALGORITHM))
@@ -11316,20 +15008,214 @@ Signature.prototype.to_ndnb = function(encoder)
     // needs to handle null witness
     encoder.writeDTagElement(NDNProtocolDTags.Witness, this.witness);
 
-  encoder.writeDTagElement(NDNProtocolDTags.SignatureBits, this.signature);
+  if (this.getSignature().size() > 0)
+    encoder.writeDTagElement(NDNProtocolDTags.SignatureBits, this.signature);
+  else
+    encoder.writeDTagElement(NDNProtocolDTags.SignatureBits, new Buffer([]));
 
   encoder.writeElementClose();
 };
 
-Signature.prototype.getElementLabel = function() { return NDNProtocolDTags.Signature; };
+Sha256WithRsaSignature.prototype.getElementLabel = function() { return NDNProtocolDTags.Signature; };
 
-Signature.prototype.validate = function()
+/**
+ * Get the change count, which is incremented each time this object (or a child
+ * object) is changed.
+ * @returns {number} The change count.
+ */
+Sha256WithRsaSignature.prototype.getChangeCount = function()
 {
-  return null != this.signature;
+  // Make sure each of the checkChanged is called.
+  var changed = this.keyLocator_.checkChanged();
+  if (changed)
+    // A child object has changed, so update the change count.
+    ++this.changeCount_;
+
+  return this.changeCount_;
 };
+
+// Define properties so we can change member variable types and implement changeCount_.
+Object.defineProperty(Sha256WithRsaSignature.prototype, "keyLocator",
+  { get: function() { return this.getKeyLocator(); },
+    set: function(val) { this.setKeyLocator(val); } });
+/**
+ * @@deprecated Use getSignature and setSignature.
+ */
+Object.defineProperty(Sha256WithRsaSignature.prototype, "signature",
+  { get: function() { return this.getSignatureAsBuffer(); },
+    set: function(val) { this.setSignature(val); } });
+/**
+ * @deprecated
+ */
+Object.defineProperty(Sha256WithRsaSignature.prototype, "witness",
+  { get: function() {
+      if (!WireFormat.ENABLE_NDNX)
+        throw new Error
+          ("The Witness is for the NDNx wire format and is deprecated. To enable while you upgrade your code to use NDN-TLV, set WireFormat.ENABLE_NDNX = true");
+
+      return this.witness_;
+    },
+    set: function(val) {
+      if (!WireFormat.ENABLE_NDNX)
+        throw new Error
+          ("The Witness is for the NDNx wire format and is deprecated. To enable while you upgrade your code to use NDN-TLV, set WireFormat.ENABLE_NDNX = true");
+
+      this.witness_ = val; ++this.changeCount_;
+    } });
+/**
+ * @deprecated
+ */
+Object.defineProperty(Sha256WithRsaSignature.prototype, "digestAlgorithm",
+  { get: function() {
+      if (!WireFormat.ENABLE_NDNX)
+        throw new Error
+          ("The Digest Algorithm is for the NDNx wire format and is deprecated. To enable while you upgrade your code to use NDN-TLV, set WireFormat.ENABLE_NDNX = true");
+
+      return this.digestAlgorithm_;
+    },
+    set: function(val) {
+      if (!WireFormat.ENABLE_NDNX)
+        throw new Error
+          ("The Digest Algorithm is for the NDNx wire format and is deprecated. To enable while you upgrade your code to use NDN-TLV, set WireFormat.ENABLE_NDNX = true");
+
+      this.digestAlgorithm_ = val;
+      ++this.changeCount_;
+    } });
+
+/**
+ * Note: This Signature class is not the same as the base Signature class of
+ * the Common Client Libraries API. It is a deprecated name for
+ * Sha256WithRsaSignature. In the future, after we remove this deprecated class,
+ * we may implement the CCL version of Signature.
+ * @deprecated Use new Sha256WithRsaSignature.
+ */
+var Signature = function Signature
+  (witnessOrSignatureObject, signature, digestAlgorithm)
+{
+  if (!WireFormat.ENABLE_NDNX)
+    throw new Error
+      ("The NDNx style of Signature is deprecated. To enable while you upgrade your code to use Sha256WithRsaSignature, set WireFormat.ENABLE_NDNX = true");
+
+  if (typeof witnessOrSignatureObject === 'object' &&
+      witnessOrSignatureObject instanceof Sha256WithRsaSignature)
+    // Call the base copy constructor.
+    Sha256WithRsaSignature.call(this, witnessOrSignatureObject);
+  else {
+    // Call the base default constructor.
+    Sha256WithRsaSignature.call(this);
+
+    // Set the given fields (if supplied).
+    if (witnessOrSignatureObject != null)
+      // witness is deprecated.
+      this.witness_ = witnessOrSignatureObject;
+    if (signature != null)
+      this.signature_ = typeof signature === 'object' && signature instanceof Blob ?
+        signature : new Blob(signature);
+    if (digestAlgorithm != null)
+      // digestAlgorithm is deprecated.
+      this.digestAlgorithm_ = digestAlgorithm;
+  }
+}
+
+Signature.prototype = new Sha256WithRsaSignature();
+
+exports.Signature = Signature;
+/**
+ * This class represents an NDN Data Signature object.
+ * Copyright (C) 2014-2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+var Blob = require('./util/blob.js').Blob;
+
+/**
+ * A DigestSha256Signature extends Signature and holds the signature bits (which
+ * are only the SHA256 digest) and an empty SignatureInfo for a data packet or
+ * signed interest.
+ *
+ * Create a new DigestSha256Signature object, possibly copying values from
+ * another object.
+ *
+ * @param {DigestSha256Signature} value (optional) If value is a
+ * DigestSha256Signature, copy its values.  If value is omitted, the signature
+ * is unspecified.
+ * @constructor
+ */
+var DigestSha256Signature = function DigestSha256Signature(value)
+{
+  if (typeof value === 'object' && value instanceof DigestSha256Signature)
+    // Copy the values.
+    this.signature_ = value.signature_;
+  else
+    this.signature_ = new Blob();
+
+  this.changeCount_ = 0;
+};
+
+exports.DigestSha256Signature = DigestSha256Signature;
+
+/**
+ * Create a new DigestSha256Signature which is a copy of this object.
+ * @returns {DigestSha256Signature} A new object which is a copy of this object.
+ */
+DigestSha256Signature.prototype.clone = function()
+{
+  return new DigestSha256Signature(this);
+};
+
+/**
+ * Get the signature bytes (which are only the digest).
+ * @returns {Blob} The signature bytes. If not specified, the value isNull().
+ */
+DigestSha256Signature.prototype.getSignature = function()
+{
+  return this.signature_;
+};
+
+/**
+ * Set the signature bytes to the given value.
+ * @param {Blob} signature
+ */
+DigestSha256Signature.prototype.setSignature = function(signature)
+{
+  this.signature_ = typeof signature === 'object' && signature instanceof Blob ?
+    signature : new Blob(signature);
+  ++this.changeCount_;
+};
+
+/**
+ * Get the change count, which is incremented each time this object is changed.
+ * @returns {number} The change count.
+ */
+DigestSha256Signature.prototype.getChangeCount = function()
+{
+  return this.changeCount_;
+};
+
+// Define properties so we can change member variable types and implement changeCount_.
+/**
+ * @@deprecated Use getSignature and setSignature.
+ */
+Object.defineProperty(DigestSha256Signature.prototype, "signature",
+  { get: function() { return this.getSignature(); },
+    set: function(val) { this.setSignature(val); } });
 /**
  * This class represents an NDN Data object.
- * Copyright (C) 2013-2014 Regents of the University of California.
+ * Copyright (C) 2013-2015 Regents of the University of California.
  * @author: Meki Cheraoui
  * @author: Jeff Thompson <jefft0@remap.ucla.edu>
  *
@@ -11341,20 +15227,22 @@ Signature.prototype.validate = function()
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
+var Crypto = require("./crypto.js");
 var Blob = require('./util/blob.js').Blob;
 var SignedBlob = require('./util/signed-blob.js').SignedBlob;
+var ChangeCounter = require('./util/change-counter.js').ChangeCounter;
 var BinaryXMLEncoder = require('./encoding/binary-xml-encoder.js').BinaryXMLEncoder;
 var NDNProtocolDTags = require('./util/ndn-protoco-id-tags.js').NDNProtocolDTags;
 var DataUtils = require('./encoding/data-utils.js').DataUtils;
 var Name = require('./name.js').Name;
-var Signature = require('./signature.js').Signature;
+var Sha256WithRsaSignature = require('./sha256-with-rsa-signature.js').Sha256WithRsaSignature;
 var MetaInfo = require('./meta-info.js').MetaInfo;
 var KeyLocator = require('./key-locator.js').KeyLocator;
 var globalKeyManager = require('./security/key-manager.js').globalKeyManager;
@@ -11370,40 +15258,53 @@ var WireFormat = require('./encoding/wire-format.js').WireFormat;
  * @param {MetaInfo} metaInfo
  * @param {Buffer} content
  */
-var Data = function Data(name, metaInfoOrContent, arg3)
+var Data = function Data(nameOrData, metaInfoOrContent, arg3)
 {
-  if (typeof name === 'string')
-    this.name = new Name(name);
-  else
-    this.name = typeof name === 'object' && name instanceof Name ?
-       new Name(name) : new Name();
+  if (nameOrData instanceof Data) {
+    // The copy constructor.
+    var data = nameOrData;
 
-  var metaInfo;
-  var content;
-  if (typeof metaInfoOrContent === 'object' &&
-      metaInfoOrContent instanceof MetaInfo) {
-    metaInfo = metaInfoOrContent;
-    content = arg3;
+    // Copy the name.
+    this.name_ = new ChangeCounter(new Name(data.getName()));
+    this.metaInfo_ = new ChangeCounter(new MetaInfo(data.getMetaInfo()));
+    this.signature_ = new ChangeCounter(data.getSignature().clone());
+    this.content_ = data.content_;
+    this.defaultWireEncoding_ = data.getDefaultWireEncoding();
+    this.defaultWireEncodingFormat_ = data.defaultWireEncodingFormat_;
   }
   else {
-    metaInfo = null;
-    content = metaInfoOrContent;
+    var name = nameOrData;
+    if (typeof name === 'string')
+      this.name_ = new ChangeCounter(new Name(name));
+    else
+      this.name_ = new ChangeCounter(typeof name === 'object' && name instanceof Name ?
+         new Name(name) : new Name());
+
+    var metaInfo;
+    var content;
+    if (typeof metaInfoOrContent === 'object' &&
+        metaInfoOrContent instanceof MetaInfo) {
+      metaInfo = metaInfoOrContent;
+      content = arg3;
+    }
+    else {
+      metaInfo = null;
+      content = metaInfoOrContent;
+    }
+
+    this.metaInfo_ = new ChangeCounter(typeof metaInfo === 'object' && metaInfo instanceof MetaInfo ?
+      new MetaInfo(metaInfo) : new MetaInfo());
+
+    this.content_ = typeof content === 'object' && content instanceof Blob ?
+      content : new Blob(content, true);
+
+    this.signature_ = new ChangeCounter(new Sha256WithRsaSignature());
+    this.defaultWireEncoding_ = new SignedBlob();
+    this.defaultWireEncodingFormat_ = null;
   }
 
-  // Use signedInfo instead of metaInfo for backward compatibility.
-  this.signedInfo = typeof metaInfo === 'object' && metaInfo instanceof MetaInfo ?
-       new MetaInfo(metaInfo) : new MetaInfo();
-
-  if (typeof content === 'string')
-    this.content = DataUtils.toNumbersFromString(content);
-  else if (typeof content === 'object' && content instanceof Blob)
-    this.content = content.buf();
-  else
-    this.content = content;
-
-  this.signature = new Signature();
-
-  this.wireEncoding = SignedBlob();
+  this.getDefaultWireEncodingChangeCount_ = 0;
+  this.changeCount_ = 0;
 };
 
 exports.Data = Data;
@@ -11414,7 +15315,7 @@ exports.Data = Data;
  */
 Data.prototype.getName = function()
 {
-  return this.name;
+  return this.name_.get();
 };
 
 /**
@@ -11423,7 +15324,7 @@ Data.prototype.getName = function()
  */
 Data.prototype.getMetaInfo = function()
 {
-  return this.signedInfo;
+  return this.metaInfo_.get();
 };
 
 /**
@@ -11432,17 +15333,16 @@ Data.prototype.getMetaInfo = function()
  */
 Data.prototype.getSignature = function()
 {
-  return this.signature;
+  return this.signature_.get();
 };
 
 /**
  * Get the data packet's content.
- * @returns {Blob} The data packet content as a Blob.
+ * @returns {Blob} The content as a Blob, which isNull() if unspecified.
  */
 Data.prototype.getContent = function()
 {
-  // For temporary backwards compatibility, leave this.content as a Buffer but return a Blob.
-  return new Blob(this.content, false);
+  return this.content_;
 };
 
 /**
@@ -11451,7 +15351,35 @@ Data.prototype.getContent = function()
  */
 Data.prototype.getContentAsBuffer = function()
 {
-  return this.content;
+  return this.content_.buf();
+};
+
+/**
+ * Return the default wire encoding, which was encoded with
+ * getDefaultWireEncodingFormat().
+ * @returns {SignedBlob} The default wire encoding, whose isNull() may be true
+ * if there is no default wire encoding.
+ */
+Data.prototype.getDefaultWireEncoding = function()
+{
+  if (this.getDefaultWireEncodingChangeCount_ != this.getChangeCount()) {
+    // The values have changed, so the default wire encoding is invalidated.
+    this.defaultWireEncoding_ = new SignedBlob();
+    this.defaultWireEncodingFormat_ = null;
+    this.getDefaultWireEncodingChangeCount_ = this.getChangeCount();
+  }
+
+  return this.defaultWireEncoding_;
+};
+
+/**
+ * Get the WireFormat which is used by getDefaultWireEncoding().
+ * @returns {WireFormat} The WireFormat, which is only meaningful if the
+ * getDefaultWireEncoding() is not isNull().
+ */
+Data.prototype.getDefaultWireEncodingFormat = function()
+{
+  return this.defaultWireEncodingFormat_;
 };
 
 /**
@@ -11461,11 +15389,9 @@ Data.prototype.getContentAsBuffer = function()
  */
 Data.prototype.setName = function(name)
 {
-  this.name = typeof name === 'object' && name instanceof Name ?
-    new Name(name) : new Name();
-
-  // The object has changed, so the wireEncoding is invalid.
-  this.wireEncoding = SignedBlob();
+  this.name_.set(typeof name === 'object' && name instanceof Name ?
+    new Name(name) : new Name());
+  ++this.changeCount_;
   return this;
 };
 
@@ -11476,11 +15402,9 @@ Data.prototype.setName = function(name)
  */
 Data.prototype.setMetaInfo = function(metaInfo)
 {
-  this.signedInfo = typeof metaInfo === 'object' && metaInfo instanceof MetaInfo ?
-    new MetaInfo(metaInfo) : new MetaInfo();
-
-  // The object has changed, so the wireEncoding is invalid.
-  this.wireEncoding = SignedBlob();
+  this.metaInfo_.set(typeof metaInfo === 'object' && metaInfo instanceof MetaInfo ?
+    new MetaInfo(metaInfo) : new MetaInfo());
+  ++this.changeCount_;
   return this;
 };
 
@@ -11491,85 +15415,89 @@ Data.prototype.setMetaInfo = function(metaInfo)
  */
 Data.prototype.setSignature = function(signature)
 {
-  this.signature = typeof signature === 'object' && signature instanceof Signature ?
-    signature.clone() : new Signature();
-
-  // The object has changed, so the wireEncoding is invalid.
-  this.wireEncoding = SignedBlob();
+  this.signature_.set(signature == null ?
+    new Sha256WithRsaSignature() : signature.clone());
+  ++this.changeCount_;
   return this;
 };
 
 /**
  * Set the content to the given value.
- * @param {type} content The array this is copied.
+ * @param {Blob|Buffer} content The content bytes. If content is not a Blob,
+ * then create a new Blob to copy the bytes (otherwise take another pointer to
+ * the same Blob).
  * @returns {Data} This Data so that you can chain calls to update values.
  */
 Data.prototype.setContent = function(content)
 {
-  if (typeof content === 'string')
-    this.content = DataUtils.toNumbersFromString(content);
-  else if (typeof content === 'object' && content instanceof Blob)
-    this.content = content.buf();
-  else
-    this.content = new Buffer(content);
-
-  // The object has changed, so the wireEncoding is invalid.
-  this.wireEncoding = SignedBlob();
+  this.content_ = typeof content === 'object' && content instanceof Blob ?
+    content : new Blob(content, true);
+  ++this.changeCount_;
   return this;
 };
 
+/**
+ * @deprecated Use KeyChain.sign. See examples/node/test-encode-decode-data.js .
+ */
 Data.prototype.sign = function(wireFormat)
 {
+  if (!WireFormat.ENABLE_NDNX)
+    throw new Error
+      ("NDNx-style Data packet signing is deprecated. To enable while you upgrade your code to use KeyChain.sign, set WireFormat.ENABLE_NDNX = true");
+
   wireFormat = (wireFormat || WireFormat.getDefaultWireFormat());
 
   if (this.getSignatureOrMetaInfoKeyLocator() == null ||
       this.getSignatureOrMetaInfoKeyLocator().getType() == null)
     this.getMetaInfo().setFields();
 
-  if (this.wireEncoding == null || this.wireEncoding.isNull()) {
-    // Need to encode to set wireEncoding.
-    // Set an initial empty signature so that we can encode.
-    this.getSignature().setSignature(new Buffer(128));
-    this.wireEncode(wireFormat);
-  }
-
-  var rsa = require("crypto").createSign('RSA-SHA256');
-  rsa.update(this.wireEncoding.signedBuf());
+  // Encode once to get the signed portion.
+  var encoding = this.wireEncode(wireFormat);
+  var rsa = Crypto.createSign('RSA-SHA256');
+  rsa.update(encoding.signedBuf());
 
   var sig = new Buffer
     (DataUtils.toNumbersIfString(rsa.sign(globalKeyManager.privateKey)));
-  this.signature.setSignature(sig);
+  this.signature_.get().setSignature(sig);
+  ++this.changeCount_;
 };
 
 // The first time verify is called, it sets this to determine if a signature
 //   buffer needs to be converted to a string for the crypto verifier.
 Data.verifyUsesString = null;
+
+/**
+ * @deprecated Use KeyChain.verifyData. See examples/node/test-encode-decode-data.js .
+ */
 Data.prototype.verify = function(/*Key*/ key)
 {
+  if (!WireFormat.ENABLE_NDNX)
+    throw new Error
+      ("Data packet verify with an NDNx-style key is deprecated. To enable while you upgrade your code to use KeyChain.verifyData, set WireFormat.ENABLE_NDNX = true");
+
   if (key == null || key.publicKeyPem == null)
     throw new Error('Cannot verify Data without a public key.');
 
   if (Data.verifyUsesString == null) {
-    var hashResult = require("crypto").createHash('sha256').digest();
+    var hashResult = Crypto.createHash('sha256').digest();
     // If the has result is a string, we assume that this is a version of
     //   crypto where verify also uses a string signature.
     Data.verifyUsesString = (typeof hashResult === 'string');
   }
 
-  if (this.wireEncoding == null || this.wireEncoding.isNull())
-    // Need to encode to set wireEncoding.
-    this.wireEncode();
-  var verifier = require('crypto').createVerify('RSA-SHA256');
-  verifier.update(this.wireEncoding.signedBuf());
+  // wireEncode returns the cached encoding if available.
+  var verifier = Crypto.createVerify('RSA-SHA256');
+  verifier.update(this.wireEncode().signedBuf());
   var signatureBytes = Data.verifyUsesString ?
-    DataUtils.toString(this.signature.getSignature().buf()) : this.signature.getSignature().buf();
+    DataUtils.toString(this.signature_.get().getSignature().buf()) : this.signature_.get().getSignature().buf();
   return verifier.verify(key.publicKeyPem, signatureBytes);
 };
 
 Data.prototype.getElementLabel = function() { return NDNProtocolDTags.Data; };
 
 /**
- * Encode this Data for a particular wire format.
+ * Encode this Data for a particular wire format. If wireFormat is the default
+ * wire format, also set the defaultWireEncoding field to the encoded result.
  * @param {WireFormat} wireFormat (optional) A WireFormat object used to encode
  * this object. If omitted, use WireFormat.getDefaultWireFormat().
  * @returns {SignedBlob} The encoded buffer in a SignedBlob object.
@@ -11577,16 +15505,28 @@ Data.prototype.getElementLabel = function() { return NDNProtocolDTags.Data; };
 Data.prototype.wireEncode = function(wireFormat)
 {
   wireFormat = (wireFormat || WireFormat.getDefaultWireFormat());
+
+  if (!this.getDefaultWireEncoding().isNull() &&
+      this.getDefaultWireEncodingFormat() == wireFormat)
+    // We already have an encoding in the desired format.
+    return this.getDefaultWireEncoding();
+
   var result = wireFormat.encodeData(this);
-  // TODO: Implement setDefaultWireEncoding with getChangeCount support.
-  this.wireEncoding = new SignedBlob
+  var wireEncoding = new SignedBlob
     (result.encoding, result.signedPortionBeginOffset,
      result.signedPortionEndOffset);
-  return this.wireEncoding;
+
+  if (wireFormat == WireFormat.getDefaultWireFormat())
+    // This is the default wire encoding.
+    this.setDefaultWireEncoding
+      (wireEncoding, WireFormat.getDefaultWireFormat());
+  return wireEncoding;
 };
 
 /**
- * Decode the input using a particular wire format and update this Data.
+ * Decode the input using a particular wire format and update this Data. If
+ * wireFormat is the default wire format, also set the defaultWireEncoding to
+ * another pointer to the input.
  * @param {Blob|Buffer} input The buffer with the bytes to decode.
  * @param {WireFormat} wireFormat (optional) A WireFormat object used to decode
  * this object. If omitted, use WireFormat.getDefaultWireFormat().
@@ -11594,21 +15534,26 @@ Data.prototype.wireEncode = function(wireFormat)
 Data.prototype.wireDecode = function(input, wireFormat)
 {
   wireFormat = (wireFormat || WireFormat.getDefaultWireFormat());
+
   // If input is a blob, get its buf().
   var decodeBuffer = typeof input === 'object' && input instanceof Blob ?
                      input.buf() : input;
   var result = wireFormat.decodeData(this, decodeBuffer);
-  // TODO: Implement setDefaultWireEncoding with getChangeCount support.
-  // In the Blob constructor, set copy true, but if input is already a Blob, it
-  //   won't copy.
-  this.wireEncoding = new SignedBlob
-    (new Blob(input, true), result.signedPortionBeginOffset,
-     result.signedPortionEndOffset);
+
+  if (wireFormat == WireFormat.getDefaultWireFormat())
+    // This is the default wire encoding.  In the Blob constructor, set copy
+    // true, but if input is already a Blob, it won't copy.
+    this.setDefaultWireEncoding(new SignedBlob
+      (new Blob(input, true), result.signedPortionBeginOffset,
+       result.signedPortionEndOffset),
+      WireFormat.getDefaultWireFormat());
+  else
+    this.setDefaultWireEncoding(new SignedBlob(), null);
 };
 
 /**
  * If getSignature() has a key locator, return it.  Otherwise, use
- * the key locator from getMetaInfo() for backward compatibility and print
+ * the deprecated key locator from getMetaInfo() for backward compatibility and print
  * a warning to console.log that the key locator has moved to the Signature
  * object.  If neither has a key locator, return an empty key locator.
  * When we stop supporting the key locator in MetaInfo, this function is not
@@ -11617,26 +15562,48 @@ Data.prototype.wireDecode = function(input, wireFormat)
  */
 Data.prototype.getSignatureOrMetaInfoKeyLocator = function()
 {
-  if (this.signature != null && this.signature.getKeyLocator() != null &&
-      this.signature.getKeyLocator().getType() != null &&
-      this.signature.getKeyLocator().getType() >= 0)
-    // The application is using the key locator in the correct object.
-    return this.signature.getKeyLocator();
+  if (!KeyLocator.canGetFromSignature(this.getSignature()))
+    // The signature type doesn't support KeyLocator.
+    return new KeyLocator();
 
-  if (this.signedInfo != null && this.signedInfo.locator != null &&
-      this.signedInfo.locator.getType() != null &&
-      this.signedInfo.locator.getType() >= 0) {
+  if (this.signature_.get() != null && this.signature_.get().getKeyLocator() != null &&
+      this.signature_.get().getKeyLocator().getType() != null &&
+      this.signature_.get().getKeyLocator().getType() >= 0)
+    // The application is using the key locator in the correct object.
+    return this.signature_.get().getKeyLocator();
+
+  if (this.metaInfo_.get() != null && this.metaInfo_.get().locator != null &&
+      this.metaInfo_.get().locator.getType() != null &&
+      this.metaInfo_.get().locator.getType() >= 0) {
     console.log("WARNING: Temporarily using the key locator found in the MetaInfo - expected it in the Signature object.");
     console.log("WARNING: In the future, the key locator in the Signature object will not be supported.");
-    return this.signedInfo.locator;
+    return this.metaInfo_.get().locator;
   }
 
   // Return the empty key locator from the Signature object if possible.
-  if (this.signature != null && this.signature.getKeyLocator() != null)
-    return this.signature.getKeyLocator();
+  if (this.signature_.get() != null && this.signature_.get().getKeyLocator() != null)
+    return this.signature_.get().getKeyLocator();
   else
     return new KeyLocator();
-}
+};
+
+/**
+ * Get the change count, which is incremented each time this object (or a child
+ * object) is changed.
+ * @returns {number} The change count.
+ */
+Data.prototype.getChangeCount = function()
+{
+  // Make sure each of the checkChanged is called.
+  var changed = this.name_.checkChanged();
+  changed = this.metaInfo_.checkChanged() || changed;
+  changed = this.signature_.checkChanged() || changed;
+  if (changed)
+    // A child object has changed, so update the change count.
+    ++this.changeCount_;
+
+  return this.changeCount_;
+};
 
 // Since binary-xml-wire-format.js includes this file, put these at the bottom to avoid problems with cycles of require.
 var BinaryXmlWireFormat = require('./encoding/binary-xml-wire-format.js').BinaryXmlWireFormat;
@@ -11677,6 +15644,39 @@ Data.prototype.decode = function(input, wireFormat)
   wireFormat.decodeData(this, input);
 };
 
+Data.prototype.setDefaultWireEncoding = function
+  (defaultWireEncoding, defaultWireEncodingFormat)
+{
+  this.defaultWireEncoding_ = defaultWireEncoding;
+  this.defaultWireEncodingFormat_ = defaultWireEncodingFormat;
+  // Set getDefaultWireEncodingChangeCount_ so that the next call to
+  // getDefaultWireEncoding() won't clear _defaultWireEncoding.
+  this.getDefaultWireEncodingChangeCount_ = this.getChangeCount();
+};
+
+// Define properties so we can change member variable types and implement changeCount_.
+Object.defineProperty(Data.prototype, "name",
+  { get: function() { return this.getName(); },
+    set: function(val) { this.setName(val); } });
+Object.defineProperty(Data.prototype, "metaInfo",
+  { get: function() { return this.getMetaInfo(); },
+    set: function(val) { this.setMetaInfo(val); } });
+Object.defineProperty(Data.prototype, "signature",
+  { get: function() { return this.getSignature(); },
+    set: function(val) { this.setSignature(val); } });
+/**
+ * @deprecated Use getMetaInfo and setMetaInfo.
+ */
+Object.defineProperty(Data.prototype, "signedInfo",
+  { get: function() { return this.getMetaInfo(); },
+    set: function(val) { this.setMetaInfo(val); } });
+/**
+ * @deprecated Use getContent and setContent.
+ */
+Object.defineProperty(Data.prototype, "content",
+  { get: function() { return this.getContentAsBuffer(); },
+    set: function(val) { this.setContent(val); } });
+
 /**
  * @deprecated Use new Data.
  */
@@ -11690,8 +15690,4695 @@ ContentObject.prototype = new Data();
 
 exports.ContentObject = ContentObject;
 /**
+ * Copyright (C) 2014-2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+/**
+ * Create a new SecurityException to report an exception from the security
+ * library, wrapping the given error object.
+ * Call with: throw new SecurityException(new Error("message")).
+ * @constructor
+ * @param {Error} error The exception created with new Error.
+ */
+function SecurityException(error)
+{
+  if (error) {
+    // Copy lineNumber, etc. from where new Error was called.
+    for (var prop in error)
+      this[prop] = error[prop];
+    // Make sure these are copied.
+    this.message = error.message;
+    this.stack = error.stack;
+  }
+}
+
+SecurityException.prototype = new Error();
+SecurityException.prototype.name = "SecurityException";
+
+exports.SecurityException = SecurityException;
+
+function UnrecognizedKeyFormatException(error)
+{
+  // Call the base constructor.
+  SecurityException.call(this, error);
+}
+UnrecognizedKeyFormatException.prototype = new SecurityException();
+UnrecognizedKeyFormatException.prototype.name = "UnrecognizedKeyFormatException";
+
+exports.UnrecognizedKeyFormatException = UnrecognizedKeyFormatException;
+
+function UnrecognizedDigestAlgorithmException(error)
+{
+  // Call the base constructor.
+  SecurityException.call(this, error);
+}
+UnrecognizedDigestAlgorithmException.prototype = new SecurityException();
+UnrecognizedDigestAlgorithmException.prototype.name = "UnrecognizedDigestAlgorithmException";
+
+exports.UnrecognizedDigestAlgorithmException = UnrecognizedDigestAlgorithmException;
+/**
+ * Copyright (C) 2014-2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ * From ndn-cxx security by Yingdi Yu <yingdi@cs.ucla.edu>.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+/**
+ * This module defines constants used by the security library.
+ */
+
+/**
+ * The KeyType integer is used by the Sqlite key storage, so don't change them.
+ * Make these the same as ndn-cxx in case the storage file is shared.
+ * @constructor
+ */
+var KeyType = function KeyType()
+{
+}
+
+exports.KeyType = KeyType;
+
+KeyType.RSA = 0;
+KeyType.ECDSA = 1;
+KeyType.AES = 128;
+
+var KeyClass = function KeyClass()
+{
+};
+
+exports.KeyClass = KeyClass;
+
+KeyClass.PUBLIC = 1;
+KeyClass.PRIVATE = 2;
+KeyClass.SYMMETRIC = 3;
+
+var DigestAlgorithm = function DigestAlgorithm()
+{
+};
+
+exports.DigestAlgorithm = DigestAlgorithm;
+
+DigestAlgorithm.SHA256 = 1;
+/**
+ * Copyright (C) 2014-2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ * From ndn-cxx security by Yingdi Yu <yingdi@cs.ucla.edu>.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+var KeyType = require('./security-types').KeyType;
+
+/**
+ * KeyParams is a base class for key parameters. Its subclasses are used to
+ * store parameters for key generation. You should create one of the subclasses,
+ * for example RsaKeyParams.
+ * @constructor
+ */
+var KeyParams = function KeyParams(keyType)
+{
+  this.keyType = keyType;
+};
+
+exports.KeyParams = KeyParams;
+
+KeyParams.prototype.getKeyType = function()
+{
+  return this.keyType;
+};
+
+var RsaKeyParams = function RsaKeyParams(size)
+{
+  // Call the base constructor.
+  KeyParams.call(this, RsaKeyParams.getType());
+
+  if (size == null)
+    size = RsaKeyParams.getDefaultSize();
+  this.size = size;
+};
+
+RsaKeyParams.prototype = new KeyParams();
+RsaKeyParams.prototype.name = "RsaKeyParams";
+
+exports.RsaKeyParams = RsaKeyParams;
+
+RsaKeyParams.prototype.getKeySize = function()
+{
+  return this.size;
+};
+
+RsaKeyParams.getDefaultSize = function() { return 2048; };
+
+RsaKeyParams.getType = function() { return KeyType.RSA; };
+
+var EcdsaKeyParams = function EcdsaKeyParams(size)
+{
+  // Call the base constructor.
+  KeyParams.call(this, EcdsaKeyParams.getType());
+
+  if (size == null)
+    size = EcdsaKeyParams.getDefaultSize();
+  this.size = size;
+};
+
+EcdsaKeyParams.prototype = new KeyParams();
+EcdsaKeyParams.prototype.name = "EcdsaKeyParams";
+
+exports.EcdsaKeyParams = EcdsaKeyParams;
+
+EcdsaKeyParams.prototype.getKeySize = function()
+{
+  return this.size;
+};
+
+EcdsaKeyParams.getDefaultSize = function() { return 256; };
+
+EcdsaKeyParams.getType = function() { return KeyType.ECDSA; };
+/**
+ * Copyright (C) 2014-2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ * From ndn-cxx security by Yingdi Yu <yingdi@cs.ucla.edu>.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+// Use capitalized Crypto to not clash with the browser's crypto.subtle.
+var Crypto = require("crypto");
+var Blob = require('../../util/blob.js').Blob;
+var DerDecodingException = require('../../encoding/der/der-decoding-exception.js').DerDecodingException;
+var DerNode = require('../../encoding/der/der-node.js').DerNode;
+var SecurityException = require('../security-exception.js').SecurityException;
+var UnrecognizedKeyFormatException = require('../security-exception.js').UnrecognizedKeyFormatException;
+var KeyType = require('../security-types.js').KeyType;
+var DigestAlgorithm = require('../security-types.js').DigestAlgorithm;
+
+/**
+ * Create a new PublicKey by decoding the keyDer. Set the key type from the
+ * decoding.
+ * @param {Blob} keyDer The blob of the SubjectPublicKeyInfo DER.
+ * @throws {UnrecognizedKeyFormatException} if can't decode the key DER.
+ */
+var PublicKey = function PublicKey(keyDer)
+{
+  if (!keyDer) {
+    this.keyDer = new Blob();
+    this.keyType = null;
+    return;
+  }
+
+  this.keyDer = keyDer;
+
+  // Get the public key OID.
+  var oidString = null;
+  try {
+    var parsedNode = DerNode.parse(keyDer.buf(), 0);
+    var rootChildren = parsedNode.getChildren();
+    var algorithmIdChildren = DerNode.getSequence(rootChildren, 0).getChildren();
+    oidString = algorithmIdChildren[0].toVal();
+  }
+  catch (ex) {
+    throw new UnrecognizedKeyFormatException(new Error
+      ("PublicKey.decodeKeyType: Error decoding the public key: " + ex.message));
+  }
+
+  // Verify that the we can decode.
+  if (oidString == PublicKey.RSA_ENCRYPTION_OID) {
+    this.keyType = KeyType.RSA;
+    // TODO: Check RSA decoding.
+  }
+  else if (oidString == PublicKey.EC_ENCRYPTION_OID) {
+    this.keyType = KeyType.ECDSA;
+    // TODO: Check EC decoding.
+  }
+};
+
+exports.PublicKey = PublicKey;
+
+/**
+ * Encode the public key into DER.
+ * @returns {DerNode} The encoded DER syntax tree.
+ */
+PublicKey.prototype.toDer = function()
+{
+  return DerNode.parse(this.keyDer.buf());
+};
+
+/**
+ * Get the key type.
+ * @returns {number} The key type as an int from KeyType.
+ */
+PublicKey.prototype.getKeyType = function()
+{
+  return this.keyType;
+};
+
+/**
+ * Get the digest of the public key.
+ * @param {number} digestAlgorithm (optional) The integer from DigestAlgorithm,
+ * such as DigestAlgorithm.SHA256. If omitted, use DigestAlgorithm.SHA256 .
+ * @returns {Blob} The digest value.
+ */
+PublicKey.prototype.getDigest = function(digestAlgorithm)
+{
+  if (digestAlgorithm == undefined)
+    digestAlgorithm = DigestAlgorithm.SHA256;
+
+  if (digestAlgorithm == DigestAlgorithm.SHA256) {
+    var hash = Crypto.createHash('sha256');
+    hash.update(this.keyDer.buf());
+    return new Blob(hash.digest(), false);
+  }
+  else
+    throw new SecurityException(new Error("Wrong format!"));
+};
+
+/**
+ * Get the raw bytes of the public key in DER format.
+ * @returns {Blob} The public key DER.
+ */
+PublicKey.prototype.getKeyDer = function()
+{
+  return this.keyDer;
+};
+
+PublicKey.RSA_ENCRYPTION_OID = "1.2.840.113549.1.1.1";
+PublicKey.EC_ENCRYPTION_OID = "1.2.840.10045.2.1";
+/**
+ * Copyright (C) 2014-2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ * From ndn-cxx security by Yingdi Yu <yingdi@cs.ucla.edu>.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+var DerNode = require('../../encoding/der/der-node.js').DerNode;
+var OID = require('../../encoding/oid.js').OID;
+
+/**
+ * A CertificateExtension represents the Extension entry in a certificate.
+ * Create a new CertificateExtension.
+ * @param {string|OID} oid The oid of subject description entry.
+ * @param {boolean} isCritical If true, the extension must be handled.
+ * @param {Blob} value The extension value.
+ */
+var CertificateExtension = function CertificateExtension(oid, isCritical, value)
+{
+  if (typeof oid === 'string')
+    this.extensionId = new OID(oid);
+  else
+    // Assume oid is already an OID.
+    this.extensionId = oid;
+
+  this.isCritical = isCritical;
+  this.extensionValue = value;
+};
+
+exports.CertificateExtension = CertificateExtension;
+
+/**
+ * Encode the object into a DER syntax tree.
+ * @returns {DerNode} The encoded DER syntax tree.
+ */
+CertificateExtension.prototype.toDer = function()
+{
+  var root = new DerNode.DerSequence();
+
+  var extensionId = new DerNode.DerOid(this.extensionId);
+  var isCritical = new DerNode.DerBoolean(this.isCritical);
+  var extensionValue = new DerNode.DerOctetString(this.extensionValue.buf());
+
+  root.addChild(extensionId);
+  root.addChild(isCritical);
+  root.addChild(extensionValue);
+
+  root.getSize();
+
+  return root;
+};
+
+CertificateExtension.prototype.toDerBlob = function()
+{
+  return this.toDer().encode();
+};
+
+CertificateExtension.prototype.getOid = function()
+{
+  return this.extensionId;
+};
+
+CertificateExtension.prototype.getIsCritical = function()
+{
+  return this.isCritical;
+};
+
+CertificateExtension.prototype.getValue = function()
+{
+  return this.extensionValue;
+};
+/**
+ * Copyright (C) 2014-2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ * From ndn-cxx security by Yingdi Yu <yingdi@cs.ucla.edu>.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+var Blob = require('../../util/blob.js').Blob;
+var OID = require('../../encoding/oid.js').OID;
+var DerNode = require('../../encoding/der/der-node.js').DerNode;
+
+/**
+ * A CertificateSubjectDescription represents the SubjectDescription entry in a
+ * Certificate.
+ * Create a new CertificateSubjectDescription.
+ * @param {string|OID} oid The oid of the subject description entry.
+ * @param {string} value The value of the subject description entry.
+ */
+var CertificateSubjectDescription = function CertificateSubjectDescription
+  (oid, value)
+{
+  if (typeof oid === 'string')
+    this.oid = new OID(oid);
+  else
+    // Assume oid is already an OID.
+    this.oid = oid;
+
+  this.value = value;
+};
+
+exports.CertificateSubjectDescription = CertificateSubjectDescription;
+
+/**
+ * Encode the object into a DER syntax tree.
+ * @returns {DerNode} The encoded DER syntax tree.
+ */
+CertificateSubjectDescription.prototype.toDer = function()
+{
+  var root = new DerNode.DerSequence();
+
+  var oid = new DerNode.DerOid(this.oid);
+  // Use Blob to convert the String to a ByteBuffer.
+  var value = new DerNode.DerPrintableString(new Blob(this.value).buf());
+
+  root.addChild(oid);
+  root.addChild(value);
+
+  return root;
+};
+
+CertificateSubjectDescription.prototype.getOidString = function()
+{
+  return this.oid.toString();
+};
+
+CertificateSubjectDescription.prototype.getValue = function()
+{
+  return this.value;
+};
+/**
+ * Copyright (C) 2014-2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ * From ndn-cxx security by Yingdi Yu <yingdi@cs.ucla.edu>.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+var Data = require('../../data.js').Data;
+var ContentType = require('../../meta-info.js').ContentType;
+var WireFormat = require('../../encoding/wire-format.js').WireFormat;
+var DerNode = require('../../encoding/der/der-node.js').DerNode;
+var KeyType = require('../../security/security-types.js').KeyType;
+var PublicKey = require('./public-key.js').PublicKey;
+var CertificateSubjectDescription = require('./certificate-subject-description.js').CertificateSubjectDescription;
+var CertificateExtension = require('./certificate-extension.js').CertificateExtension;
+
+/**
+ * Create a Certificate from the content in the data packet (if not omitted).
+ * @param {Data} data (optional) The data packet with the content to decode.
+ * If omitted, create a Certificate with default values and the Data content
+ * is empty.
+ */
+var Certificate = function Certificate(data)
+{
+  // Call the base constructor.
+  if (data != undefined)
+    Data.call(this, data);
+  else
+    Data.call(this);
+
+  this.subjectDescriptionList = [];  // of CertificateSubjectDescription
+  this.extensionList = [];           // of CertificateExtension
+  this.notBefore = Number.MAX_VALUE; // MillisecondsSince1970
+  this.notAfter = -Number.MAX_VALUE; // MillisecondsSince1970
+  this.key = new PublicKey();
+
+  if (data != undefined)
+    this.decode();
+};
+Certificate.prototype = new Data();
+Certificate.prototype.name = "Certificate";
+
+exports.Certificate = Certificate;
+
+/**
+ * Encode the contents of the certificate in DER format and set the Content
+ * and MetaInfo fields.
+ */
+Certificate.prototype.encode = function()
+{
+  var root = this.toDer();
+  this.setContent(root.encode());
+  this.getMetaInfo().setType(ContentType.KEY);
+};
+
+/**
+ * Add a subject description.
+ * @param {CertificateSubjectDescription} description The description to be added.
+ */
+Certificate.prototype.addSubjectDescription = function(description)
+{
+  this.subjectDescriptionList.push(description);
+};
+
+/**
+ * Get the subject description list.
+ * @returns {Array<CertificateSubjectDescription>} The subject description list.
+ */
+Certificate.prototype.getSubjectDescriptionList = function()
+{
+  return this.subjectDescriptionList;
+};
+
+/**
+ * Add a certificate extension.
+ * @param {CertificateSubjectDescription} extension The extension to be added.
+ */
+Certificate.prototype.addExtension = function(extension)
+{
+  this.extensionList.push(extension);
+};
+
+/**
+ * Get the certificate extension list.
+ * @returns {Array<CertificateExtension>} The extension list.
+ */
+Certificate.prototype.getExtensionList = function()
+{
+  return this.extensionList;
+};
+
+Certificate.prototype.setNotBefore = function(notBefore)
+{
+  this.notBefore = notBefore;
+};
+
+Certificate.prototype.getNotBefore = function()
+{
+  return this.notBefore;
+};
+
+Certificate.prototype.setNotAfter = function(notAfter)
+{
+  this.notAfter = notAfter;
+};
+
+Certificate.prototype.getNotAfter = function()
+{
+  return this.notAfter;
+};
+
+Certificate.prototype.setPublicKeyInfo = function(key)
+{
+  this.key = key;
+};
+
+Certificate.prototype.getPublicKeyInfo = function()
+{
+  return this.key;
+};
+
+/**
+ * Check if the certificate is valid.
+ * @returns {Boolean} True if the current time is earlier than notBefore.
+ */
+Certificate.prototype.isTooEarly = function()
+{
+  var now = new Date().getTime();
+  return now < this.notBefore;
+};
+
+/**
+ * Check if the certificate is valid.
+ * @returns {Boolean} True if the current time is later than notAfter.
+ */
+Certificate.prototype.isTooLate = function()
+{
+  var now = new Date().getTime();
+  return now > this.notAfter;
+};
+
+/**
+ * Encode the certificate fields in DER format.
+ * @returns {DerSequence} The DER encoded contents of the certificate.
+ */
+Certificate.prototype.toDer = function()
+{
+  var root = new DerNode.DerSequence();
+  var validity = new DerNode.DerSequence();
+  var notBefore = new DerNode.DerGeneralizedTime(this.notBefore);
+  var notAfter = new DerNode.DerGeneralizedTime(this.notAfter);
+
+  validity.addChild(notBefore);
+  validity.addChild(notAfter);
+
+  root.addChild(validity);
+
+  var subjectList = new DerNode.DerSequence();
+  for (var i = 0; i < this.subjectDescriptionList.length; ++i)
+    subjectList.addChild(this.subjectDescriptionList[i].toDer());
+
+  root.addChild(subjectList);
+  root.addChild(this.key.toDer());
+
+  if (this.extensionList.length > 0) {
+    var extensionList = new DerNode.DerSequence();
+    for (var i = 0; i < this.extensionList.length; ++i)
+      extensionList.addChild(this.extensionList[i].toDer());
+    root.addChild(extensionList);
+  }
+
+  return root;
+};
+
+/**
+ * Populate the fields by the decoding DER data from the Content.
+ */
+Certificate.prototype.decode = function()
+{
+  var root = DerNode.parse(this.getContent().buf());
+
+  // We need to ensure that there are:
+  //   validity (notBefore, notAfter)
+  //   subject list
+  //   public key
+  //   (optional) extension list
+
+  var rootChildren = root.getChildren();
+  // 1st: validity info
+  var validityChildren = DerNode.getSequence(rootChildren, 0).getChildren();
+  this.notBefore = validityChildren[0].toVal();
+  this.notAfter = validityChildren[1].toVal();
+
+  // 2nd: subjectList
+  var subjectChildren = DerNode.getSequence(rootChildren, 1).getChildren();
+  for (var i = 0; i < subjectChildren.length; ++i) {
+    var sd = DerNode.getSequence(subjectChildren, i);
+    var descriptionChildren = sd.getChildren();
+    var oidStr = descriptionChildren[0].toVal();
+    var value = descriptionChildren[1].toVal().buf().toString('binary');
+
+    this.addSubjectDescription(new CertificateSubjectDescription(oidStr, value));
+  }
+
+  // 3rd: public key
+  var publicKeyInfo = rootChildren[2].encode();
+  this.key =  new PublicKey(publicKeyInfo);
+
+  if (rootChildren.length > 3) {
+    var extensionChildren = DerNode.getSequence(rootChildren, 3).getChildren();
+    for (var i = 0; i < extensionChildren.length; ++i) {
+      var extInfo = DerNode.getSequence(extensionChildren, i);
+
+      var children = extInfo.getChildren();
+      var oidStr = children[0].toVal();
+      var isCritical = children[1].toVal();
+      var value = children[2].toVal();
+      this.addExtension(new CertificateExtension(oidStr, isCritical, value));
+    }
+  }
+};
+
+/**
+ * Override to call the base class wireDecode then populate the certificate
+ * fields.
+ * @param {Blob|Buffer} input The buffer with the bytes to decode.
+ * @param {WireFormat} wireFormat (optional) A WireFormat object used to decode
+ * this object. If omitted, use WireFormat.getDefaultWireFormat().
+ */
+Certificate.prototype.wireDecode = function(input, wireFormat)
+{
+  wireFormat = (wireFormat || WireFormat.getDefaultWireFormat());
+
+  Data.prototype.wireDecode.call(this, input, wireFormat);
+  this.decode();
+};
+
+Certificate.prototype.toString = function()
+{
+  var s = "Certificate name:\n";
+  s += "  " + this.getName().toUri() + "\n";
+  s += "Validity:\n";
+
+  var notBeforeStr = Certificate.toIsoString(Math.round(this.notBefore));
+  var notAfterStr = Certificate.toIsoString(Math.round(this.notAfter));
+
+  s += "  NotBefore: " + notBeforeStr + "\n";
+  s += "  NotAfter: " + notAfterStr + "\n";
+  for (var i = 0; i < this.subjectDescriptionList.length; ++i) {
+    var sd = this.subjectDescriptionList[i];
+    s += "Subject Description:\n";
+    s += "  " + sd.getOidString() + ": " + sd.getValue() + "\n";
+  }
+
+  s += "Public key bits:\n";
+  var keyDer = this.key.getKeyDer();
+  var encodedKey = keyDer.buf().toString('base64');
+  for (var i = 0; i < encodedKey.length; i += 64)
+    s += encodedKey.substring(i, Math.min(i + 64, encodedKey.length)) + "\n";
+
+  if (this.extensionList.length > 0) {
+    s += "Extensions:\n";
+    for (var i = 0; i < this.extensionList.length; ++i) {
+      var ext = this.extensionList[i];
+      s += "  OID: " + ext.getOid() + "\n";
+      s += "  Is critical: " + (ext.getIsCritical() ? 'Y' : 'N') + "\n";
+
+      s += "  Value: " + ext.getValue().toHex() + "\n" ;
+    }
+  }
+
+  return s;
+};
+
+/**
+ * Convert a UNIX timestamp to ISO time representation with the "T" in the middle.
+ * @param {type} msSince1970 Timestamp as milliseconds since Jan 1, 1970.
+ * @returns {string} The string representation.
+ */
+Certificate.toIsoString = function(msSince1970)
+{
+  var utcTime = new Date(Math.round(msSince1970));
+  return utcTime.getUTCFullYear() +
+         Certificate.to2DigitString(utcTime.getUTCMonth() + 1) +
+         Certificate.to2DigitString(utcTime.getUTCDate()) +
+         "T" +
+         Certificate.to2DigitString(utcTime.getUTCHours()) +
+         Certificate.to2DigitString(utcTime.getUTCMinutes()) +
+         Certificate.to2DigitString(utcTime.getUTCSeconds());
+};
+
+/**
+ * A private method to zero pad an integer to 2 digits.
+ * @param {number} x The number to pad.  Assume it is a non-negative integer.
+ * @returns {string} The padded string.
+ */
+Certificate.to2DigitString = function(x)
+{
+  var result = x.toString();
+  return result.length === 1 ? "0" + result : result;
+};
+/**
+ * Copyright (C) 2014-2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ * From ndn-cxx security by Yingdi Yu <yingdi@cs.ucla.edu>.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+var Data = require('../../data.js').Data;
+var Name = require('../../name.js').Name;
+var SecurityException = require('../../security//security-exception.js').SecurityException;
+var Certificate = require('./certificate.js').Certificate;
+var WireFormat = require('../../encoding/wire-format.js').WireFormat;
+
+var IdentityCertificate = function IdentityCertificate(data)
+{
+  // Call the base constructor.
+  if (data != undefined)
+    // This works if data is Data or IdentityCertificate.
+    Certificate.call(this, data);
+  else
+    Certificate.call(this);
+
+  this.publicKeyName = new Name();
+
+  if (data instanceof IdentityCertificate) {
+    // The copy constructor.
+    this.publicKeyName = new Name(data.publicKeyName);
+  }
+  else if (data instanceof Data) {
+    if (!IdentityCertificate.isCorrectName(data.getName()))
+      throw new SecurityException(new Error("Wrong Identity Certificate Name!"));
+
+    this.setPublicKeyName();
+  }
+};
+IdentityCertificate.prototype = new Certificate();
+IdentityCertificate.prototype.name = "IdentityCertificate";
+
+exports.IdentityCertificate = IdentityCertificate;
+
+/**
+ * Override the base class method to check that the name is a valid identity
+ * certificate name.
+ * @param {Name} name The identity certificate name which is copied.
+ * @returns {Data} This Data so that you can chain calls to update values.
+ */
+IdentityCertificate.prototype.setName = function(name)
+{
+  if (!IdentityCertificate.isCorrectName(name))
+    throw new SecurityException(new Error("Wrong Identity Certificate Name!"));
+
+  // Call the super class method.
+  Certificate.prototype.setName.call(this, name);
+  this.setPublicKeyName();
+  return this;
+};
+
+/**
+ * Override to call the base class wireDecode then update the public key name.
+ * @param {Blob|Buffer} input The buffer with the bytes to decode.
+ * @param {WireFormat} wireFormat (optional) A WireFormat object used to decode
+ * this object. If omitted, use WireFormat.getDefaultWireFormat().
+ */
+IdentityCertificate.prototype.wireDecode = function(input, wireFormat)
+{
+  wireFormat = (wireFormat || WireFormat.getDefaultWireFormat());
+
+  Certificate.prototype.wireDecode.call(this, input, wireFormat);
+  this.setPublicKeyName();
+};
+
+IdentityCertificate.prototype.getPublicKeyName = function()
+{
+  return this.publicKeyName;
+};
+
+IdentityCertificate.isIdentityCertificate = function(certificate)
+{
+  return IdentityCertificate.isCorrectName(certificate.getName());
+};
+
+/**
+ * Get the public key name from the full certificate name.
+ * @param {Name} certificateName The full certificate name.
+ * @returns {Name} The related public key name.
+ */
+IdentityCertificate.certificateNameToPublicKeyName = function(certificateName)
+{
+  var idString = "ID-CERT";
+  var foundIdString = false;
+  var idCertComponentIndex = certificateName.size() - 1;
+  for (; idCertComponentIndex + 1 > 0; --idCertComponentIndex) {
+    if (certificateName.get(idCertComponentIndex).toEscapedString() == idString) {
+      foundIdString = true;
+      break;
+    }
+  }
+
+  if (!foundIdString)
+    throw new Error
+      ("Incorrect identity certificate name " + certificateName.toUri());
+
+  var tempName = certificateName.getSubName(0, idCertComponentIndex);
+  var keyString = "KEY";
+  var foundKeyString = false;
+  var keyComponentIndex = 0;
+  for (; keyComponentIndex < tempName.size(); keyComponentIndex++) {
+    if (tempName.get(keyComponentIndex).toEscapedString() == keyString) {
+      foundKeyString = true;
+      break;
+    }
+  }
+
+  if (!foundKeyString)
+    throw new Error
+      ("Incorrect identity certificate name " + certificateName.toUri());
+
+  return tempName
+    .getSubName(0, keyComponentIndex)
+    .append(tempName.getSubName
+            (keyComponentIndex + 1, tempName.size() - keyComponentIndex - 1));
+};
+
+IdentityCertificate.isCorrectName = function(name)
+{
+  var i = name.size() - 1;
+
+  var idString = "ID-CERT";
+  for (; i >= 0; i--) {
+    if (name.get(i).toEscapedString() == idString)
+      break;
+  }
+
+  if (i < 0)
+    return false;
+
+  var keyIdx = 0;
+  var keyString = "KEY";
+  for (; keyIdx < name.size(); keyIdx++) {
+    if(name.get(keyIdx).toEscapedString() == keyString)
+      break;
+  }
+
+  if (keyIdx >= name.size())
+    return false;
+
+  return true;
+};
+
+IdentityCertificate.prototype.setPublicKeyName = function()
+{
+  this.publicKeyName = IdentityCertificate.certificateNameToPublicKeyName
+    (this.getName());
+};
+
+/**
+ * Copyright (C) 2014-2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ * From ndn-cxx security by Yingdi Yu <yingdi@cs.ucla.edu>.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+var Name = require('../../name.js').Name;
+var SecurityException = require('../security-exception.js').SecurityException;
+
+/**
+ * IdentityStorage is a base class for the storage of identity, public keys and
+ * certificates. Private keys are stored in PrivateKeyStorage.
+ * This is an abstract base class.  A subclass must implement the methods.
+ * @constructor
+ */
+var IdentityStorage = function IdentityStorage()
+{
+};
+
+exports.IdentityStorage = IdentityStorage;
+
+/**
+ * Check if the specified identity already exists.
+ * @param {Name} identityName The identity name.
+ * @returns {boolean} true if the identity exists, otherwise false.
+ */
+IdentityStorage.prototype.doesIdentityExist = function(identityName)
+{
+  throw new Error("IdentityStorage.doesIdentityExist is not implemented");
+};
+
+/**
+ * Add a new identity. Do nothing if the identity already exists.
+ * @param {Name} identityName The identity name to be added.
+ */
+IdentityStorage.prototype.addIdentity = function(identityName)
+{
+  throw new Error("IdentityStorage.addIdentity is not implemented");
+};
+
+/**
+ * Revoke the identity.
+ * @returns {boolean} true if the identity was revoked, false if not.
+ */
+IdentityStorage.prototype.revokeIdentity = function()
+{
+  throw new Error("IdentityStorage.revokeIdentity is not implemented");
+};
+
+/**
+ * Generate a name for a new key belonging to the identity.
+ * @param {Name} identityName The identity name.
+ * @param {boolean} useKsk If true, generate a KSK name, otherwise a DSK name.
+ * @returns {Name} The generated key name.
+ */
+IdentityStorage.prototype.getNewKeyName = function(identityName, useKsk)
+{
+  var timestamp = Math.floor(new Date().getTime() / 1000.0);
+  while (timestamp <= IdentityStorage.lastTimestamp)
+    // Make the timestamp unique.
+    timestamp += 1;
+  IdentityStorage.lastTimestamp = timestamp;
+
+  // Get the number of seconds as a string.
+  var seconds = "" + timestamp;
+
+  var keyIdStr;
+  if (useKsk)
+    keyIdStr = "ksk-" + seconds;
+  else
+    keyIdStr = "dsk-" + seconds;
+
+  var keyName = new Name(identityName).append(keyIdStr);
+
+  if (this.doesKeyExist(keyName))
+    throw new SecurityException(new Error("Key name already exists"));
+
+  return keyName;
+};
+
+/**
+ * Check if the specified key already exists.
+ * @param {Name} keyName The name of the key.
+ * @returns {boolean} true if the key exists, otherwise false.
+ */
+IdentityStorage.prototype.doesKeyExist = function(keyName)
+{
+  throw new Error("IdentityStorage.doesKeyExist is not implemented");
+};
+
+/**
+ * Add a public key to the identity storage. Also call addIdentity to ensure
+ * that the identityName for the key exists.
+ * @param {Name} keyName The name of the public key to be added.
+ * @param {number} keyType Type of the public key to be added from KeyType, such
+ * as KeyType.RSA..
+ * @param {Blob} publicKeyDer A blob of the public key DER to be added.
+ */
+IdentityStorage.prototype.addKey = function(keyName, keyType, publicKeyDer)
+{
+  throw new Error("IdentityStorage.addKey is not implemented");
+};
+
+/**
+ * Get the public key DER blob from the identity storage.
+ * @param {Name} keyName The name of the requested public key.
+ * @returns {Blob} The DER Blob.  If not found, return a Blob with a null pointer.
+ */
+IdentityStorage.prototype.getKey = function(keyName)
+{
+  throw new Error("IdentityStorage.getKey is not implemented");
+};
+
+/**
+ * Activate a key.  If a key is marked as inactive, its private part will not be
+ * used in packet signing.
+ * @param {Name} keyName name of the key
+ */
+IdentityStorage.prototype.activateKey = function(keyName)
+{
+  throw new Error("IdentityStorage.activateKey is not implemented");
+};
+
+/**
+ * Deactivate a key. If a key is marked as inactive, its private part will not
+ * be used in packet signing.
+ * @param {Name} keyName name of the key
+ */
+IdentityStorage.prototype.deactivateKey = function(keyName)
+{
+  throw new Error("IdentityStorage.deactivateKey is not implemented");
+};
+
+/**
+ * Check if the specified certificate already exists.
+ * @param {Name} certificateName The name of the certificate.
+ * @returns {boolean} true if the certificate exists, otherwise false.
+ */
+IdentityStorage.prototype.doesCertificateExist = function(certificateName)
+{
+  throw new Error("IdentityStorage.doesCertificateExist is not implemented");
+};
+
+/**
+ * Add a certificate to the identity storage.
+ * @param {IdentityCertificate} certificate The certificate to be added.  This
+ * makes a copy of the certificate.
+ */
+IdentityStorage.prototype.addCertificate = function(certificate)
+{
+  throw new Error("IdentityStorage.addCertificate is not implemented");
+};
+
+/**
+ * Get a certificate from the identity storage.
+ * @param {Name} certificateName The name of the requested certificate.
+ * @param {boolean} allowAny (optional) If false, only a valid certificate will
+ * be returned, otherwise validity is disregarded. If omitted, allowAny is false.
+ * @returns {IdentityCertificate} The requested certificate.  If not found, return a shared_ptr
+ * with a null pointer.
+ */
+IdentityStorage.prototype.getCertificate = function(certificateName, allowAny)
+{
+  throw new Error("IdentityStorage.getCertificate is not implemented");
+};
+
+/*****************************************
+ *           Get/Set Default             *
+ *****************************************/
+
+/**
+ * Get the default identity.
+ * @returns {Name} The name of default identity.
+ * @throws SecurityException if the default identity is not set.
+ */
+IdentityStorage.prototype.getDefaultIdentity = function()
+{
+  throw new Error("IdentityStorage.getDefaultIdentity is not implemented");
+};
+
+/**
+ * Get the default key name for the specified identity.
+ * @param {Name} identityName The identity name.
+ * @returns {Name} The default key name.
+ * @throws SecurityException if the default key name for the identity is not set.
+ */
+IdentityStorage.prototype.getDefaultKeyNameForIdentity = function(identityName)
+{
+  throw new Error("IdentityStorage.getDefaultKeyNameForIdentity is not implemented");
+};
+
+/**
+ * Get the default certificate name for the specified identity.
+ * @param {Name} identityName The identity name.
+ * @returns {Name} The default certificate name.
+ * @throws SecurityException if the default key name for the identity is not
+ * set or the default certificate name for the key name is not set.
+ */
+IdentityStorage.prototype.getDefaultCertificateNameForIdentity = function
+  (identityName)
+{
+  var keyName = this.getDefaultKeyNameForIdentity(identityName);
+  return this.getDefaultCertificateNameForKey(keyName);
+};
+
+/**
+ * Get the default certificate name for the specified key.
+ * @param {Name} keyName The key name.
+ * @returns {Name} The default certificate name.
+ * @throws SecurityException if the default certificate name for the key name
+ * is not set.
+ */
+IdentityStorage.prototype.getDefaultCertificateNameForKey = function(keyName)
+{
+  throw new Error("IdentityStorage.getDefaultCertificateNameForKey is not implemented");
+};
+
+/**
+ * Append all the key names of a particular identity to the nameList.
+ * @param identityName {Name} The identity name to search for.
+ * @param nameList {Array<Name>} Append result names to nameList.
+ * @param isDefault {boolean} If true, add only the default key name. If false,
+ * add only the non-default key names.
+ */
+IdentityStorage.prototype.getAllKeyNamesOfIdentity = function
+  (identityName, nameList, isDefault)
+{
+  throw new Error("IdentityStorage.getAllKeyNamesOfIdentity is not implemented");
+};
+
+/**
+ * Set the default identity.  If the identityName does not exist, then clear the
+ * default identity so that getDefaultIdentity() throws an exception.
+ * @param {Name} identityName The default identity name.
+ */
+IdentityStorage.prototype.setDefaultIdentity = function(identityName)
+{
+  throw new Error("IdentityStorage.setDefaultIdentity is not implemented");
+};
+
+/**
+ * Set the default key name for the specified identity.
+ * @param {Name} keyName The key name.
+ * @param {Name} identityNameCheck (optional) The identity name to check the
+ * keyName.
+ */
+IdentityStorage.prototype.setDefaultKeyNameForIdentity = function
+  (keyName, identityNameCheck)
+{
+  throw new Error("IdentityStorage.setDefaultKeyNameForIdentity is not implemented");
+};
+
+/**
+ * Set the default key name for the specified identity.
+ * @param {Name} keyName The key name.
+ * @param {Name} certificateName The certificate name.
+ */
+IdentityStorage.prototype.setDefaultCertificateNameForKey = function
+  (keyName, certificateName)
+{
+  throw new Error("IdentityStorage.setDefaultCertificateNameForKey is not implemented");
+};
+
+/*****************************************
+ *            Delete Methods             *
+ *****************************************/
+
+/**
+ * Delete a certificate.
+ * @param {Name} certificateName The certificate name.
+ */
+IdentityStorage.prototype.deleteCertificateInfo = function(certificateName)
+{
+  throw new Error("IdentityStorage.deleteCertificateInfo is not implemented");
+};
+
+/**
+ * Delete a public key and related certificates.
+ * @param {Name} keyName The key name.
+ */
+IdentityStorage.prototype.deletePublicKeyInfo = function(keyName)
+{
+  throw new Error("IdentityStorage.deletePublicKeyInfo is not implemented");
+};
+
+/**
+ * Delete an identity and related public keys and certificates.
+ * @param {Name} identity The identity name.
+ */
+IdentityStorage.prototype.deleteIdentityInfo = function(identity)
+{
+  throw new Error("IdentityStorage.deleteIdentityInfo is not implemented");
+};
+
+// Track the lastTimestamp so that each timestamp is unique.
+IdentityStorage.lastTimestamp = Math.floor(new Date().getTime() / 1000.0);
+/**
+ * Copyright (C) 2014-2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ * From ndn-cxx security by Yingdi Yu <yingdi@cs.ucla.edu>.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+var Data = require('../../data.js').Data;
+var Name = require('../../name.js').Name;
+var Blob = require('../../util/blob.js').Blob;
+var KeyType = require('../security-types.js').KeyType;
+var DataUtils = require('../../encoding/data-utils.js').DataUtils;
+var SecurityException = require('../security-exception.js').SecurityException;
+var IdentityStorage = require('./identity-storage.js').IdentityStorage;
+
+/**
+ * MemoryIdentityStorage extends IdentityStorage and implements its methods to
+ * store identity, public key and certificate objects in memory. The application
+ * must get the objects through its own means and add the objects to the
+ * MemoryIdentityStorage object. To use permanent file-based storage, see
+ * BasicIdentityStorage.
+ * @constructor
+ */
+var MemoryIdentityStorage = function MemoryIdentityStorage()
+{
+  // Call the base constructor.
+  IdentityStorage.call(this);
+
+  // The map key is the identityName.toUri(). The value is the object
+  //   {defaultKey // Name
+  //   }.
+  this.identityStore = {};
+  // The default identity in identityStore, or "" if not defined.
+  this.defaultIdentity = "";
+  // The key is the keyName.toUri(). The value is the object
+  //  {keyType, // number from KeyType
+  //   keyDer   // Blob
+  //   defaultCertificate // Name
+  //  }.
+  this.keyStore = {};
+  // The key is the key is the certificateName.toUri(). The value is the
+  //   encoded certificate.
+  this.certificateStore = {};
+};
+
+MemoryIdentityStorage.prototype = new IdentityStorage();
+MemoryIdentityStorage.prototype.name = "MemoryIdentityStorage";
+
+exports.MemoryIdentityStorage = MemoryIdentityStorage;
+/**
+ * Check if the specified identity already exists.
+ * @param {Name} identityName The identity name.
+ * @returns {boolean} true if the identity exists, otherwise false.
+ */
+MemoryIdentityStorage.prototype.doesIdentityExist = function(identityName)
+{
+  return this.identityStore[identityName.toUri()] !== undefined;
+};
+
+/**
+ * Add a new identity. Do nothing if the identity already exists.
+ * @param {Name} identityName The identity name to be added.
+ */
+MemoryIdentityStorage.prototype.addIdentity = function(identityName)
+{
+  var identityUri = identityName.toUri();
+  if (this.identityStore[identityUri] !== undefined)
+    return;
+
+  this.identityStore[identityUri] = { defaultKey: null };
+};
+
+/**
+ * Revoke the identity.
+ * @returns {boolean} true if the identity was revoked, false if not.
+ */
+MemoryIdentityStorage.prototype.revokeIdentity = function()
+{
+  throw new Error("MemoryIdentityStorage.revokeIdentity is not implemented");
+};
+
+/**
+ * Check if the specified key already exists.
+ * @param {Name} keyName The name of the key.
+ * @returns {boolean} true if the key exists, otherwise false.
+ */
+MemoryIdentityStorage.prototype.doesKeyExist = function(keyName)
+{
+  return this.keyStore[keyName.toUri()] !== undefined;
+};
+
+/**
+ * Add a public key to the identity storage. Also call addIdentity to ensure
+ * that the identityName for the key exists.
+ * @param {Name} keyName The name of the public key to be added.
+ * @param {number} keyType Type of the public key to be added from KeyType, such
+ * as KeyType.RSA..
+ * @param {Blob} publicKeyDer A blob of the public key DER to be added.
+ */
+MemoryIdentityStorage.prototype.addKey = function(keyName, keyType, publicKeyDer)
+{
+  var identityName = keyName.getSubName(0, keyName.size() - 1);
+
+  this.addIdentity(identityName);
+
+  if (this.doesKeyExist(keyName))
+    throw new SecurityException(new Error
+      ("A key with the same name already exists!"));
+
+  this.keyStore[keyName.toUri()] =
+    { keyType: keyType, keyDer: new Blob(publicKeyDer), defaultCertificate: null };
+};
+
+/**
+ * Get the public key DER blob from the identity storage.
+ * @param {Name} keyName The name of the requested public key.
+ * @returns {Blob} The DER Blob.  If not found, return a Blob with a null pointer.
+ */
+MemoryIdentityStorage.prototype.getKey = function(keyName)
+{
+  var keyNameUri = keyName.toUri();
+  var entry = this.keyStore[keyNameUri];
+  if (entry === undefined)
+    // Not found.  Silently return a null Blob.
+    return new Blob();
+
+  return entry.keyDer;
+};
+
+/**
+ * Activate a key.  If a key is marked as inactive, its private part will not be
+ * used in packet signing.
+ * @param {Name} keyName name of the key
+ */
+MemoryIdentityStorage.prototype.activateKey = function(keyName)
+{
+  throw new Error("MemoryIdentityStorage.activateKey is not implemented");
+};
+
+/**
+ * Deactivate a key. If a key is marked as inactive, its private part will not
+ * be used in packet signing.
+ * @param {Name} keyName name of the key
+ */
+MemoryIdentityStorage.prototype.deactivateKey = function(keyName)
+{
+  throw new Error("MemoryIdentityStorage.deactivateKey is not implemented");
+};
+
+/**
+ * Check if the specified certificate already exists.
+ * @param {Name} certificateName The name of the certificate.
+ * @returns {boolean} true if the certificate exists, otherwise false.
+ */
+MemoryIdentityStorage.prototype.doesCertificateExist = function(certificateName)
+{
+  return this.certificateStore[certificateName.toUri()] !== undefined;
+};
+
+/**
+ * Add a certificate to the identity storage.
+ * @param {IdentityCertificate} certificate The certificate to be added.  This
+ * makes a copy of the certificate.
+ */
+MemoryIdentityStorage.prototype.addCertificate = function(certificate)
+{
+  var certificateName = certificate.getName();
+  var keyName = certificate.getPublicKeyName();
+
+  if (!this.doesKeyExist(keyName))
+    throw new SecurityException(new Error
+      ("No corresponding Key record for certificate! " +
+       keyName.toUri() + " " + certificateName.toUri()));
+
+  // Check if the certificate already exists.
+  if (this.doesCertificateExist(certificateName))
+    throw new SecurityException(new Error
+      ("Certificate has already been installed!"));
+
+  // Check if the public key of the certificate is the same as the key record.
+  var keyBlob = this.getKey(keyName);
+  if (keyBlob.isNull() ||
+      !DataUtils.arraysEqual(keyBlob.buf(),
+        certificate.getPublicKeyInfo().getKeyDer().buf()))
+    throw new SecurityException(new Error
+      ("The certificate does not match the public key!"));
+
+  // Insert the certificate.
+  // wireEncode returns the cached encoding if available.
+  this.certificateStore[certificateName.toUri()] = certificate.wireEncode();
+};
+
+/**
+ * Get a certificate from the identity storage.
+ * @param {Name} certificateName The name of the requested certificate.
+ * @param {boolean} allowAny (optional) If false, only a valid certificate will
+ * be returned, otherwise validity is disregarded. If omitted, allowAny is false.
+ * @returns {IdentityCertificate} The requested certificate.  If not found, return null.
+ */
+MemoryIdentityStorage.prototype.getCertificate = function(certificateName, allowAny)
+{
+  var certificateNameUri = certificateName.toUri();
+  if (this.certificateStore[certificateNameUri] === undefined)
+    // Not found.  Silently return null.
+    return null;
+
+  var certificiate = new IdentityCertificate();
+  certificiate.wireDecode(this.certificateStore[certificateNameUri]);
+  return certificiate;
+};
+
+/*****************************************
+ *           Get/Set Default             *
+ *****************************************/
+
+/**
+ * Get the default identity.
+ * @returns {Name} The name of default identity.
+ * @throws SecurityException if the default identity is not set.
+ */
+MemoryIdentityStorage.prototype.getDefaultIdentity = function()
+{
+  if (this.defaultIdentity.length === 0)
+    throw new SecurityException(new Error
+      ("MemoryIdentityStorage.getDefaultIdentity: The default identity is not defined"));
+
+  return new Name(this.defaultIdentity);
+};
+
+/**
+ * Get the default key name for the specified identity.
+ * @param {Name} identityName The identity name.
+ * @returns {Name} The default key name.
+ * @throws SecurityException if the default key name for the identity is not set.
+ */
+MemoryIdentityStorage.prototype.getDefaultKeyNameForIdentity = function
+  (identityName)
+{
+  var identityUri = identityName.toUri();
+  if (this.identityStore[identityUri] !== undefined) {
+    if (this.identityStore[identityUri].defaultKey != null)
+      return this.identityStore[identityUri].defaultKey;
+    else
+      throw new SecurityException(new Error("No default key set."));
+  }
+  else
+    throw new SecurityException(new Error("Identity not found."));
+};
+
+/**
+ * Get the default certificate name for the specified key.
+ * @param {Name} keyName The key name.
+ * @returns {Name} The default certificate name.
+ * @throws SecurityException if the default certificate name for the key name
+ * is not set.
+ */
+MemoryIdentityStorage.prototype.getDefaultCertificateNameForKey = function(keyName)
+{
+  var keyUri = keyName.toUri();
+  if (this.keyStore[keyUri] !== undefined) {
+    if (this.keyStore[keyUri].defaultCertificate != null)
+      return this.keyStore[keyUri].defaultCertificate;
+    else
+      throw new SecurityException(new Error("No default certificate set."));
+  }
+  else
+    throw new SecurityException(new Error("Key not found."));
+};
+
+/**
+ * Set the default identity.  If the identityName does not exist, then clear the
+ * default identity so that getDefaultIdentity() throws an exception.
+ * @param {Name} identityName The default identity name.
+ */
+MemoryIdentityStorage.prototype.setDefaultIdentity = function(identityName)
+{
+  var identityUri = identityName.toUri();
+  if (this.identityStore[identityUri] !== undefined)
+    this.defaultIdentity = identityUri;
+  else
+    // The identity doesn't exist, so clear the default.
+    this.defaultIdentity = "";
+};
+
+/**
+ * Set the default key name for the specified identity.
+ * @param {Name} keyName The key name.
+ * @param {Name} identityNameCheck (optional) The identity name to check the
+ * keyName.
+ */
+MemoryIdentityStorage.prototype.setDefaultKeyNameForIdentity = function
+  (keyName, identityNameCheck)
+{
+  var identityName = keyName.getPrefix(-1);
+
+  if (identityNameCheck != null && identityNameCheck.size() > 0 &&
+      !identityNameCheck.equals(identityName))
+    throw new SecurityException(new Error
+      ("The specified identity name does not match the key name"));
+
+  var identityUri = identityName.toUri();
+  if (this.identityStore[identityUri] !== undefined)
+    this.identityStore[identityUri].defaultKey = new Name(keyName);
+};
+
+/**
+ * Set the default key name for the specified identity.
+ * @param {Name} keyName The key name.
+ * @param {Name} certificateName The certificate name.
+ */
+MemoryIdentityStorage.prototype.setDefaultCertificateNameForKey = function
+  (keyName, certificateName)
+{
+  var keyUri = keyName.toUri();
+  if (this.keyStore[keyUri] !== undefined)
+    this.keyStore[keyUri].defaultCertificate = new Name(certificateName);
+};
+
+/*****************************************
+ *            Delete Methods             *
+ *****************************************/
+
+/**
+ * Delete a certificate.
+ * @param {Name} certificateName The certificate name.
+ */
+MemoryIdentityStorage.prototype.deleteCertificateInfo = function(certificateName)
+{
+  throw new Error("MemoryIdentityStorage.deleteCertificateInfo is not implemented");
+};
+
+/**
+ * Delete a public key and related certificates.
+ * @param {Name} keyName The key name.
+ */
+MemoryIdentityStorage.prototype.deletePublicKeyInfo = function(keyName)
+{
+  throw new Error("MemoryIdentityStorage.deletePublicKeyInfo is not implemented");
+};
+
+/**
+ * Delete an identity and related public keys and certificates.
+ * @param {Name} identity The identity name.
+ */
+MemoryIdentityStorage.prototype.deleteIdentityInfo = function(identity)
+{
+  throw new Error("MemoryIdentityStorage.deleteIdentityInfo is not implemented");
+};
+/**
+ * Copyright (C) 2014-2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ * From ndn-cxx security by Yingdi Yu <yingdi@cs.ucla.edu>.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+/**
+ * PrivateKeyStorage is an abstract class which declares methods for working
+ * with a private key storage. You should use a subclass.
+ * @constructor
+ */
+var PrivateKeyStorage = function PrivateKeyStorage()
+{
+};
+
+exports.PrivateKeyStorage = PrivateKeyStorage;
+
+/**
+ * Generate a pair of asymmetric keys.
+ * @param {Name} keyName The name of the key pair.
+ * @param {KeyParams} params The parameters of the key.
+ */
+PrivateKeyStorage.prototype.generateKeyPair = function(keyName, params)
+{
+  throw new Error("PrivateKeyStorage.generateKeyPair is not implemented");
+};
+
+/**
+ * Delete a pair of asymmetric keys. If the key doesn't exist, do nothing.
+ * @param {Name} keyName The name of the key pair.
+ */
+PrivateKeyStorage.prototype.deleteKeyPair = function(keyName)
+{
+  throw new Error("PrivateKeyStorage.deleteKeyPair is not implemented");
+};
+
+/**
+ * Get the public key
+ * @param {Name} keyName The name of public key.
+ * @returns {PublicKey} The public key.
+ */
+PrivateKeyStorage.prototype.getPublicKey = function(keyName)
+{
+  throw new Error("PrivateKeyStorage.getPublicKey is not implemented");
+};
+
+/**
+ * Fetch the private key for keyName and sign the data to produce a signature Blob.
+ * @param {Buffer} data Pointer to the input byte array.
+ * @param {Name} keyName The name of the signing key.
+ * @param {number} digestAlgorithm (optional) The digest algorithm from
+ * DigestAlgorithm, such as DigestAlgorithm.SHA256. If omitted, use
+ * DigestAlgorithm.SHA256.
+ * @param {function} onComplete (optional) This calls onComplete(signature) with
+ * the signature Blob. If omitted, the return value is the signature Blob. (Some
+ * crypto libraries only use a callback, so onComplete is required to use these.)
+ * @returns {Blob} If onComplete is omitted, return the signature Blob. Otherwise,
+ * return null and use onComplete as described above.
+ */
+PrivateKeyStorage.prototype.sign = function
+  (data, keyName, digestAlgorithm, onComplete)
+{
+  throw new Error("PrivateKeyStorage.sign is not implemented");
+};
+
+/**
+ * Decrypt data.
+ * @param {Name} keyName The name of the decrypting key.
+ * @param {Buffer} data The byte to be decrypted.
+ * @param {boolean} isSymmetric (optional) If true symmetric encryption is used,
+ * otherwise asymmetric encryption is used. If omitted, use asymmetric
+ * encryption.
+ * @returns {Blob} The decrypted data.
+ */
+PrivateKeyStorage.prototype.decrypt = function(keyName, data, isSymmetric)
+{
+  throw new Error("PrivateKeyStorage.decrypt is not implemented");
+};
+
+/**
+ * Encrypt data.
+ * @param {Name} keyName The name of the encrypting key.
+ * @param {Buffer} data The byte to be encrypted.
+ * @param {boolean} isSymmetric (optional) If true symmetric encryption is used,
+ * otherwise asymmetric encryption is used. If omitted, use asymmetric
+ * encryption.
+ * @returns {Blob} The encrypted data.
+ */
+PrivateKeyStorage.prototype.encrypt = function(keyName, data, isSymmetric)
+{
+  throw new Error("PrivateKeyStorage.encrypt is not implemented");
+};
+
+/**
+ * @brief Generate a symmetric key.
+ * @param {Name} keyName The name of the key.
+ * @param {KeyParams} params The parameters of the key.
+ */
+PrivateKeyStorage.prototype.generateKey = function(keyName, params)
+{
+  throw new Error("PrivateKeyStorage.generateKey is not implemented");
+};
+
+/**
+ * Check if a particular key exists.
+ * @param {Name} keyName The name of the key.
+ * @param {number} keyClass The class of the key, e.g. KeyClass.PUBLIC,
+ * KeyClass.PRIVATE, or KeyClass.SYMMETRIC.
+ * @returns {boolean} True if the key exists, otherwise false.
+ */
+PrivateKeyStorage.prototype.doesKeyExist = function(keyName, keyClass)
+{
+  throw new Error("PrivateKeyStorage.doesKeyExist is not implemented");
+};
+/**
+ * Copyright (C) 2014-2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ * From ndn-cxx security by Yingdi Yu <yingdi@cs.ucla.edu>.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+// Use capitalized Crypto to not clash with the browser's crypto.subtle.
+var Crypto = require("crypto");
+var Blob = require('../../util/blob.js').Blob;
+var SecurityException = require('../security-exception.js').SecurityException;
+var PublicKey = require('../certificate/public-key.js').PublicKey;
+var KeyClass = require('../security-types.js').KeyClass;
+var KeyType = require('../security-types').KeyType;
+var DigestAlgorithm = require('../security-types.js').DigestAlgorithm;
+var DataUtils = require('../../encoding/data-utils.js').DataUtils;
+var PrivateKeyStorage = require('./private-key-storage.js').PrivateKeyStorage;
+var DerNode = require('../../encoding/der/der-node').DerNode;
+var OID = require('../../encoding/oid').OID;
+var UseSubtleCrypto = require('../../use-subtle-crypto-node.js').UseSubtleCrypto;
+// TODO: Handle keygen with crypto.subtle.
+var rsaKeygen = null;
+try {
+  // This should be installed with: sudo npm install rsa-keygen
+  rsaKeygen = require('rsa-keygen');
+}
+catch (e) {}
+
+/**
+ * MemoryPrivateKeyStorage class extends PrivateKeyStorage to implement private
+ * key storage in memory.
+ * @constructor
+ */
+var MemoryPrivateKeyStorage = function MemoryPrivateKeyStorage()
+{
+  // Call the base constructor.
+  PrivateKeyStorage.call(this);
+
+  // The key is the keyName.toUri(). The value is security.certificate.PublicKey.
+  this.publicKeyStore = {};
+  // The key is the keyName.toUri(). The value is the object
+  //  {keyType,     // number from KeyType
+  //   privateKey   // The PEM-encoded private key.
+  //  }.
+  this.privateKeyStore = {};
+};
+
+MemoryPrivateKeyStorage.prototype = new PrivateKeyStorage();
+MemoryPrivateKeyStorage.prototype.name = "MemoryPrivateKeyStorage";
+
+exports.MemoryPrivateKeyStorage = MemoryPrivateKeyStorage;
+
+/**
+ * Set the public key for the keyName.
+ * @param {Name} keyName The key name.
+ * @param {number} keyType The KeyType, such as KeyType.RSA.
+ * @param {Buffer} publicKeyDer The public key DER byte array.
+ */
+MemoryPrivateKeyStorage.prototype.setPublicKeyForKeyName = function
+  (keyName, keyType, publicKeyDer)
+{
+  this.publicKeyStore[keyName.toUri()] = new PublicKey
+    (new Blob(publicKeyDer, true));
+};
+
+/**
+ * Set the private key for the keyName.
+ * @param {Name} keyName The key name.
+ * @param {number} keyType The KeyType, such as KeyType.RSA.
+ * @param {Buffer} privateKeyDer The private key DER byte array.
+ */
+MemoryPrivateKeyStorage.prototype.setPrivateKeyForKeyName = function
+  (keyName, keyType, privateKeyDer)
+{
+  // Encode the DER as PEM.
+  var keyBase64 = privateKeyDer.toString('base64');
+  var keyPem = "-----BEGIN RSA PRIVATE KEY-----\n";
+  for (var i = 0; i < keyBase64.length; i += 64)
+    keyPem += (keyBase64.substr(i, 64) + "\n");
+  keyPem += "-----END RSA PRIVATE KEY-----";
+
+  this.privateKeyStore[keyName.toUri()] =
+    { keyType: keyType, privateKey: keyPem };
+};
+
+/**
+ * Set the public and private key for the keyName.
+ * @param {Name} keyName The key name.
+ * @param {number} keyType The KeyType, such as KeyType.RSA.
+ * @param {Buffer} publicKeyDer The public key DER byte array.
+ * @param {Buffer} privateKeyDer The private key DER byte array.
+ */
+MemoryPrivateKeyStorage.prototype.setKeyPairForKeyName = function
+  (keyName, keyType, publicKeyDer, privateKeyDer)
+{
+  this.setPublicKeyForKeyName(keyName, keyType, publicKeyDer);
+  this.setPrivateKeyForKeyName(keyName, keyType, privateKeyDer);
+};
+
+/**
+ * Generate a pair of asymmetric keys.
+ * @param {Name} keyName The name of the key pair.
+ * @param {KeyParams} params The parameters of the key.
+ */
+MemoryPrivateKeyStorage.prototype.generateKeyPair = function (keyName, params)
+{
+  if (this.doesKeyExist(keyName, KeyClass.PUBLIC))
+    throw new SecurityException(new Error("Public key already exists"));
+  if (this.doesKeyExist(keyName, KeyClass.PRIVATE))
+    throw new SecurityException(new Error("Public key already exists"));
+
+  var publicKeyDer;
+  var privateKeyPem;
+
+  if (params.getKeyType() === KeyType.RSA) {
+    // TODO: Handle keygen with crypto.subtle.
+    if (!rsaKeygen)
+      throw new SecurityException(new Error
+        ("Need to install rsa-keygen: sudo npm install rsa-keygen"));
+
+    var keyPair = rsaKeygen.generate(params.getKeySize());
+
+    // Get the public key DER from the PEM string.
+    var publicKeyBase64 = keyPair.public_key.toString().replace
+      ("-----BEGIN PUBLIC KEY-----", "").replace
+      ("-----END PUBLIC KEY-----", "");
+    publicKeyDer = new Buffer(publicKeyBase64, 'base64');
+
+    privateKeyPem = keyPair.private_key.toString();
+  }
+  else
+    throw new SecurityException(new Error
+      ("Only RSA key generation currently supported"));
+
+  this.setPublicKeyForKeyName(keyName, params.getKeyType(), publicKeyDer);
+  this.privateKeyStore[keyName.toUri()] =
+    { keyType: params.getKeyType(), privateKey: privateKeyPem };
+};
+
+/**
+ * Delete a pair of asymmetric keys. If the key doesn't exist, do nothing.
+ * @param {Name} keyName The name of the key pair.
+ */
+MemoryPrivateKeyStorage.prototype.deleteKeyPair = function(keyName)
+{
+  var keyUri = keyName.toUri();
+
+  delete this.publicKeyStore[keyUri];
+  delete this.privateKeyStore[keyUri];
+};
+
+/**
+ * Get the public key
+ * @param {Name} keyName The name of public key.
+ * @returns {PublicKey} The public key.
+ */
+MemoryPrivateKeyStorage.prototype.getPublicKey = function(keyName)
+{
+  var keyUri = keyName.toUri();
+  var publicKey = this.publicKeyStore[keyUri];
+  if (publicKey === undefined)
+    throw new SecurityException(new Error
+      ("MemoryPrivateKeyStorage: Cannot find public key " + keyName.toUri()));
+
+  return publicKey;
+};
+
+/**
+ * Encode the private key to a PKCS #8 private key. We do this explicitly here
+ * to avoid linking to extra OpenSSL libraries.
+ * @param {Buffer} privateKeyDer The input private key DER.
+ * @param {OID} oid The OID of the privateKey.
+ * @param {DerNode} parameters The DerNode of the parameters for the OID.
+ * @return {Blob} The PKCS #8 private key DER.
+ */
+MemoryPrivateKeyStorage.encodePkcs8PrivateKey = function
+  (privateKeyDer, oid, parameters)
+{
+  var algorithmIdentifier = new DerNode.DerSequence();
+  algorithmIdentifier.addChild(new DerNode.DerOid(oid));
+  algorithmIdentifier.addChild(parameters);
+
+  var result = new DerNode.DerSequence();
+  result.addChild(new DerNode.DerInteger(0));
+  result.addChild(algorithmIdentifier);
+  result.addChild(new DerNode.DerOctetString(privateKeyDer));
+
+  return result.encode();
+};
+
+
+MemoryPrivateKeyStorage.RSA_ENCRYPTION_OID = "1.2.840.113549.1.1.1";
+
+/**
+ * Fetch the private key for keyName and sign the data to produce a signature Blob.
+ * @param {Buffer} data Pointer to the input byte array.
+ * @param {Name} keyName The name of the signing key.
+ * @param {number} digestAlgorithm (optional) The digest algorithm from
+ * DigestAlgorithm, such as DigestAlgorithm.SHA256. If omitted, use
+ * DigestAlgorithm.SHA256.
+ * @param {function} onComplete (optional) This calls onComplete(signature) with
+ * the signature Blob. If omitted, the return value is the signature Blob. (Some
+ * crypto libraries only use a callback, so onComplete is required to use these.)
+ * @returns {Blob} If onComplete is omitted, return the signature Blob. Otherwise,
+ * return null and use onComplete as described above.
+ */
+MemoryPrivateKeyStorage.prototype.sign = function
+  (data, keyName, digestAlgorithm, onComplete)
+{
+  onComplete = (typeof digestAlgorithm === "function") ? digestAlgorithm : onComplete;
+  digestAlgorithm = (typeof digestAlgorithm === "function" || !digestAlgorithm) ? DigestAlgorithm.SHA256 : digestAlgorithm;
+
+  if (digestAlgorithm != DigestAlgorithm.SHA256)
+    throw new SecurityException(new Error
+      ("MemoryPrivateKeyStorage.sign: Unsupported digest algorithm"));
+
+  // Find the private key.
+  var keyUri = keyName.toUri();
+  var privateKey = this.privateKeyStore[keyUri];
+  if (privateKey === undefined)
+    throw new SecurityException(new Error
+      ("MemoryPrivateKeyStorage: Cannot find private key " + keyUri));
+
+  if (UseSubtleCrypto() && onComplete){
+    var algo = {name:"RSASSA-PKCS1-v1_5",hash:{name:"SHA-256"}};
+
+    if (!privateKey.subtleKey){
+      //this is the first time in the session that we're using crypto subtle with this key
+      //so we have to convert to pkcs8 and import it.
+      //assigning it to privateKey.subtleKey means we only have to do this once per session,
+      //giving us a small, but not insignificant, performance boost.
+      var privateDER = DataUtils.privateKeyPemToDer(privateKey.privateKey);
+      var pkcs8 = MemoryPrivateKeyStorage.encodePkcs8PrivateKey
+        (privateDER, new OID(MemoryPrivateKeyStorage.RSA_ENCRYPTION_OID),
+         new DerNode.DerNull()).buf();
+
+      var promise = crypto.subtle.importKey("pkcs8", pkcs8.buffer, algo, true, ["sign"]).then(function(subtleKey){
+        //cache the crypto.subtle key object
+        privateKey.subtleKey = subtleKey;
+        return crypto.subtle.sign(algo, subtleKey, data);
+      });
+    } else {
+      //crypto.subtle key has been cached on a previous sign
+      var promise = crypto.subtle.sign(algo, privateKey.subtleKey, data);
+    }
+
+    promise.then(function(signature){
+      var result = new Blob(new Uint8Array(signature), true);
+      onComplete(result)
+    });
+
+    return null;
+  } else {
+    var rsa = Crypto.createSign('RSA-SHA256');
+    rsa.update(data);
+
+    var signature = new Buffer
+      (DataUtils.toNumbersIfString(rsa.sign(privateKey.privateKey)));
+    var result = new Blob(signature, false);
+
+    if (onComplete) {
+      onComplete(result);
+      return null;
+    }
+    else
+      return result;
+  }
+
+};
+
+/**
+ * Check if a particular key exists.
+ * @param {Name} keyName The name of the key.
+ * @param {number} keyClass The class of the key, e.g. KeyClass.PUBLIC,
+ * KeyClass.PRIVATE, or KeyClass.SYMMETRIC.
+ * @returns {boolean} True if the key exists, otherwise false.
+ */
+MemoryPrivateKeyStorage.prototype.doesKeyExist = function(keyName, keyClass)
+{
+  var keyUri = keyName.toUri();
+  if (keyClass == KeyClass.PUBLIC)
+    return this.publicKeyStore[keyUri] !== undefined;
+  else if (keyClass == KeyClass.PRIVATE)
+    return this.privateKeyStore[keyUri] !== undefined;
+  else
+    // KeyClass.SYMMETRIC not implemented yet.
+    return false ;
+};
+/**
+ * Copyright (C) 2014-2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ * From ndn-cxx security by Yingdi Yu <yingdi@cs.ucla.edu>.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+// Use capitalized Crypto to not clash with the browser's crypto.subtle.
+var Crypto = require("crypto");
+var Name = require('../../name.js').Name;
+var Data = require('../../data.js').Data;
+var Blob = require('../../util/blob.js').Blob;
+var DigestSha256Signature = require('../../digest-sha256-signature.js').DigestSha256Signature;
+var Sha256WithRsaSignature = require('../../sha256-with-rsa-signature.js').Sha256WithRsaSignature;
+var KeyLocatorType = require('../../key-locator.js').KeyLocatorType;
+var WireFormat = require('../../encoding/wire-format.js').WireFormat;
+var SecurityException = require('../security-exception.js').SecurityException;
+var DigestAlgorithm = require('../security-types.js').DigestAlgorithm;
+var KeyType = require('../security-types.js').KeyType;
+var RsaKeyParams = require('../key-params.js').RsaKeyParams;
+var IdentityCertificate = require('../certificate/identity-certificate.js').IdentityCertificate;
+var PublicKey = require('../certificate/public-key.js').PublicKey;
+var CertificateSubjectDescription = require('../certificate/certificate-subject-description.js').CertificateSubjectDescription;
+
+/**
+ * An IdentityManager is the interface of operations related to identity, keys,
+ * and certificates.
+ *
+ * Create a new IdentityManager to use the given IdentityStorage and
+ * PrivateKeyStorage.
+ * @param {IdentityStorage} identityStorage An object of a subclass of
+ * IdentityStorage.
+ * @param {PrivateKeyStorage} privateKeyStorage An object of a subclass of
+ * PrivateKeyStorage.
+ * @constructor
+ */
+var IdentityManager = function IdentityManager
+  (identityStorage, privateKeyStorage)
+{
+  this.identityStorage = identityStorage;
+  this.privateKeyStorage = privateKeyStorage;
+};
+
+exports.IdentityManager = IdentityManager;
+
+/**
+ * Create an identity by creating a pair of Key-Signing-Key (KSK) for this
+ * identity and a self-signed certificate of the KSK. If a key pair or
+ * certificate for the identity already exists, use it.
+ * @param {Name} identityName The name of the identity.
+ * @params {KeyParams} params The key parameters if a key needs to be generated
+ * for the identity.
+ * @returns {Name} The name of the default certificate of the identity.
+ */
+IdentityManager.prototype.createIdentityAndCertificate = function
+  (identityName, params)
+{
+  this.identityStorage.addIdentity(identityName);
+
+  var keyName = null;
+  var generateKey = true;
+  try {
+    keyName = this.identityStorage.getDefaultKeyNameForIdentity(identityName);
+    var key = new PublicKey(this.identityStorage.getKey(keyName));
+    if (key.getKeyType() == params.getKeyType())
+      // The key exists and has the same type, so don't need to generate one.
+      generateKey = false;
+  } catch (ex) {}
+
+  if (generateKey) {
+    keyName = this.generateKeyPair(identityName, true, params);
+    this.identityStorage.setDefaultKeyNameForIdentity(keyName, identityName);
+  }
+
+  var certName = null;
+  var makeCert = true;
+  try {
+    certName = this.identityStorage.getDefaultCertificateNameForKey(keyName);
+    // The cert exists, so don't need to make it.
+    makeCert = false;
+  } catch (ex) {}
+
+  if (makeCert) {
+    var selfCert = this.selfSign(keyName);
+    this.addCertificateAsIdentityDefault(selfCert);
+    certName = selfCert.getName();
+  }
+
+  return certName;
+};
+
+/**
+ * Create an identity by creating a pair of Key-Signing-Key (KSK) for this
+ * identity and a self-signed certificate of the KSK. If a key pair or
+ * certificate for the identity already exists, use it.
+ * @deprecated Use createIdentityAndCertificate which returns the
+ * certificate name instead of the key name. You can use
+ * IdentityCertificate.certificateNameToPublicKeyName to convert the
+ * certificate name to the key name.
+ * @param {Name} identityName The name of the identity.
+ * @params {KeyParams} params The key parameters if a key needs to be generated
+ * for the identity.
+ * @returns {Name} The key name of the auto-generated KSK of the identity.
+ */
+IdentityManager.prototype.createIdentity = function(identityName, params)
+{
+  return IdentityCertificate.certificateNameToPublicKeyName
+    (this.createIdentityAndCertificate(identityName, params));
+};
+
+/**
+ * Delete the identity from the public and private key storage. If the
+ * identity to be deleted is the current default system default, this will not
+ * delete the identity and will return immediately.
+ * @param identityName {Name} The name of the identity.
+ */
+IdentityManager.prototype.deleteIdentity = function(identityName)
+{
+  try {
+    if (this.identityStorage.getDefaultIdentity().equals(identityName))
+      // Don't delete the default identity!
+      return;
+  }
+  catch (ex) {
+    // There is no default identity to check.
+  }
+
+  var keysToDelete = [];
+  this.identityStorage.getAllKeyNamesOfIdentity(identityName, keysToDelete, true);
+  this.identityStorage.getAllKeyNamesOfIdentity(identityName, keysToDelete, false);
+
+  this.identityStorage.deleteIdentityInfo(identityName);
+
+  for (var i = 0; i < keysToDelete.length; ++i)
+    this.privateKeyStorage.deleteKeyPair(keysToDelete[i]);
+};
+
+/**
+ * Set the default identity.  If the identityName does not exist, then clear the
+ * default identity so that getDefaultIdentity() throws an exception.
+ * @param {Name} identityName The default identity name.
+ */
+IdentityManager.prototype.setDefaultIdentity = function(identityName)
+{
+  this.identityStorage.setDefaultIdentity(identityName);
+};
+
+/**
+ * Get the default identity.
+ * @returns {Name} The name of default identity.
+ * @throws SecurityException if the default identity is not set.
+ */
+IdentityManager.prototype.getDefaultIdentity = function()
+{
+  return this.identityStorage.getDefaultIdentity();
+};
+
+/**
+ * Generate a pair of RSA keys for the specified identity.
+ * @param {Name} identityName The name of the identity.
+ * @param {boolean} isKsk (optional) true for generating a Key-Signing-Key (KSK),
+ * false for a Data-Signing-Key (DSK). If omitted, generate a Data-Signing-Key.
+ * @param {number} keySize (optional) The size of the key. If omitted, use a
+ * default secure key size.
+ * @returns {Name} The generated key name.
+ */
+IdentityManager.prototype.generateRSAKeyPair = function
+  (identityName, isKsk, keySize)
+{
+  return this.generateKeyPair(identityName, isKsk, new RsaKeyParams(keySize));
+};
+
+/**
+ * Set a key as the default key of an identity.
+ * @param {Name} keyName The name of the key.
+ * @param {Name} identityName (optional) the name of the identity. If not
+ * specified, the identity name is inferred from the keyName.
+ */
+IdentityManager.prototype.setDefaultKeyForIdentity = function
+  (keyName, identityName)
+{
+  if (identityName == null)
+    identityName = new Name();
+  this.identityStorage.setDefaultKeyNameForIdentity(keyName, identityName);
+};
+
+/**
+ * Get the default key for an identity.
+ * @param {Name} identityName The name of the identity.
+ * @returns {Name} The default key name.
+ * @throws SecurityException if the default key name for the identity is not set.
+ */
+IdentityManager.prototype.getDefaultKeyNameForIdentity = function(identityName)
+{
+  return this.identityStorage.getDefaultKeyNameForIdentity(identityName);
+};
+
+/**
+ * Generate a pair of RSA keys for the specified identity and set it as default
+ * key for the identity.
+ * @param {Name} identityName The name of the identity.
+ * @param {boolean} isKsk (optional) true for generating a Key-Signing-Key (KSK),
+ * false for a Data-Signing-Key (DSK). If omitted, generate a Data-Signing-Key.
+ * @param {number} keySize (optional) The size of the key. If omitted, use a
+ * default secure key size.
+ * @returns {Name} The generated key name.
+ */
+IdentityManager.prototype.generateRSAKeyPairAsDefault = function
+  (identityName, isKsk, keySize)
+{
+  var newKeyName = this.generateRSAKeyPair(identityName, isKsk, keySize);
+  this.identityStorage.setDefaultKeyNameForIdentity(newKeyName, identityName);
+  return newKeyName;
+};
+
+/**
+ * Get the public key with the specified name.
+ * @param {Name} keyName The name of the key.
+ * @returns {PublicKey} The public key.
+ */
+IdentityManager.prototype.getPublicKey = function(keyName)
+{
+  return PublicKey(this.identityStorage.getKey(keyName));
+};
+
+// TODO: Add two versions of createIdentityCertificate.
+
+/**
+ * Add a certificate into the public key identity storage.
+ * @param {IdentityCertificate} certificate The certificate to to added. This
+ * makes a copy of the certificate.
+ */
+IdentityManager.prototype.addCertificate = function(certificate)
+{
+  this.identityStorage.addCertificate(certificate);
+};
+
+/**
+ * Set the certificate as the default for its corresponding key.
+ * @param {IdentityCertificate} certificate The certificate.
+ */
+IdentityManager.prototype.setDefaultCertificateForKey = function(certificate)
+{
+  var keyName = certificate.getPublicKeyName();
+
+  if (!this.identityStorage.doesKeyExist(keyName))
+      throw new SecurityException(new Error
+        ("No corresponding Key record for certificate!"));
+
+  this.identityStorage.setDefaultCertificateNameForKey
+    (keyName, certificate.getName());
+};
+
+/**
+ * Add a certificate into the public key identity storage and set the
+ * certificate as the default for its corresponding identity.
+ * @param {IdentityCertificate} certificate The certificate to be added. This
+ * makes a copy of the certificate.
+ */
+IdentityManager.prototype.addCertificateAsIdentityDefault = function(certificate)
+{
+  this.identityStorage.addCertificate(certificate);
+  var keyName = certificate.getPublicKeyName();
+  this.setDefaultKeyForIdentity(keyName);
+  this.setDefaultCertificateForKey(certificate);
+};
+
+/**
+ * Add a certificate into the public key identity storage and set the
+ * certificate as the default of its corresponding key.
+ * @param {IdentityCertificate} certificate The certificate to be added.  This makes a copy of the certificate.
+ */
+IdentityManager.prototype.addCertificateAsDefault = function(certificate)
+{
+  this.identityStorage.addCertificate(certificate);
+  this.setDefaultCertificateForKey(certificate);
+};
+
+/**
+ * Get a certificate with the specified name.
+ * @param {Name} certificateName The name of the requested certificate.
+ * @returns {IdentityCertificate} the requested certificate which is valid.
+ */
+IdentityManager.prototype.getCertificate = function(certificateName)
+{
+  return this.identityStorage.getCertificate(certificateName, false);
+};
+
+/**
+ * Get a certificate even if the certificate is not valid anymore.
+ * @param {Name} certificateName The name of the requested certificate.
+ * @returns {IdentityCertificate} the requested certificate.
+ */
+IdentityManager.prototype.getAnyCertificate = function(certificateName)
+{
+  return this.identityStorage.getCertificate(certificateName, true);
+};
+
+/**
+ * Get the default certificate name for the specified identity, which will be
+ * used when signing is performed based on identity.
+ * @param {Name} identityName The name of the specified identity.
+ * @returns {Name} The requested certificate name.
+ * @throws SecurityException if the default key name for the identity is not
+ * set or the default certificate name for the key name is not set.
+ */
+IdentityManager.prototype.getDefaultCertificateNameForIdentity = function
+  (identityName)
+{
+  return this.identityStorage.getDefaultCertificateNameForIdentity(identityName);
+};
+
+/**
+ * Get the default certificate name of the default identity, which will be used when signing is based on identity and
+ * the identity is not specified.
+ * @returns {Name} The requested certificate name.
+ * @throws SecurityException if the default identity is not set or the default
+ * key name for the identity is not set or the default certificate name for
+ * the key name is not set.
+ */
+IdentityManager.prototype.getDefaultCertificateName = function()
+{
+  return this.identityStorage.getDefaultCertificateNameForIdentity
+    (this.getDefaultIdentity());
+};
+
+/**
+ * Sign the Data packet or byte array data based on the certificate name.
+ * @param {Data|Buffer} target If this is a Data object, wire encode for signing,
+ * update its signature and key locator field and wireEncoding. If it is a
+ * Biffer, sign it to produce a Signature object.
+ * @param {Name} certificateName The Name identifying the certificate which
+ * identifies the signing key.
+ * @param {WireFormat} (optional) The WireFormat for calling encodeData, or
+ * WireFormat.getDefaultWireFormat() if omitted.
+ * @param {function} onComplete (optional) If target is a Data object, this calls
+ * onComplete(data) with the supplied Data object which has been modified to set
+ * its signature. If target is a Buffer, this calls onComplete(signature) where
+ * signature is the produced Signature object. If omitted, the return value is
+ * described below. (Some crypto libraries only use a callback, so onComplete is
+ * required to use these.)
+ * @returns {Signature} If onComplete is omitted, return the generated Signature
+ * object (if target is a Buffer) or null (if target is Data). Otherwise, if
+ * onComplete is supplied then return null and use onComplete as described above.
+ */
+IdentityManager.prototype.signByCertificate = function
+  (target, certificateName, wireFormat, onComplete)
+{
+  onComplete = (typeof wireFormat === "function") ? wireFormat : onComplete;
+  wireFormat = (typeof wireFormat === "function" || !wireFormat) ? WireFormat.getDefaultWireFormat() : wireFormat;
+
+  var keyName = IdentityManager.certificateNameToPublicKeyName(certificateName);
+
+  if (target instanceof Data) {
+    var data = target;
+    var digestAlgorithm = [0];
+    var signature = this.makeSignatureByCertificate
+      (certificateName, digestAlgorithm);
+
+    data.setSignature(signature);
+    // Encode once to get the signed portion.
+    var encoding = data.wireEncode(wireFormat);
+
+    if (onComplete) {
+      this.privateKeyStorage.sign
+        (encoding.signedBuf(), keyName, digestAlgorithm[0], function(signatureValue) {
+          data.getSignature().setSignature(signatureValue);
+          // Encode again to include the signature.
+          data.wireEncode(wireFormat);
+          onComplete(data);
+        });
+    }
+    else {
+      data.getSignature().setSignature(this.privateKeyStorage.sign
+        (encoding.signedBuf(), keyName, digestAlgorithm[0]));
+
+      // Encode again to include the signature.
+      data.wireEncode(wireFormat);
+    }
+  }
+  else {
+    var digestAlgorithm = [0];
+    var signature = this.makeSignatureByCertificate
+      (certificateName, digestAlgorithm);
+
+    if (onComplete) {
+      this.privateKeyStorage.sign
+        (target, keyName, digestAlgorithm[0], function(signatureValue) {
+          signature.setSignature(signatureValue);
+          onComplete(signature);
+        });
+    }
+    else {
+      signature.setSignature(this.privateKeyStorage.sign
+        (target, keyName, digestAlgorithm[0]));
+
+      return signature;
+    }
+  }
+
+  return null;
+};
+
+/**
+ * Append a SignatureInfo to the Interest name, sign the name components and
+ * append a final name component with the signature bits.
+ * @param {Interest} interest The Interest object to be signed. This appends
+ * name components of SignatureInfo and the signature bits.
+ * @param {Name} certificateName The certificate name of the key to use for
+ * signing.
+ * @param {WireFormat} wireFormat (optional) A WireFormat object used to encode
+ * the input. If omitted, use WireFormat getDefaultWireFormat().
+ * @param {function} onComplete (optional) This calls onComplete(interest) with
+ * the supplied Interest object which has been modified to set its signature. If
+ * omitted, then return when the interest has been signed. (Some crypto
+ * libraries only use a callback, so onComplete is required to use these.)
+ */
+IdentityManager.prototype.signInterestByCertificate = function
+  (interest, certificateName, wireFormat, onComplete)
+{
+  wireFormat = (wireFormat || WireFormat.getDefaultWireFormat());
+
+  var digestAlgorithm = [0];
+  var signature = this.makeSignatureByCertificate
+    (certificateName, digestAlgorithm);
+
+  // Append the encoded SignatureInfo.
+  interest.getName().append(wireFormat.encodeSignatureInfo(signature));
+
+  // Append an empty signature so that the "signedPortion" is correct.
+  interest.getName().append(new Name.Component());
+  // Encode once to get the signed portion.
+  var encoding = interest.wireEncode(wireFormat);
+  var keyName = IdentityManager.certificateNameToPublicKeyName(certificateName);
+
+  if (onComplete) {
+    this.privateKeyStorage.sign
+      (encoding.signedBuf(), keyName, digestAlgorithm[0], function(signatureValue) {
+        signature.setSignature(signatureValue);
+
+        // Remove the empty signature and append the real one.
+        interest.setName(interest.getName().getPrefix(-1).append
+          (wireFormat.encodeSignatureValue(signature)));
+        onComplete(interest);
+      });
+  }
+  else {
+    signature.setSignature(this.privateKeyStorage.sign
+      (encoding.signedBuf(), keyName, digestAlgorithm[0]));
+
+    // Remove the empty signature and append the real one.
+    interest.setName(interest.getName().getPrefix(-1).append
+      (wireFormat.encodeSignatureValue(signature)));
+  }
+};
+
+/**
+ * Wire encode the Data object, digest it and set its SignatureInfo to a
+ * DigestSha256.
+ * @param {Data} data The Data object to be signed. This updates its signature
+ * and wireEncoding.
+ * @param {WireFormat} (optional) The WireFormat for calling encodeData, or
+ * WireFormat.getDefaultWireFormat() if omitted.
+ */
+IdentityManager.prototype.signWithSha256 = function(data, wireFormat)
+{
+  wireFormat = (wireFormat || WireFormat.getDefaultWireFormat());
+
+  data.setSignature(new DigestSha256Signature());
+  // Encode once to get the signed portion.
+  var encoding = data.wireEncode(wireFormat);
+
+  // Digest and set the signature.
+  var hash = Crypto.createHash('sha256');
+  hash.update(encoding.signedBuf());
+  data.getSignature().setSignature(new Blob(hash.digest(), false));
+
+  // Encode again to include the signature.
+  data.wireEncode(wireFormat);
+};
+
+/**
+ * Append a SignatureInfo for DigestSha256 to the Interest name, digest the
+   * name components and append a final name component with the signature bits
+   * (which is the digest).
+ * @param {Interest} interest The Interest object to be signed. This appends
+ * name components of SignatureInfo and the signature bits.
+ * @param {WireFormat} wireFormat (optional) A WireFormat object used to encode
+ * the input. If omitted, use WireFormat getDefaultWireFormat().
+ */
+IdentityManager.prototype.signInterestWithSha256 = function(interest, wireFormat)
+{
+  wireFormat = (wireFormat || WireFormat.getDefaultWireFormat());
+
+  var signature = new DigestSha256Signature();
+
+  // Append the encoded SignatureInfo.
+  interest.getName().append(wireFormat.encodeSignatureInfo(signature));
+
+  // Append an empty signature so that the "signedPortion" is correct.
+  interest.getName().append(new Name.Component());
+  // Encode once to get the signed portion.
+  var encoding = interest.wireEncode(wireFormat);
+
+  // Digest and set the signature.
+  var hash = Crypto.createHash('sha256');
+  hash.update(encoding.signedBuf());
+  signature.setSignature(new Blob(hash.digest(), false));
+
+  // Remove the empty signature and append the real one.
+  interest.setName(interest.getName().getPrefix(-1).append
+    (wireFormat.encodeSignatureValue(signature)));
+};
+
+/**
+ * Generate a self-signed certificate for a public key.
+ * @param {Name} keyName The name of the public key.
+ * @returns {IdentityCertificate} The generated certificate.
+ */
+IdentityManager.prototype.selfSign = function(keyName)
+{
+  var certificate = new IdentityCertificate();
+
+  var keyBlob = this.identityStorage.getKey(keyName);
+  var publicKey = new PublicKey(keyBlob);
+
+  var notBefore = new Date().getTime();
+  var notAfter = notBefore + 2 * 365 * 24 * 3600 * 1000; // about 2 years
+
+  certificate.setNotBefore(notBefore);
+  certificate.setNotAfter(notAfter);
+
+  var certificateName = keyName.getPrefix(-1).append("KEY").append
+    (keyName.get(-1)).append("ID-CERT").appendVersion(certificate.getNotBefore());
+  certificate.setName(certificateName);
+
+  certificate.setPublicKeyInfo(publicKey);
+  certificate.addSubjectDescription(new CertificateSubjectDescription
+    ("2.5.4.41", keyName.toUri()));
+  certificate.encode();
+
+  this.signByCertificate(certificate, certificate.getName());
+
+  return certificate;
+};
+
+/**
+ * Get the public key name from the full certificate name.
+ *
+ * @param {Name} certificateName The full certificate name.
+ * @returns {Name} The related public key name.
+ * TODO: Move this to IdentityCertificate
+ */
+IdentityManager.certificateNameToPublicKeyName = function(certificateName)
+{
+  var i = certificateName.size() - 1;
+  var idString = "ID-CERT";
+  while (i >= 0) {
+    if (certificateName.get(i).toEscapedString() == idString)
+      break;
+    --i;
+  }
+
+  var tmpName = certificateName.getSubName(0, i);
+  var keyString = "KEY";
+  i = 0;
+  while (i < tmpName.size()) {
+    if (tmpName.get(i).toEscapedString() == keyString)
+      break;
+    ++i;
+  }
+
+  return tmpName.getSubName(0, i).append(tmpName.getSubName
+    (i + 1, tmpName.size() - i - 1));
+};
+
+/**
+ * Return a new Signature object based on the signature algorithm of the public
+ * key with keyName (derived from certificateName).
+ * @param {Name} certificateName The certificate name.
+ * @param {Array} digestAlgorithm Set digestAlgorithm[0] to the signature
+ * algorithm's digest algorithm, e.g. DigestAlgorithm.SHA256.
+ * @returns {Signature} A new object of the correct subclass of Signature.
+ */
+IdentityManager.prototype.makeSignatureByCertificate = function
+  (certificateName, digestAlgorithm)
+{
+  var keyName = IdentityManager.certificateNameToPublicKeyName(certificateName);
+  var publicKey = this.privateKeyStorage.getPublicKey(keyName);
+  var keyType = publicKey.getKeyType();
+
+  if (keyType == KeyType.RSA) {
+    var signature = new Sha256WithRsaSignature();
+    digestAlgorithm[0] = DigestAlgorithm.SHA256;
+
+    signature.getKeyLocator().setType(KeyLocatorType.KEYNAME);
+    signature.getKeyLocator().setKeyName(certificateName.getPrefix(-1));
+
+    return signature;
+  }
+  else
+    throw new SecurityException(new Error("Key type is not recognized"));
+};
+
+/**
+ * A private method to generate a pair of keys for the specified identity.
+ * @param {Name} identityName The name of the identity.
+ * @param {boolean} isKsk true for generating a Key-Signing-Key (KSK), false for
+ * a Data-Signing-Key (DSK).
+ * @param {KeyParams} params The parameters of the key.
+ * @returns {Name} The generated key name.
+ */
+IdentityManager.prototype.generateKeyPair = function(identityName, isKsk, params)
+{
+  var keyName = this.identityStorage.getNewKeyName(identityName, isKsk);
+  this.privateKeyStorage.generateKeyPair(keyName, params);
+  var publicKeyBits = this.privateKeyStorage.getPublicKey(keyName).getKeyDer();
+  this.identityStorage.addKey(keyName, params.getKeyType(), publicKeyBits);
+
+  return keyName;
+};
+/**
+ * Copyright (C) 2014-2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ * From ndn-cxx security by Yingdi Yu <yingdi@cs.ucla.edu>.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+/**
+ * A ValidationRequest is used to return information from
+ * PolicyManager.checkVerificationPolicy.
+ *
+ * Create a new ValidationRequest with the given values.
+ * @param {Interest} interest An interest for fetching more data.
+ * @param {function} onVerified If the signature is verified, this calls
+ * onVerified(data).
+ * @param {function} onVerifyFailed If the signature check fails, this calls
+ * onVerifyFailed(data).
+ * @param {boolean} retry
+ * @param {number} stepCount  The number of verification steps that have been
+ * done, used to track the verification progress.
+ * @constructor
+ */
+var ValidationRequest = function ValidationRequest
+  (interest, onVerified, onVerifyFailed, retry, stepCount)
+{
+  this.interest = interest;
+  this.onVerified = onVerified;
+  this.onVerifyFailed = onVerifyFailed;
+  this.retry = retry;
+  this.stepCount = stepCount;
+};
+
+exports.ValidationRequest = ValidationRequest;
+/**
+ * Copyright (C) 2014-2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ * From ndn-cxx security by Yingdi Yu <yingdi@cs.ucla.edu>.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+// Use capitalized Crypto to not clash with the browser's crypto.subtle.
+var Crypto = require("crypto");
+var Blob = require('../../util/blob.js').Blob;
+var DataUtils = require('../../encoding/data-utils.js').DataUtils;
+var SecurityException = require('../security-exception.js').SecurityException;
+var DigestSha256Signature = require('../../digest-sha256-signature.js').DigestSha256Signature;
+var Sha256WithRsaSignature = require('../../sha256-with-rsa-signature.js').Sha256WithRsaSignature;
+var UseSubtleCrypto = require("../../use-subtle-crypto-node.js").UseSubtleCrypto;
+
+/**
+ * A PolicyManager is an abstract base class to represent the policy for
+ * verifying data packets. You must create an object of a subclass.
+ * @constructor
+ */
+var PolicyManager = function PolicyManager()
+{
+};
+
+exports.PolicyManager = PolicyManager;
+
+/**
+ * Check if the received data packet or signed interest can escape from
+ * verification and be trusted as valid.
+ * Your derived class should override.
+ *
+ * @param {Data|Interest} dataOrInterest The received data packet or interest.
+ * @returns {boolean} True if the data or interest does not need to be verified
+ * to be trusted as valid, otherwise false.
+ */
+PolicyManager.prototype.skipVerifyAndTrust = function(dataOrInterest)
+{
+  throw new Error("PolicyManager.skipVerifyAndTrust is not implemented");
+};
+
+/**
+ * Check if this PolicyManager has a verification rule for the received data
+ * packet or signed interest.
+ * Your derived class should override.
+ *
+ * @param {Data|Interest} dataOrInterest The received data packet or interest.
+ * @returns {boolean} True if the data or interest must be verified, otherwise
+ * false.
+ */
+PolicyManager.prototype.requireVerify = function(dataOrInterest)
+{
+  throw new Error("PolicyManager.requireVerify is not implemented");
+};
+
+/**
+ * Check whether the received data packet complies with the verification policy,
+ * and get the indication of the next verification step.
+ * Your derived class should override.
+ *
+ * @param {Data|Interest} dataOrInterest The Data object or interest with the
+ * signature to check.
+ * @param {number} stepCount The number of verification steps that have been
+ * done, used to track the verification progress.
+ * @param {function} onVerified If the signature is verified, this calls
+ * onVerified(dataOrInterest).
+ * @param {function} onVerifyFailed If the signature check fails, this calls
+ * onVerifyFailed(dataOrInterest).
+ * @param {WireFormat} wireFormat
+ * @returns {ValidationRequest} The indication of next verification step, or
+ * null if there is no further step.
+ */
+PolicyManager.prototype.checkVerificationPolicy = function
+  (dataOrInterest, stepCount, onVerified, onVerifyFailed, wireFormat)
+{
+  throw new Error("PolicyManager.checkVerificationPolicy is not implemented");
+};
+
+/**
+ * Check if the signing certificate name and data name satisfy the signing
+ * policy.
+ * Your derived class should override.
+ *
+ * @param {Name} dataName The name of data to be signed.
+ * @param {Name} certificateName The name of signing certificate.
+ * @returns {boolean} True if the signing certificate can be used to sign the
+ * data, otherwise false.
+ */
+PolicyManager.prototype.checkSigningPolicy = function(dataName, certificateName)
+{
+  throw new Error("PolicyManager.checkSigningPolicy is not implemented");
+};
+
+/**
+ * Infer the signing identity name according to the policy. If the signing
+ * identity cannot be inferred, return an empty name.
+ * Your derived class should override.
+ *
+ * @param {Name} dataName The name of data to be signed.
+ * @returns {Name} The signing identity or an empty name if cannot infer.
+ */
+PolicyManager.prototype.inferSigningIdentity = function(dataName)
+{
+  throw new Error("PolicyManager.inferSigningIdentity is not implemented");
+};
+
+// The first time verifySha256WithRsaSignature is called, it sets this to
+// determine if a signature buffer needs to be converted to a string for the
+// crypto verifier.
+PolicyManager.verifyUsesString = null;
+
+/**
+ * Check the type of signature and use the publicKeyDer to verify the
+ * signedBlob using the appropriate signature algorithm.
+ * @param signature {Signature} An object of a subclass of Signature, e.g.
+ * Sha256WithRsaSignature.
+ * @param signedBlob {SignedBlob} the SignedBlob with the signed portion to
+ * verify.
+ * @param publicKeyDer {Blob} The DER-encoded public key used to verify the
+ * signature.
+ * @param onComplete {function} This calls onComplete(true) if the signature
+ * verifies, otherwise onComplete(false).
+ * @throws {SecurityException} if the signature type is not recognized or if
+ * publicKeyDer can't be decoded.
+ */
+PolicyManager.verifySignature = function
+  (signature, signedBlob, publicKeyDer, onComplete)
+{
+  if (signature instanceof Sha256WithRsaSignature) {
+    if (publicKeyDer.isNull()) {
+      onComplete(false);
+      return;
+    }
+    PolicyManager.verifySha256WithRsaSignature
+      (signature.getSignature(), signedBlob, publicKeyDer, onComplete);
+  }
+  else if (signature instanceof DigestSha256Signature)
+    PolicyManager.verifyDigestSha256Signature
+      (signature.getSignature(), signedBlob, onComplete);
+  else
+    // We don't expect this to happen.
+    throw new SecurityException(new Error
+      ("PolicyManager.verify: Signature type is unknown"));
+};
+
+/**
+ * Verify the RSA signature on the SignedBlob using the given public key.
+ * @param signature {Blob} The signature bits.
+ * @param signedBlob {SignedBlob} the SignedBlob with the signed portion to
+ * verify.
+ * @param publicKeyDer {Blob} The DER-encoded public key used to verify the
+ * signature.
+ * @param onComplete {function} This calls onComplete(true) if the signature
+ * verifies, otherwise onComplete(false).
+ */
+PolicyManager.verifySha256WithRsaSignature = function
+  (signature, signedBlob, publicKeyDer, onComplete)
+{
+  if (UseSubtleCrypto()){
+    var algo = {name:"RSASSA-PKCS1-v1_5",hash:{name:"SHA-256"}};
+
+    crypto.subtle.importKey("spki", publicKeyDer.buf().buffer, algo, true, ["verify"]).then(function(publicKey){
+      return crypto.subtle.verify(algo, publicKey, signature.buf(), signedBlob.signedBuf())
+    }).then(function(verified){
+      onComplete(verified);
+    });
+  } else {
+    if (PolicyManager.verifyUsesString === null) {
+      var hashResult = Crypto.createHash('sha256').digest();
+      // If the hash result is a string, we assume that this is a version of
+      //   crypto where verify also uses a string signature.
+      PolicyManager.verifyUsesString = (typeof hashResult === 'string');
+    }
+
+    // The crypto verifier requires a PEM-encoded public key.
+    var keyBase64 = publicKeyDer.buf().toString('base64');
+    var keyPem = "-----BEGIN PUBLIC KEY-----\n";
+    for (var i = 0; i < keyBase64.length; i += 64)
+      keyPem += (keyBase64.substr(i, 64) + "\n");
+    keyPem += "-----END PUBLIC KEY-----";
+
+    var verifier = Crypto.createVerify('RSA-SHA256');
+    verifier.update(signedBlob.signedBuf());
+    var signatureBytes = PolicyManager.verifyUsesString ?
+      DataUtils.toString(signature.buf()) : signature.buf();
+    onComplete(verifier.verify(keyPem, signatureBytes));
+  }
+};
+
+/**
+ * Verify the DigestSha256 signature on the SignedBlob by verifying that the
+ * digest of SignedBlob equals the signature.
+ * @param signature {Blob} The signature bits.
+ * @param signedBlob {SignedBlob} the SignedBlob with the signed portion to
+ * verify.
+ * @param onComplete {function} This calls onComplete(true) if the signature
+ * verifies, otherwise onComplete(false).
+ */
+PolicyManager.verifyDigestSha256Signature = function
+  (signature, signedBlob, onComplete)
+{
+  // Set signedPortionDigest to the digest of the signed portion of the signedBlob.
+  var hash = Crypto.createHash('sha256');
+  hash.update(signedBlob.signedBuf());
+  var signedPortionDigest = new Blob(hash.digest(), false);
+
+  onComplete(signedPortionDigest.equals(signature));
+};
+/**
+ * Copyright (C) 2014-2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ * From PyNDN certificate_cache.py by Adeola Bannis.
+ * Originally from Yingdi Yu <http://irl.cs.ucla.edu/~yingdi/>.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+var IdentityCertificate = require('../certificate/identity-certificate.js').IdentityCertificate;
+
+/**
+ * A CertificateCache is used to save other users' certificate during
+ * verification.
+ */
+var CertificateCache = function CertificateCache()
+{
+  // The key is the certificate name URI. The value is the wire encoding Blob.
+  this.cache = {};
+};
+
+exports.CertificateCache = CertificateCache;
+
+/**
+ * Insert the certificate into the cache. Assumes the timestamp is not yet
+ * removed from the name.
+ * @param {IdentityCertificate} certificate The certificate to insert.
+ */
+CertificateCache.prototype.insertCertificate = function(certificate)
+{
+  var certName = certificate.getName().getPrefix(-1);
+  this.cache[certName.toUri()] = certificate.wireEncode();
+};
+
+/**
+ * Remove a certificate from the cache. This does nothing if it is not present.
+ * @param {Name} certificateName The name of the certificate to remove. This
+ * assumes there is no timestamp in the name.
+ */
+CertificateCache.prototype.deleteCertificate = function(certificateName)
+{
+  delete this.cache[certificateName.toUri()];
+};
+
+/**
+ * Fetch a certificate from the cache.
+ * @param {Name} certificateName The name of the certificate to remove. This
+ * assumes there is no timestamp in the name.
+ * @return {IdentityCertificate} A new copy of the IdentityCertificate, or null
+ * if not found.
+ */
+CertificateCache.prototype.getCertificate = function(certificateName)
+{
+  var certData = this.cache[certificateName.toUri()];
+  if (certData === undefined)
+    return null;
+
+  var cert = new IdentityCertificate();
+  cert.wireDecode(certData);
+  return cert;
+};
+
+/**
+ * Clear all certificates from the store.
+ */
+CertificateCache.prototype.reset = function()
+{
+  this.cache = {};
+};
+/**
+ * Copyright (C) 2014-2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ * From PyNDN config_policy_manager.py by Adeola Bannis.
+ * Originally from Yingdi Yu <http://irl.cs.ucla.edu/~yingdi/>.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+var fs = require('fs');
+var path = require('path');
+var Name = require('../../name.js').Name;
+var Data = require('../../data.js').Data;
+var Interest = require('../../interest.js').Interest;
+var KeyLocator = require('../../key-locator.js').KeyLocator;
+var KeyLocatorType = require('../../key-locator.js').KeyLocatorType;
+var Blob = require('../../util/blob.js').Blob;
+var IdentityCertificate = require('../certificate/identity-certificate.js').IdentityCertificate;
+var BoostInfoParser = require('../../util/boost-info-parser.js').BoostInfoParser;
+var NdnRegexMatcher = require('../../util/ndn-regex-matcher.js').NdnRegexMatcher;
+var CertificateCache = require('./certificate-cache.js').CertificateCache;
+var ValidationRequest = require('./validation-request.js').ValidationRequest;
+var SecurityException = require('../security-exception.js').SecurityException;
+var WireFormat = require('../../encoding/wire-format.js').WireFormat;
+var PolicyManager = require('./policy-manager.js').PolicyManager;
+
+/**
+ * ConfigPolicyManager manages trust according to a configuration file in the
+ * Validator Configuration File Format
+ * (http://redmine.named-data.net/projects/ndn-cxx/wiki/CommandValidatorConf)
+ *
+ * Once a rule is matched, the ConfigPolicyManager looks in the
+ * CertificateCache for the IdentityCertificate matching the name in the KeyLocator
+ * and uses its public key to verify the data packet or signed interest. If the
+ * certificate can't be found, it is downloaded, verified and installed. A chain
+ * of certificates will be followed to a maximum depth.
+ * If the new certificate is accepted, it is used to complete the verification.
+ *
+ * The KeyLocators of data packets and signed interests MUST contain a name for
+ * verification to succeed.
+ *
+ * Create a new ConfigPolicyManager which acts on the rules specified in the
+ * configuration file and downloads unknown certificates when necessary.
+ * Note: This only works in Node.js since it reads files using the "fs" module.
+ *
+ * @param {string} configFileName The path to the configuration file containing
+ * verification rules.
+ * @param {CertificateCache} certificateCache (optional) A CertificateCache to
+ * hold known certificates. If this is null or omitted, then create an internal
+ * CertificateCache.
+ * @param {number} searchDepth (optional) The maximum number of links to follow
+ * when verifying a certificate chain. If omitted, use a default.
+ * @param {number} graceInterval (optional) The window of time difference
+ * (in milliseconds) allowed between the timestamp of the first interest signed with
+ * a new public key and the validation time. If omitted, use a default value.
+ * @param {number} keyTimestampTtl (optional) How long a public key's last-used
+ * timestamp is kept in the store (milliseconds). If omitted, use a default value.
+ * @param {number} maxTrackedKeys The maximum number of public key use
+ * timestamps to track. If omitted, use a default.
+ */
+var ConfigPolicyManager = function ConfigPolicyManager
+  (configFileName, certificateCache, searchDepth, graceInterval,
+   keyTimestampTtl, maxTrackedKeys)
+{
+  // Call the base constructor.
+  PolicyManager.call(this);
+
+  if (certificateCache == undefined)
+    certificateCache = null;
+  if (searchDepth == undefined)
+    searchDepth = 5;
+  if (graceInterval == undefined)
+    graceInterval = 3000;
+  if (keyTimestampTtl == undefined)
+    keyTimestampTtl = 3600000;
+  if (maxTrackedKeys == undefined)
+    maxTrackedKeys = 1000;
+
+  if (certificateCache == null)
+    this.certificateCache = new CertificateCache();
+  else
+    this.certificateCache = certificateCache;
+  this.maxDepth = searchDepth;
+  this.keyGraceInterval = graceInterval;
+  this.keyTimestampTtl = keyTimestampTtl;
+  this.maxTrackedKeys = maxTrackedKeys;
+
+  // Stores the fixed-signer certificate name associated with validation rules
+  // so we don't keep loading from files.
+  this.fixedCertificateCache = {};
+
+  // Stores the timestamps for each public key used in command interests to
+  // avoid replay attacks.
+  // Key is public key name, value is last timestamp.
+  this.keyTimestamps = {};
+
+  this.config = new BoostInfoParser();
+  this.config.read(configFileName);
+
+  this.requiresVerification = true;
+
+  this.refreshManager = new ConfigPolicyManager.TrustAnchorRefreshManager();
+  this.loadTrustAnchorCertificates();
+};
+
+ConfigPolicyManager.prototype = new PolicyManager();
+ConfigPolicyManager.prototype.name = "ConfigPolicyManager";
+
+exports.ConfigPolicyManager = ConfigPolicyManager;
+
+/**
+ * Check if this PolicyManager has a verification rule for the received data.
+ * If the configuration file contains the trust anchor 'any', nothing is
+ * verified.
+ *
+ * @param {Data|Interest} dataOrInterest The received data packet or interest.
+ * @returns {boolean} true if the data must be verified, otherwise false.
+ */
+ConfigPolicyManager.prototype.requireVerify = function(dataOrInterest)
+{
+  return this.requiresVerification;
+};
+
+/**
+ * Override to always indicate that the signing certificate name and data name
+ * satisfy the signing policy.
+ *
+ * @param {Name} dataName The name of data to be signed.
+ * @param {Name} certificateName The name of signing certificate.
+ * @returns {boolean} True to indicate that the signing certificate can be used
+ * to sign the data.
+ */
+ConfigPolicyManager.prototype.checkSigningPolicy = function
+  (dataName, certificateName)
+{
+  return true;
+};
+
+/**
+ * Check if the received signed interest can escape from verification and be
+ * trusted as valid. If the configuration file contains the trust anchor
+ * 'any', nothing is verified.
+ *
+ * @param {Data|Interest} dataOrInterest The received data packet or interest.
+ * @returns {boolean} true if the data or interest does not need to be verified
+ * to be trusted as valid, otherwise false.
+ */
+ConfigPolicyManager.prototype.skipVerifyAndTrust = function(dataOrInterest)
+{
+  return !this.requiresVerification;
+};
+
+/**
+ * Check whether the received data packet or interest complies with the
+ * verification policy, and get the indication of the next verification step.
+ *
+ * @param {Data|Interest} dataOrInterest The Data object or interest with the
+ * signature to check.
+ * @param {number} stepCount The number of verification steps that have been
+ * done, used to track the verification progress.
+ * @param {function} onVerified If the signature is verified, this calls
+ * onVerified(dataOrInterest).
+ * @param {function} onVerifyFailed If the signature check fails, this calls
+ * onVerifyFailed(dataOrInterest).
+ * @param {WireFormat} wireFormat
+ * @returns {ValidationRequest} The indication of next verification step, or
+ * null if there is no further step.
+ */
+ConfigPolicyManager.prototype.checkVerificationPolicy = function
+  (dataOrInterest, stepCount, onVerified, onVerifyFailed, wireFormat)
+{
+  if (stepCount > this.maxDepth) {
+    onVerifyFailed(dataOrInterest);
+    return null;
+  }
+
+  var signature = ConfigPolicyManager.extractSignature(dataOrInterest, wireFormat);
+  // No signature -> fail.
+  if (signature == null) {
+    onVerifyFailed(dataOrInterest);
+    return null;
+  }
+
+  if (!KeyLocator.canGetFromSignature(signature)) {
+    // We only support signature types with key locators.
+    onVerifyFailed(dataOrInterest);
+    return null;
+  }
+
+  var keyLocator = null;
+  try {
+    keyLocator = KeyLocator.getFromSignature(signature);
+  }
+  catch (ex) {
+    // No key locator -> fail.
+    onVerifyFailed(dataOrInterest);
+    return null;
+  }
+
+  var signatureName = keyLocator.getKeyName();
+  // No key name in KeyLocator -> fail.
+  if (signatureName.size() == 0) {
+    onVerifyFailed(dataOrInterest);
+    return null;
+  }
+
+  var objectName = dataOrInterest.getName();
+  var matchType = "data";
+
+  // For command interests, we need to ignore the last 4 components when
+  // matching the name.
+  if (dataOrInterest instanceof Interest) {
+    objectName = objectName.getPrefix(-4);
+    matchType = "interest";
+  }
+
+  // First see if we can find a rule to match this packet.
+  var matchedRule = this.findMatchingRule(objectName, matchType);
+
+  // No matching rule -> fail.
+  if (matchedRule == null) {
+    onVerifyFailed(dataOrInterest);
+    return null;
+  }
+
+  var signatureMatches = this.checkSignatureMatch
+    (signatureName, objectName, matchedRule);
+  if (!signatureMatches) {
+    onVerifyFailed(dataOrInterest);
+    return null;
+  }
+
+  // Before we look up keys, refresh any certificate directories.
+  this.refreshManager.refreshAnchors();
+
+  // Now finally check that the data or interest was signed correctly.
+  // If we don't actually have the certificate yet, create a
+  // ValidationRequest for it.
+  var foundCert = this.refreshManager.getCertificate(signatureName);
+  if (foundCert == null)
+    foundCert = this.certificateCache.getCertificate(signatureName);
+  var thisManager = this;
+  if (foundCert == null) {
+    var certificateInterest = new Interest(signatureName);
+    var onCertificateDownloadComplete = function(data) {
+      var certificate = new IdentityCertificate(data);
+      thisManager.certificateCache.insertCertificate(certificate);
+      thisManager.checkVerificationPolicy
+        (dataOrInterest, stepCount + 1, onVerified, onVerifyFailed);
+    };
+
+    var nextStep = new ValidationRequest
+      (certificateInterest, onCertificateDownloadComplete, onVerifyFailed,
+       2, stepCount + 1);
+
+    return nextStep;
+  }
+
+  // For interests, we must check that the timestamp is fresh enough.
+  // We do this after (possibly) downloading the certificate to avoid
+  // filling the cache with bad keys.
+  if (dataOrInterest instanceof Interest) {
+    var keyName = foundCert.getPublicKeyName();
+    var timestamp = dataOrInterest.getName().get(-4).toNumber();
+
+    if (!this.interestTimestampIsFresh(keyName, timestamp)) {
+      onVerifyFailed(dataOrInterest);
+      return null;
+    }
+  }
+
+  // Certificate is known, so verify the signature.
+  this.verify(signature, dataOrInterest.wireEncode(), function (verified) {
+    if (verified) {
+      onVerified(dataOrInterest);
+      if (dataOrInterest instanceof Interest)
+        thisManager.updateTimestampForKey(keyName, timestamp);
+    }
+    else
+      onVerifyFailed(dataOrInterest);
+  });
+};
+
+/**
+ * The configuration file allows 'trust anchor' certificates to be preloaded.
+ * The certificates may also be loaded from a directory, and if the 'refresh'
+ * option is set to an interval, the certificates are reloaded at the specified
+ * interval.
+ */
+ConfigPolicyManager.prototype.loadTrustAnchorCertificates = function()
+{
+  var anchors = this.config.getRoot().get("validator/trust-anchor");
+
+  for (var i = 0; i < anchors.length; ++i) {
+    var anchor = anchors[i];
+
+    var typeName = anchor.get("type")[0].getValue();
+    var isPath = false;
+    var certID;
+    if (typeName == 'file') {
+      certID = anchor.get("file-name")[0].getValue();
+      isPath = true;
+    }
+    else if (typeName == 'base64') {
+      certID = anchor.get("base64-string")[0].getValue();
+      isPath = false;
+    }
+    else if (typeName == "dir") {
+      var dirName = anchor.get("dir")[0].getValue();
+
+      var refreshPeriod = 0;
+      var refreshTrees = anchor.get("refresh");
+      if (refreshTrees.length >= 1) {
+        var refreshPeriodStr = refreshTrees[0].getValue();
+
+        var refreshMatch = refreshPeriodStr.match(/(\d+)([hms])/);
+        if (refreshMatch == null)
+          refreshPeriod = 0;
+        else {
+          refreshPeriod = parseInt(refreshMatch[1]);
+          if (refreshMatch[2] != 's') {
+            refreshPeriod *= 60;
+            if (refreshMatch[2] != 'm')
+              refreshPeriod *= 60;
+          }
+        }
+      }
+
+      // Convert refreshPeriod from seconds to milliseconds.
+      this.refreshManager.addDirectory(dirName, refreshPeriod * 1000);
+      continue;
+    }
+    else if (typeName == "any") {
+      // This disables all security!
+      this.requiresVerification = false;
+      break;
+    }
+
+    this.lookupCertificate(certID, isPath);
+  }
+};
+
+/**
+ * Once a rule is found to match data or a signed interest, the name in the
+ * KeyLocator must satisfy the condition in the 'checker' section of the rule,
+ * else the data or interest is rejected.
+ * @param {Name} signatureName The certificate name from the KeyLocator.
+ * @param {Name} objectName The name of the data packet or interest. In the case
+ * of signed interests, this excludes the timestamp, nonce and signature
+ * components.
+ * @param {BoostInfoTree} rule The rule from the configuration file that matches
+ * the data or interest.
+ * @returns {boolean} True if matches.
+ */
+ConfigPolicyManager.prototype.checkSignatureMatch = function
+  (signatureName, objectName, rule)
+{
+  var checker = rule.get("checker")[0];
+  var checkerType = checker.get("type")[0].getValue();
+  if (checkerType == "fixed-signer") {
+    var signerInfo = checker.get("signer")[0];
+    var signerType = signerInfo.get("type")[0].getValue();
+
+    var cert;
+    if (signerType == "file")
+      cert = this.lookupCertificate
+        (signerInfo.get("file-name")[0].getValue(), true);
+    else if (signerType == "base64")
+      cert = this.lookupCertificate
+        (signerInfo.get("base64-string")[0].getValue(), false);
+    else
+      return false;
+
+    if (cert == null)
+      return false;
+    else
+      return cert.getName().equals(signatureName);
+  }
+  else if (checkerType == "hierarchical") {
+    // This just means the data/interest name has the signing identity as a prefix.
+    // That means everything before "ksk-?" in the key name.
+    var identityRegex = "^([^<KEY>]*)<KEY>(<>*)<ksk-.+><ID-CERT>";
+    var identityMatch = NdnRegexMatcher.match(identityRegex, signatureName);
+    if (identityMatch != null) {
+      var identityPrefix = new Name(identityMatch[1]).append
+        (new Name(identityMatch[2]));
+      return ConfigPolicyManager.matchesRelation(objectName, identityPrefix, "is-prefix-of");
+    }
+    else
+      return false;
+  }
+  else if (checkerType == "customized") {
+    var keyLocatorInfo = checker.get("key-locator")[0];
+    // Not checking type - only name is supported.
+
+    // Is this a simple relation?
+    var relationType = keyLocatorInfo.getFirstValue("relation");
+    if (relationType != null) {
+      var matchName = new Name(keyLocatorInfo.get("name")[0].getValue());
+      return ConfigPolicyManager.matchesRelation(signatureName, matchName, relationType);
+    }
+
+    // Is this a simple regex?
+    var keyRegex = keyLocatorInfo.getFirstValue("regex");
+    if (keyRegex != null)
+      return NdnRegexMatcher.match(keyRegex, signatureName) != null;
+
+    // Is this a hyper-relation?
+    var hyperRelationList = keyLocatorInfo.get("hyper-relation");
+    if (hyperRelationList.length >= 1) {
+      var hyperRelation = hyperRelationList[0];
+
+      var keyRegex = hyperRelation.getFirstValue("k-regex");
+      var keyExpansion = hyperRelation.getFirstValue("k-expand");
+      var nameRegex = hyperRelation.getFirstValue("p-regex");
+      var nameExpansion = hyperRelation.getFirstValue("p-expand");
+      var relationType = hyperRelation.getFirstValue("h-relation");
+      if (keyRegex != null && keyExpansion != null && nameRegex != null &&
+          nameExpansion != null && relationType != null) {
+        var keyMatch = NdnRegexMatcher.match(keyRegex, signatureName);
+        if (keyMatch == null || keyMatch[1] === undefined)
+          return false;
+        var keyMatchPrefix = ConfigPolicyManager.expand(keyMatch, keyExpansion);
+
+        var nameMatch = NdnRegexMatcher.match(nameRegex, objectName);
+        if (nameMatch == null || nameMatch[1] === undefined)
+          return false;
+        var nameMatchStr = ConfigPolicyManager.expand(nameMatch, nameExpansion);
+
+        return ConfigPolicyManager.matchesRelation
+          (new Name(nameMatchStr), new Name(keyMatchPrefix), relationType);
+      }
+    }
+  }
+
+  // unknown type
+  return false;
+};
+
+/**
+ * Similar to Python expand, return expansion where every \1, \2, etc. is
+ * replaced by match[1], match[2], etc.  Note: Even though this is a general
+ * utility function, we define it locally because it is only tested to work in
+ * the cases used by this class.
+ * @param {Object} match The match object from String.match.
+ * @param {string} expansion The string with \1, \2, etc. to replace from match.
+ * @returns {string} The expanded string.
+ */
+ConfigPolicyManager.expand = function(match, expansion)
+{
+  return expansion.replace
+    (/\\(\d)/g,
+     function(fullMatch, n) { return match[parseInt(n)];})
+};
+
+/**
+ * This looks up certificates specified as base64-encoded data or file names.
+ * These are cached by filename or encoding to avoid repeated reading of files
+ * or decoding.
+ * @param {string} certID
+ * @param {boolean} isPath
+ * @returns {IdentityCertificate}
+ */
+ConfigPolicyManager.prototype.lookupCertificate = function(certID, isPath)
+{
+  var cert;
+
+  var cachedCertUri = this.fixedCertificateCache[certID];
+  if (cachedCertUri === undefined) {
+    if (isPath)
+      // load the certificate data (base64 encoded IdentityCertificate)
+      cert = ConfigPolicyManager.TrustAnchorRefreshManager.loadIdentityCertificateFromFile
+        (certID);
+    else {
+      var certData = new Buffer(certID, 'base64');
+      cert = new IdentityCertificate();
+      cert.wireDecode(certData);
+    }
+
+    var certUri = cert.getName().getPrefix(-1).toUri();
+    this.fixedCertificateCache[certID] = certUri;
+    this.certificateCache.insertCertificate(cert);
+  }
+  else
+    cert = this.certificateCache.getCertificate(new Name(cachedCertUri));
+
+  return cert;
+};
+
+/**
+ * Search the configuration file for the first rule that matches the data or
+ * signed interest name. In the case of interests, the name to match should
+ * exclude the timestamp, nonce, and signature components.
+ * @param {Name} objName The name to be matched.
+ * @param {string} matchType The rule type to match, "data" or "interest".
+ * @returns {BoostInfoTree} The matching rule, or null if not found.
+ */
+ConfigPolicyManager.prototype.findMatchingRule = function(objName, matchType)
+{
+  var rules = this.config.getRoot().get("validator/rule");
+  for (var iRule = 0; iRule < rules.length; ++iRule) {
+    var r = rules[iRule];
+
+    if (r.get('for')[0].getValue() == matchType) {
+      var passed = true;
+      var filters = r.get('filter');
+      if (filters.length == 0)
+        // No filters means we pass!
+        return r;
+      else {
+        for (var iFilter = 0; iFilter < filters.length; ++iFilter) {
+          var f = filters[iFilter];
+
+          // Don't check the type - it can only be name for now.
+          // We need to see if this is a regex or a relation.
+          var regexPattern = f.getFirstValue("regex");
+          if (regexPattern === null) {
+            var matchRelation = f.get('relation')[0].getValue();
+            var matchUri = f.get('name')[0].getValue();
+            var matchName = new Name(matchUri);
+            passed = ConfigPolicyManager.matchesRelation(objName, matchName, matchRelation);
+          }
+          else
+            passed = (NdnRegexMatcher.match(regexPattern, objName) !== null);
+
+          if (!passed)
+            break;
+        }
+
+        if (passed)
+          return r;
+      }
+    }
+  }
+
+  return null;
+};
+
+/**
+ * Determines if a name satisfies the relation to matchName.
+ * @param {Name} name
+ * @param {Name} matchName
+ * @param {string} matchRelation Can be one of:
+ *   'is-prefix-of' - passes if the name is equal to or has the other
+ *      name as a prefix
+ *   'is-strict-prefix-of' - passes if the name has the other name as a
+ *      prefix, and is not equal
+ *   'equal' - passes if the two names are equal
+ * @returns {boolean}
+ */
+ConfigPolicyManager.matchesRelation = function(name, matchName, matchRelation)
+{
+  var passed = false;
+  if (matchRelation == 'is-strict-prefix-of') {
+    if (matchName.size() == name.size())
+      passed = false;
+    else if (matchName.match(name))
+      passed = true;
+  }
+  else if (matchRelation == 'is-prefix-of') {
+    if (matchName.match(name))
+      passed = true;
+  }
+  else if (matchRelation == 'equal') {
+    if (matchName.equals(name))
+      passed = true;
+  }
+  return passed;
+};
+
+/**
+ * Extract the signature information from the interest name or from the data
+ * packet or interest.
+ * @param {Data|Interest} dataOrInterest The object whose signature is needed.
+ * @param {WireFormat} wireFormat (optional) The wire format used to decode
+ * signature information from the interest name.
+ * @returns {Signature} The object of a sublcass of Signature or null if can't
+ * decode.
+ */
+ConfigPolicyManager.extractSignature = function(dataOrInterest, wireFormat)
+{
+  if (dataOrInterest instanceof Data)
+    return dataOrInterest.getSignature();
+  else if (dataOrInterest instanceof Interest) {
+    wireFormat = (wireFormat || WireFormat.getDefaultWireFormat());
+    try {
+      var signature = wireFormat.decodeSignatureInfoAndValue
+        (dataOrInterest.getName().get(-2).getValue().buf(),
+         dataOrInterest.getName().get(-1).getValue().buf());
+    }
+    catch (e) {
+      return null;
+    }
+
+    return signature;
+  }
+
+  return null;
+};
+
+/**
+ * Determine whether the timestamp from the interest is newer than the last use
+ * of this key, or within the grace interval on first use.
+ * @param {Name} keyName The name of the public key used to sign the interest.
+ * @param {number} timestamp The timestamp extracted from the interest name.
+ * @returns {boolean} True if timestamp is fresh as described above.
+ */
+ConfigPolicyManager.prototype.interestTimestampIsFresh = function
+  (keyName, timestamp)
+{
+  var lastTimestamp = this.keyTimestamps[keyName.toUri()];
+  if (lastTimestamp == undefined) {
+    var now = new Date().getTime();
+    var notBefore = now - this.keyGraceInterval;
+    var notAfter = now + this.keyGraceInterval;
+    return timestamp > notBefore && timestamp < notAfter;
+  }
+  else
+    return timestamp > lastTimestamp;
+};
+
+/**
+ * Trim the table size down if necessary, and insert/update the latest interest
+ * signing timestamp for the key. Any key which has not been used within the TTL
+ * period is purged. If the table is still too large, the oldest key is purged.
+ * @param {Name} keyName The name of the public key used to sign the interest.
+ * @param {number} timestamp The timestamp extracted from the interest name.
+ */
+ConfigPolicyManager.prototype.updateTimestampForKey = function
+  (keyName, timestamp)
+{
+  this.keyTimestamps[keyName.toUri()] = timestamp;
+
+  // JavaScript does have a direct way to get the number of entries, so first
+  //   get the keysToErase while counting.
+  var keyTimestampsSize = 0;
+  var keysToErase = [];
+
+  var now = new Date().getTime();
+  var oldestTimestamp = now;
+  var oldestKey = null;
+  for (var keyUri in this.keyTimestamps) {
+    ++keyTimestampsSize;
+    var ts = this.keyTimestamps[keyUri];
+    if (now - ts > this.keyTimestampTtl)
+      keysToErase.push(keyUri);
+    else if (ts < oldestTimestamp) {
+      oldestTimestamp = ts;
+      oldestKey = keyUri;
+    }
+  }
+
+  if (keyTimestampsSize >= this.maxTrackedKeys) {
+    // Now delete the expired keys.
+    for (var i = 0; i < keysToErase.length; ++i) {
+      delete this.keyTimestamps[keysToErase[i]];
+      --keyTimestampsSize;
+    }
+
+    if (keyTimestampsSize > this.maxTrackedKeys)
+      // We have not removed enough.
+      delete this.keyTimestamps[oldestKey];
+  }
+};
+
+/**
+ * Check the type of signatureInfo to get the KeyLocator. Look in the
+ * IdentityStorage for the public key with the name in the KeyLocator and use it
+ * to verify the signedBlob. If the public key can't be found, return false.
+ * (This is a generalized method which can verify both a data packet and an
+ * interest.)
+ * @param {Signature} signatureInfo An object of a subclass of Signature, e.g.
+ * Sha256WithRsaSignature.
+ * @param {SignedBlob} signedBlob The SignedBlob with the signed portion to
+ * verify.
+ * @param onComplete {function} This calls onComplete(true) if the signature
+ * verifies, otherwise onComplete(false).
+ */
+ConfigPolicyManager.prototype.verify = function
+  (signatureInfo, signedBlob, onComplete)
+{
+  // We have already checked once that there is a key locator.
+  var keyLocator = KeyLocator.getFromSignature(signatureInfo);
+
+  if (keyLocator.getType() == KeyLocatorType.KEYNAME) {
+    // Assume the key name is a certificate name.
+    var signatureName = keyLocator.getKeyName();
+    var certificate = this.refreshManager.getCertificate(signatureName);
+    if (certificate == null)
+      certificate = this.certificateCache.getCertificate(signatureName);
+    if (certificate == null)
+      return onComplete(false);
+
+    var publicKeyDer = certificate.getPublicKeyInfo().getKeyDer();
+    if (publicKeyDer.isNull())
+      // Can't find the public key with the name.
+      return onComplete(false);
+
+    return PolicyManager.verifySignature
+      (signatureInfo, signedBlob, publicKeyDer, onComplete);
+  }
+  else
+    // Can't find a key to verify.
+    return onComplete(false);
+};
+
+ConfigPolicyManager.TrustAnchorRefreshManager =
+  function ConfigPolicyManagerTrustAnchorRefreshManager()
+{
+  this.certificateCache = new CertificateCache();
+  // Maps the directory name to certificate names so they can be deleted when
+  // necessary. The key is the directory name string. The value is the object
+  //  {certificateNames,  // array of string
+  //   nextRefresh,       // number
+  //   refreshPeriod      // number
+  //  }.
+  this.refreshDirectories = {};
+};
+
+ConfigPolicyManager.TrustAnchorRefreshManager.loadIdentityCertificateFromFile =
+  function(fileName)
+{
+  var encodedData = fs.readFileSync(fileName).toString();
+  var decodedData = new Buffer(encodedData, 'base64');
+  var cert = new IdentityCertificate();
+  cert.wireDecode(new Blob(decodedData, false));
+  return cert;
+};
+
+ConfigPolicyManager.TrustAnchorRefreshManager.prototype.getCertificate = function
+  (certificateName)
+{
+  // This assumes the timestamp is already removed.
+  return this.certificateCache.getCertificate(certificateName);
+};
+
+// refreshPeriod in milliseconds.
+ConfigPolicyManager.TrustAnchorRefreshManager.prototype.addDirectory = function
+  (directoryName, refreshPeriod)
+{
+  var allFiles;
+  try {
+    allFiles = fs.readdirSync(directoryName);
+  }
+  catch (e) {
+    throw new SecurityException(new Error
+      ("Cannot list files in directory " + directoryName));
+  }
+
+  var certificateNames = [];
+  for (var i = 0; i < allFiles.length; ++i) {
+    var cert;
+    try {
+      var fullPath = path.join(directoryName, allFiles[i]);
+      cert = ConfigPolicyManager.TrustAnchorRefreshManager.loadIdentityCertificateFromFile
+        (fullPath);
+    }
+    catch (e) {
+      // Allow files that are not certificates.
+      continue;
+    }
+
+    // Cut off the timestamp so it matches the KeyLocator Name format.
+    var certUri = cert.getName().getPrefix(-1).toUri();
+    this.certificateCache.insertCertificate(cert);
+    certificateNames.push(certUri);
+  }
+
+  this.refreshDirectories[directoryName] = {
+    certificates: certificateNames,
+    nextRefresh: new Date().getTime() + refreshPeriod,
+    refreshPeriod: refreshPeriod };
+};
+
+ConfigPolicyManager.TrustAnchorRefreshManager.prototype.refreshAnchors = function()
+{
+  var refreshTime =  new Date().getTime();
+  for (var directory in this.refreshDirectories) {
+    var info = this.refreshDirectories[directory];
+    var nextRefreshTime = info.nextRefresh;
+    if (nextRefreshTime <= refreshTime) {
+      var certificateList = info.certificates.slice(0);
+      // Delete the certificates associated with this directory if possible
+      //   then re-import.
+      // IdentityStorage subclasses may not support deletion.
+      for (var c in certificateList)
+        this.certificateCache.deleteCertificate(new Name(c));
+
+      this.addDirectory(directory, info.refreshPeriod);
+    }
+  }
+};
+/**
+ * Copyright (C) 2014-2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ * From ndn-cxx security by Yingdi Yu <yingdi@cs.ucla.edu>.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+var Name = require('../../name.js').Name;
+var PolicyManager = require('./policy-manager.js').PolicyManager;
+
+/**
+ * @constructor
+ */
+var NoVerifyPolicyManager = function NoVerifyPolicyManager()
+{
+  // Call the base constructor.
+  PolicyManager.call(this);
+};
+
+NoVerifyPolicyManager.prototype = new PolicyManager();
+NoVerifyPolicyManager.prototype.name = "NoVerifyPolicyManager";
+
+exports.NoVerifyPolicyManager = NoVerifyPolicyManager;
+
+/**
+ * Override to always skip verification and trust as valid.
+ *
+ * @param {Data|Interest} dataOrInterest The received data packet or interest.
+ * @returns {boolean} True.
+ */
+NoVerifyPolicyManager.prototype.skipVerifyAndTrust = function(dataOrInterest)
+{
+  return true;
+};
+
+/**
+ * Override to return false for no verification rule for the received data or
+ * signed interest.
+ *
+ * @param {Data|Interest} dataOrInterest The received data packet or interest.
+ * @returns {boolean} False.
+ */
+NoVerifyPolicyManager.prototype.requireVerify = function(dataOrInterest)
+{
+  return false;
+};
+
+/**
+ * Override to call onVerified(data) and to indicate no further verification
+ * step.
+ *
+ * @param {Data|Interest} dataOrInterest The Data object or interest with the
+ * signature to check.
+ * @param {number} stepCount The number of verification steps that have been
+ * done, used to track the verification progress.
+ * @param {function} onVerified This does override to call
+ * onVerified(dataOrInterest).
+ * @param {function} onVerifyFailed Override to ignore this.
+ * @param {WireFormat} wireFormat
+ * @returns {ValidationRequest} null for no further step for looking up a
+ * certificate chain.
+ */
+NoVerifyPolicyManager.prototype.checkVerificationPolicy = function
+  (dataOrInterest, stepCount, onVerified, onVerifyFailed, wireFormat)
+{
+  onVerified(dataOrInterest);
+  return null;
+};
+
+/**
+ * Override to always indicate that the signing certificate name and data name
+ * satisfy the signing policy.
+ *
+ * @param {Name} dataName The name of data to be signed.
+ * @param {Name} certificateName The name of signing certificate.
+ * @returns {boolean} True to indicate that the signing certificate can be used
+ * to sign the data.
+ */
+NoVerifyPolicyManager.prototype.checkSigningPolicy = function
+  (dataName, certificateName)
+{
+  return true;
+};
+
+/**
+ * Override to indicate that the signing identity cannot be inferred.
+ *
+ * @param {Name} dataName The name of data to be signed.
+ * @returns {Name} An empty name because cannot infer.
+ */
+NoVerifyPolicyManager.prototype.inferSigningIdentity = function(dataName)
+{
+  return new Name();
+};
+/**
+ * Copyright (C) 2014-2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ * From ndn-cxx security by Yingdi Yu <yingdi@cs.ucla.edu>.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+var Name = require('../../name.js').Name;
+var Interest = require('../../interest.js').Interest;
+var Data = require('../../data.js').Data;
+var Blob = require('../../util/blob.js').Blob;
+var IdentityCertificate = require('../certificate/identity-certificate.js').IdentityCertificate;
+var KeyLocator = require('../../key-locator.js').KeyLocator;
+var KeyLocatorType = require('../../key-locator.js').KeyLocatorType;
+var SecurityException = require('../security-exception.js').SecurityException;
+var WireFormat = require('../../encoding/wire-format.js').WireFormat;
+var PolicyManager = require('./policy-manager.js').PolicyManager;
+
+/**
+ * A SelfVerifyPolicyManager implements a PolicyManager to use the public key
+ * DER in the data packet's KeyLocator (if available) or look in the
+ * IdentityStorage for the public key with the name in the KeyLocator (if
+ * available) and use it to verify the data packet, without searching a
+ * certificate chain.  If the public key can't be found, the verification fails.
+ *
+ * @param {IdentityStorage} identityStorage (optional) The IdentityStorage for
+ * looking up the public key. This object must remain valid during the life of
+ * this SelfVerifyPolicyManager. If omitted, then don't look for a public key
+ * with the name in the KeyLocator and rely on the KeyLocator having the full
+ * public key DER.
+ * @constructor
+ */
+var SelfVerifyPolicyManager = function SelfVerifyPolicyManager(identityStorage)
+{
+  // Call the base constructor.
+  PolicyManager.call(this);
+
+  this.identityStorage = identityStorage;
+};
+
+SelfVerifyPolicyManager.prototype = new PolicyManager();
+SelfVerifyPolicyManager.prototype.name = "SelfVerifyPolicyManager";
+
+exports.SelfVerifyPolicyManager = SelfVerifyPolicyManager;
+
+/**
+ * Never skip verification.
+ *
+ * @param {Data|Interest} dataOrInterest The received data packet or interest.
+ * @returns {boolean} False.
+ */
+SelfVerifyPolicyManager.prototype.skipVerifyAndTrust = function(dataOrInterest)
+{
+  return false;
+};
+
+/**
+ * Always return true to use the self-verification rule for the received data.
+ *
+ * @param {Data|Interest} dataOrInterest The received data packet or interest.
+ * @returns {boolean} True.
+ */
+SelfVerifyPolicyManager.prototype.requireVerify = function(dataOrInterest)
+{
+  return true;
+};
+
+/**
+ * Use the public key DER in the KeyLocator (if available) or look in the
+ * IdentityStorage for the public key with the name in the KeyLocator (if
+ * available) and use it to verify the data packet.  If the public key can't
+   * be found, call onVerifyFailed.
+ *
+ * @param {Data|Interest} dataOrInterest The Data object or interest with the
+ * signature to check.
+ * @param {number} stepCount The number of verification steps that have been
+ * done, used to track the verification progress.
+ * @param {function} onVerified If the signature is verified, this calls
+ * onVerified(dataOrInterest).
+ * @param {function} onVerifyFailed If the signature check fails, this calls
+ * onVerifyFailed(dataOrInterest).
+ * @param {WireFormat} wireFormat
+ * @returns {ValidationRequest} null for no further step for looking up a
+ * certificate chain.
+ */
+SelfVerifyPolicyManager.prototype.checkVerificationPolicy = function
+  (dataOrInterest, stepCount, onVerified, onVerifyFailed, wireFormat)
+{
+  wireFormat = (wireFormat || WireFormat.getDefaultWireFormat());
+
+  if (dataOrInterest instanceof Data) {
+    var data = dataOrInterest;
+    // wireEncode returns the cached encoding if available.
+    this.verify(data.getSignature(), data.wireEncode(), function(verified) {
+      if (verified) onVerified(data); else onVerifyFailed(data);
+    });
+  }
+  else if (dataOrInterest instanceof Interest) {
+    var interest = dataOrInterest;
+    // Decode the last two name components of the signed interest
+    var signature = wireFormat.decodeSignatureInfoAndValue
+      (interest.getName().get(-2).getValue().buf(),
+       interest.getName().get(-1).getValue().buf());
+
+    // wireEncode returns the cached encoding if available.
+    this.verify(signature, interest.wireEncode(), function(verified) {
+      if (verified) onVerified(interest); else onVerifyFailed(interest);
+    });
+  }
+  else
+    throw new SecurityException(new Error
+      ("checkVerificationPolicy: unrecognized type for dataOrInterest"));
+
+  // No more steps, so return a None.
+  return null;
+};
+
+/**
+ * Override to always indicate that the signing certificate name and data name
+ * satisfy the signing policy.
+ *
+ * @param {Name} dataName The name of data to be signed.
+ * @param {Name} certificateName The name of signing certificate.
+ * @returns {boolean} True to indicate that the signing certificate can be used
+ * to sign the data.
+ */
+SelfVerifyPolicyManager.prototype.checkSigningPolicy = function
+  (dataName, certificateName)
+{
+  return true;
+};
+
+/**
+ * Override to indicate that the signing identity cannot be inferred.
+ *
+ * @param {Name} dataName The name of data to be signed.
+ * @returns {Name} An empty name because cannot infer.
+ */
+SelfVerifyPolicyManager.prototype.inferSigningIdentity = function(dataName)
+{
+  return new Name();
+};
+
+/**
+ * Check the type of signatureInfo to get the KeyLocator. Use the public key
+ * DER in the KeyLocator (if available) or look in the IdentityStorage for the
+ * public key with the name in the KeyLocator (if available) and use it to
+ * verify the signedBlob. If the public key can't be found, return false.
+ * (This is a generalized method which can verify both a Data packet and an
+ * interest.)
+ * @param {Signature} signatureInfo An object of a subclass of Signature, e.g.
+ * Sha256WithRsaSignature.
+ * @param {SignedBlob} signedBlob the SignedBlob with the signed portion to
+ * verify.
+ * @param onComplete {function} This calls onComplete(true) if the signature
+ * verifies, otherwise onComplete(false).
+ */
+SelfVerifyPolicyManager.prototype.verify = function
+  (signatureInfo, signedBlob, onComplete)
+{
+  var publicKeyDer;
+  if (KeyLocator.canGetFromSignature(signatureInfo)) {
+    publicKeyDer = this.getPublicKeyDer(KeyLocator.getFromSignature
+      (signatureInfo));
+    if (publicKeyDer.isNull()) {
+      onComplete(false);
+      return;
+    }
+  }
+
+  PolicyManager.verifySignature
+    (signatureInfo, signedBlob, publicKeyDer, onComplete);
+};
+
+/**
+ * Return the public key DER in the KeyLocator (if available) or look in the
+ * IdentityStorage for the public key with the name in the KeyLocator (if
+ * available). If the public key can't be found, return and empty Blob.
+ * @param {KeyLocator} keyLocator The KeyLocator.
+ * @returns {Blob} The public key DER or an empty Blob if not found.
+ */
+SelfVerifyPolicyManager.prototype.getPublicKeyDer = function(keyLocator)
+{
+  if (keyLocator.getType() == KeyLocatorType.KEY)
+    // Use the public key DER directly.
+    return keyLocator.getKeyData();
+  else if (keyLocator.getType() == KeyLocatorType.KEYNAME &&
+           this.identityStorage != null)
+    // Assume the key name is a certificate name.
+    return this.identityStorage.getKey
+      (IdentityCertificate.certificateNameToPublicKeyName
+       (keyLocator.getKeyName()));
+  else
+    // Can't find a key to verify.
+    return new Blob();
+};
+/**
+ * Copyright (C) 2014-2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ * From ndn-cxx security by Yingdi Yu <yingdi@cs.ucla.edu>.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+var Name = require('../name.js').Name;
+var Interest = require('../interest.js').Interest;
+var Data = require('../data.js').Data;
+var KeyLocatorType = require('../key-locator.js').KeyLocatorType;
+var Sha256WithRsaSignature = require('../sha256-with-rsa-signature.js').Sha256WithRsaSignature;
+var WireFormat = require('../encoding/wire-format.js').WireFormat;
+var Tlv = require('../encoding/tlv/tlv.js').Tlv;
+var TlvEncoder = require('../encoding/tlv/tlv-encoder.js').TlvEncoder;
+var SecurityException = require('./security-exception.js').SecurityException;
+var RsaKeyParams = require('./key-params.js').RsaKeyParams;
+var IdentityCertificate = require('./certificate/identity-certificate.js').IdentityCertificate;
+
+/**
+ * A KeyChain provides a set of interfaces to the security library such as
+ * identity management, policy configuration and packet signing and verification.
+ * Note: This class is an experimental feature. See the API docs for more detail at
+ * http://named-data.net/doc/ndn-ccl-api/key-chain.html .
+ *
+ * Create a new KeyChain with the given IdentityManager and PolicyManager.
+ * @param {IdentityManager} identityManager An object of a subclass of
+ * IdentityManager.
+ * @param {PolicyManager} policyManager An object of a subclass of
+ * PolicyManager.
+ * @constructor
+ */
+var KeyChain = function KeyChain(identityManager, policyManager)
+{
+  this.identityManager = identityManager;
+  this.policyManager = policyManager;
+  this.face = null;
+  this.maxSteps = 100;
+};
+
+exports.KeyChain = KeyChain;
+
+/*****************************************
+ *          Identity Management          *
+ *****************************************/
+
+/**
+ * Create an identity by creating a pair of Key-Signing-Key (KSK) for this
+ * identity and a self-signed certificate of the KSK. If a key pair or
+ * certificate for the identity already exists, use it.
+ * @param {Name} identityName The name of the identity.
+ * @param {KeyParams} params (optional) The key parameters if a key needs to be
+ * generated for the identity. If omitted, use KeyChain.DEFAULT_KEY_PARAMS.
+ * @returns {Name} The name of the default certificate of the identity.
+ */
+KeyChain.prototype.createIdentityAndCertificate = function(identityName, params)
+{
+  if (params == undefined)
+    params = KeyChain.DEFAULT_KEY_PARAMS;
+  return this.identityManager.createIdentityAndCertificate(identityName, params);
+};
+
+/**
+ * Create an identity by creating a pair of Key-Signing-Key (KSK) for this
+ * identity and a self-signed certificate of the KSK. If a key pair or
+ * certificate for the identity already exists, use it.
+ * @deprecated Use createIdentityAndCertificate which returns the
+ * certificate name instead of the key name. You can use
+ * IdentityCertificate.certificateNameToPublicKeyName to convert the
+ * certificate name to the key name.
+ * @param {Name} identityName The name of the identity.
+ * @param {KeyParams} params (optional) The key parameters if a key needs to be
+ * generated for the identity. If omitted, use KeyChain.DEFAULT_KEY_PARAMS.
+ * @returns {Name} The key name of the auto-generated KSK of the identity.
+ */
+KeyChain.prototype.createIdentity = function(identityName, params)
+{
+  return IdentityCertificate.certificateNameToPublicKeyName
+    (this.createIdentityAndCertificate(identityName, params));
+};
+
+/**
+ * Delete the identity from the public and private key storage. If the
+ * identity to be deleted is the current default system default, this will not
+ * delete the identity and will return immediately.
+ * @param identityName {Name} The name of the identity.
+ */
+KeyChain.prototype.deleteIdentity = function(identityName)
+{
+  this.identityManager.deleteIdentity(identityName);
+};
+
+/**
+ * Get the default identity.
+ * @returns {Name} The name of default identity.
+ * @throws SecurityException if the default identity is not set.
+ */
+KeyChain.prototype.getDefaultIdentity = function()
+{
+  return this.identityManager.getDefaultIdentity();
+};
+
+/**
+ * Get the default certificate name of the default identity.
+ * @returns {Name} The requested certificate name.
+ * @throws SecurityException if the default identity is not set or the default
+ * key name for the identity is not set or the default certificate name for
+ * the key name is not set.
+ */
+KeyChain.prototype.getDefaultCertificateName = function()
+{
+  return this.identityManager.getDefaultCertificateName();
+};
+
+/**
+ * Generate a pair of RSA keys for the specified identity.
+ * @param {Name} identityName The name of the identity.
+ * @param {boolean} isKsk (optional) true for generating a Key-Signing-Key (KSK),
+ * false for a Data-Signing-Key (DSK). If omitted, generate a Data-Signing-Key.
+ * @param {number} keySize (optional) The size of the key. If omitted, use a
+ * default secure key size.
+ * @returns {Name} The generated key name.
+ */
+KeyChain.prototype.generateRSAKeyPair = function(identityName, isKsk, keySize)
+{
+  return this.identityManager.generateRSAKeyPair(identityName, isKsk, keySize);
+};
+
+/**
+ * Set a key as the default key of an identity.
+ * @param {Name} keyName The name of the key.
+ * @param {Name} identityName (optional) the name of the identity. If not
+ * specified, the identity name is inferred from the keyName.
+ */
+KeyChain.prototype.setDefaultKeyForIdentity = function(keyName, identityName)
+{
+  if (identityName == null)
+    identityName = new Name();
+  return this.identityManager.setDefaultKeyForIdentity(keyName, identityName);
+};
+
+/**
+ * Generate a pair of RSA keys for the specified identity and set it as default
+ * key for the identity.
+ * @param {Name} identityName The name of the identity.
+ * @param {boolean} isKsk (optional) true for generating a Key-Signing-Key (KSK),
+ * false for a Data-Signing-Key (DSK). If omitted, generate a Data-Signing-Key.
+ * @param {number} keySize (optional) The size of the key. If omitted, use a
+ * default secure key size.
+ * @returns {Name} The generated key name.
+ */
+KeyChain.prototype.generateRSAKeyPairAsDefault = function
+  (identityName, isKsk, keySize)
+{
+  return this.identityManager.generateRSAKeyPairAsDefault
+    (identityName, isKsk, keySize);
+};
+
+/**
+ * Create a public key signing request.
+ * @param {Name} keyName The name of the key.
+ * @returns {Blob} The signing request data.
+ */
+KeyChain.prototype.createSigningRequest = function(keyName)
+{
+  return this.identityManager.getPublicKey(keyName).getKeyDer();
+};
+
+/**
+ * Install an identity certificate into the public key identity storage.
+ * @param {IdentityCertificate} certificate The certificate to to added.
+ */
+KeyChain.prototype.installIdentityCertificate = function(certificate)
+{
+  this.identityManager.addCertificate(certificate);
+};
+
+/**
+ * Set the certificate as the default for its corresponding key.
+ * @param {IdentityCertificate} certificate The certificate.
+ */
+KeyChain.prototype.setDefaultCertificateForKey = function(certificate)
+{
+  this.identityManager.setDefaultCertificateForKey(certificate);
+};
+
+/**
+ * Get a certificate with the specified name.
+ * @param {Name} certificateName The name of the requested certificate.
+ * @returns {IdentityCertificate} The requested certificate which is valid.
+ */
+KeyChain.prototype.getCertificate = function(certificateName)
+{
+  return this.identityManager.getCertificate(certificateName);
+};
+
+/**
+ * Get a certificate even if the certificate is not valid anymore.
+ * @param {Name} certificateName The name of the requested certificate.
+ * @returns {IdentityCertificate} The requested certificate.
+ */
+KeyChain.prototype.getAnyCertificate = function(certificateName)
+{
+  return this.identityManager.getAnyCertificate(certificateName);
+};
+
+/**
+ * Get an identity certificate with the specified name.
+ * @param {Name} certificateName The name of the requested certificate.
+ * @returns {IdentityCertificate} The requested certificate which is valid.
+ */
+KeyChain.prototype.getIdentityCertificate = function(certificateName)
+{
+  return this.identityManager.getCertificate(certificateName);
+};
+
+/**
+ * Get an identity certificate even if the certificate is not valid anymore.
+ * @param {Name} certificateName The name of the requested certificate.
+ * @returns {IdentityCertificate} The requested certificate.
+ */
+KeyChain.prototype.getAnyIdentityCertificate = function(certificateName)
+{
+  return this.identityManager.getAnyCertificate(certificateName);
+};
+
+/**
+ * Revoke a key.
+ * @param {Name} keyName The name of the key that will be revoked.
+ */
+KeyChain.prototype.revokeKey = function(keyName)
+{
+  //TODO: Implement
+};
+
+/**
+ * Revoke a certificate.
+ * @param {Name} certificateName The name of the certificate that will be
+ * revoked.
+ */
+KeyChain.prototype.revokeCertificate = function(certificateName)
+{
+  //TODO: Implement
+};
+
+/**
+ * Get the identity manager given to or created by the constructor.
+ * @returns {IdentityManager} The identity manager.
+ */
+KeyChain.prototype.getIdentityManager = function()
+{
+  return this.identityManager;
+};
+
+/*****************************************
+ *           Policy Management           *
+ *****************************************/
+
+/**
+ * Get the policy manager given to or created by the constructor.
+ * @returns {PolicyManager} The policy manager.
+ */
+KeyChain.prototype.getPolicyManager = function()
+{
+  return this.policyManager;
+};
+
+/*****************************************
+ *              Sign/Verify              *
+ *****************************************/
+
+/**
+ * Sign the target. If it is a Data or Interest object, set its signature. If it
+ * is an array, produce a Signature object.
+ * @param {Data|Interest|Buffer} target If this is a Data object, wire encode for
+ * signing, update its signature and key locator field and wireEncoding. If this
+ * is an Interest object, wire encode for signing, append a SignatureInfo to the
+ * Interest name, sign the name components and append a final name component
+ * with the signature bits. If it is an array, sign it and produce a Signature
+ * object.
+ * @param {Name} certificateName The certificate name of the key to use for
+ * signing.
+ * @param {WireFormat} wireFormat (optional) A WireFormat object used to encode
+ * the input. If omitted, use WireFormat getDefaultWireFormat().
+ * @param {function} onComplete (optional) If target is a Data object, this calls
+ * onComplete(data) with the supplied Data object which has been modified to set
+ * its signature. If target is an Interest object, this calls
+ * onComplete(interest) with the supplied Interest object which has been
+ * modified to set its signature. If target is a Buffer, this calls
+ * onComplete(signature) where signature is the produced Signature object. If
+ * omitted, the return value is described below. (Some crypto libraries only use
+ * a callback, so onComplete is required to use these.)
+ * @returns {Signature} If onComplete is omitted, return the generated Signature
+ * object (if target is a Buffer) or null (if target is Data or Interest).
+ * Otherwise, if onComplete is supplied then return null and use onComplete as
+ * described above.
+ */
+KeyChain.prototype.sign = function(target, certificateName, wireFormat, onComplete)
+{
+  if (target instanceof Interest)
+    return this.identityManager.signInterestByCertificate
+      (target, certificateName, wireFormat, onComplete);
+  else if (target instanceof Data)
+    return this.identityManager.signByCertificate
+      (target, certificateName, wireFormat, onComplete);
+  else
+    return this.identityManager.signByCertificate
+      (target, certificateName, onComplete);
+};
+
+/**
+ * Sign the target. If it is a Data object, set its signature. If it is an
+ * array, produce a signature object.
+ * @param {Data|Buffer} target If this is a Data object, wire encode for
+ * signing, update its signature and key locator field and wireEncoding. If it
+ * is an array, sign it and return a Signature object.
+ * @param identityName (optional) The identity name for the key to use for
+ * signing.  If omitted, infer the signing identity from the data packet name.
+ * @param wireFormat (optional) A WireFormat object used to encode the input. If
+ * omitted, use WireFormat getDefaultWireFormat().
+ * @param {function} onComplete (optional) If target is a Data object, this calls
+ * onComplete(data) with the supplied Data object which has been modified to set
+ * its signature. If target is a Buffer, this calls
+ * onComplete(signature) where signature is the produced Signature object. If
+ * omitted, the return value is described below. (Some crypto libraries only use
+ * a callback, so onComplete is required to use these.)
+ * @returns {Signature} If onComplete is omitted, return the generated Signature
+ * object (if target is a Buffer) or null (if target is Data).
+ * Otherwise, if onComplete is supplied then return null and use onComplete as
+ * described above.
+ */
+KeyChain.prototype.signByIdentity = function
+  (target, identityName, wireFormat, onComplete)
+{
+  if (identityName == null)
+    identityName = new Name();
+
+  if (target instanceof Data) {
+    var data = target;
+    var signingCertificateName;
+    if (identityName.size() == 0) {
+      var inferredIdentity = this.policyManager.inferSigningIdentity
+        (data.getName());
+      if (inferredIdentity.size() == 0)
+        signingCertificateName = this.identityManager.getDefaultCertificateName();
+      else
+        signingCertificateName =
+          this.identityManager.getDefaultCertificateNameForIdentity
+            (inferredIdentity);
+    }
+    else
+      signingCertificateName =
+        this.identityManager.getDefaultCertificateNameForIdentity(identityName);
+
+    if (signingCertificateName.size() == 0)
+      throw new SecurityException(new Error
+        ("No qualified certificate name found!"));
+
+    if (!this.policyManager.checkSigningPolicy
+         (data.getName(), signingCertificateName))
+      throw new SecurityException(new Error
+        ("Signing Cert name does not comply with signing policy"));
+
+    return this.identityManager.signByCertificate
+      (data, signingCertificateName, wireFormat, onComplete);
+  }
+  else {
+    var array = target;
+    var signingCertificateName =
+      this.identityManager.getDefaultCertificateNameForIdentity(identityName);
+
+    if (signingCertificateName.size() == 0)
+      throw new SecurityException(new Error
+        ("No qualified certificate name found!"));
+
+    return this.identityManager.signByCertificate
+      (array, signingCertificateName, onComplete);
+  }
+};
+
+/**
+ * Sign the target using DigestSha256.
+ * @param {Data|Interest} target If this is a Data object, wire encode for
+ * signing, digest it and set its SignatureInfo to a DigestSha256, updating its
+ * signature and wireEncoding. If this is an Interest object, wire encode for
+ * signing, append a SignatureInfo for DigestSha256 to the Interest name, digest
+ * the name components and append a final name component with the signature bits.
+ * @param {WireFormat} wireFormat (optional) A WireFormat object used to encode
+ * the input. If omitted, use WireFormat getDefaultWireFormat().
+ */
+KeyChain.prototype.signWithSha256 = function(target, wireFormat)
+{
+  if (target instanceof Interest)
+    this.identityManager.signInterestWithSha256(target, wireFormat);
+  else
+    this.identityManager.signWithSha256(target, wireFormat);
+};
+
+/**
+ * Check the signature on the Data object and call either onVerify or
+ * onVerifyFailed. We use callback functions because verify may fetch
+ * information to check the signature.
+ * @param {Data} data The Data object with the signature to check.
+ * @param {function} onVerified If the signature is verified, this calls
+ * onVerified(data).
+ * @param {function} onVerifyFailed If the signature check fails, this calls
+ * onVerifyFailed(data).
+ * @param {number} stepCount
+ */
+KeyChain.prototype.verifyData = function
+  (data, onVerified, onVerifyFailed, stepCount)
+{
+  if (this.policyManager.requireVerify(data)) {
+    var nextStep = this.policyManager.checkVerificationPolicy
+      (data, stepCount, onVerified, onVerifyFailed);
+    if (nextStep != null) {
+      var thisKeyChain = this;
+      this.face.expressInterest
+        (nextStep.interest,
+         function(callbackInterest, callbackData) {
+           thisKeyChain.onCertificateData(callbackInterest, callbackData, nextStep);
+         },
+         function(callbackInterest) {
+           thisKeyChain.onCertificateInterestTimeout
+             (callbackInterest, nextStep.retry, onVerifyFailed, data, nextStep);
+         });
+    }
+  }
+  else if (this.policyManager.skipVerifyAndTrust(data))
+    onVerified(data);
+  else
+    onVerifyFailed(data);
+};
+
+/**
+ * Check the signature on the signed interest and call either onVerify or
+ * onVerifyFailed. We use callback functions because verify may fetch
+ * information to check the signature.
+ * @param {Interest} interest The interest with the signature to check.
+ * @param {function} onVerified If the signature is verified, this calls
+ * onVerified(interest).
+ * @param {function} onVerifyFailed If the signature check fails, this calls
+ * onVerifyFailed(interest).
+ */
+KeyChain.prototype.verifyInterest = function
+  (interest, onVerified, onVerifyFailed, stepCount, wireFormat)
+{
+  wireFormat = (wireFormat || WireFormat.getDefaultWireFormat());
+
+  if (this.policyManager.requireVerify(interest)) {
+    var nextStep = this.policyManager.checkVerificationPolicy
+      (interest, stepCount, onVerified, onVerifyFailed, wireFormat);
+    if (nextStep != null) {
+      var thisKeyChain = this;
+      this.face.expressInterest
+        (nextStep.interest,
+         function(callbackInterest, callbackData) {
+           thisKeyChain.onCertificateData(callbackInterest, callbackData, nextStep);
+         },
+         function(callbackInterest) {
+           thisKeyChain.onCertificateInterestTimeout
+             (callbackInterest, nextStep.retry, onVerifyFailed, data, nextStep);
+         });
+    }
+  }
+  else if (this.policyManager.skipVerifyAndTrust(interest))
+    onVerified(interest);
+  else
+    onVerifyFailed(interest);
+};
+
+/**
+ * Set the Face which will be used to fetch required certificates.
+ * @param {Face} face A pointer to the Face object.
+ */
+KeyChain.prototype.setFace = function(face)
+{
+  this.face = face;
+};
+
+KeyChain.DEFAULT_KEY_PARAMS = new RsaKeyParams();
+
+KeyChain.prototype.onCertificateData = function(interest, data, nextStep)
+{
+  // Try to verify the certificate (data) according to the parameters in nextStep.
+  this.verifyData
+    (data, nextStep.onVerified, nextStep.onVerifyFailed, nextStep.stepCount);
+};
+
+KeyChain.prototype.onCertificateInterestTimeout = function
+  (interest, retry, onVerifyFailed, originalDataOrInterest, nextStep)
+{
+  if (retry > 0) {
+    // Issue the same expressInterest as in verifyData except decrement retry.
+    var thisKeyChain = this;
+    this.face.expressInterest
+      (interest,
+       function(callbackInterest, callbackData) {
+         thisKeyChain.onCertificateData(callbackInterest, callbackData, nextStep);
+       },
+       function(callbackInterest) {
+         thisKeyChain.onCertificateInterestTimeout
+           (callbackInterest, retry - 1, onVerifyFailed, originalDataOrInterest, nextStep);
+       });
+  }
+  else
+    onVerifyFailed(originalDataOrInterest);
+};
+/**
  * This class represents an Interest Exclude.
- * Copyright (C) 2014 Regents of the University of California.
+ * Copyright (C) 2014-2015 Regents of the University of California.
  * @author: Meki Cheraoui
  * @author: Jeff Thompson <jefft0@remap.ucla.edu>
  *
@@ -11703,11 +20390,11 @@ exports.ContentObject = ContentObject;
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 var Name = require('./name.js').Name;
@@ -11715,6 +20402,7 @@ var NDNProtocolDTags = require('./util/ndn-protoco-id-tags.js').NDNProtocolDTags
 var BinaryXMLEncoder = require('./encoding/binary-xml-encoder.js').BinaryXMLEncoder;
 var BinaryXMLDecoder = require('./encoding/binary-xml-decoder.js').BinaryXMLDecoder;
 var DataUtils = require('./encoding/data-utils.js').DataUtils;
+var Blob = require('./util/blob.js').Blob;
 
 /**
  * Create a new Exclude.
@@ -11729,6 +20417,8 @@ var Exclude = function Exclude(values)
     // Copy the exclude.
     this.values = values.values.slice(0);
   else if (values) {
+    // Set the changeCount now since append expects it.
+    this.changeCount = 0;
     for (var i = 0; i < values.length; ++i) {
       if (values[i] == Exclude.ANY)
         this.appendAny();
@@ -11736,6 +20426,8 @@ var Exclude = function Exclude(values)
         this.appendComponent(values[i]);
     }
   }
+
+  this.changeCount = 0;
 };
 
 exports.Exclude = Exclude;
@@ -11762,6 +20454,7 @@ Exclude.prototype.get = function(i) { return this.values[i]; };
 Exclude.prototype.appendAny = function()
 {
   this.values.push(Exclude.ANY);
+  ++this.changeCount;
   return this;
 };
 
@@ -11773,6 +20466,7 @@ Exclude.prototype.appendAny = function()
 Exclude.prototype.appendComponent = function(component)
 {
   this.values.push(new Name.Component(component));
+  ++this.changeCount;
   return this;
 };
 
@@ -11781,6 +20475,7 @@ Exclude.prototype.appendComponent = function(component)
  */
 Exclude.prototype.clear = function()
 {
+  ++this.changeCount;
   this.values = [];
 };
 
@@ -11856,6 +20551,8 @@ Exclude.prototype.matches = function(/*Buffer*/ component)
 {
   if (typeof component == 'object' && component instanceof Name.Component)
     component = component.getValue().buf();
+  else if (typeof component === 'object' && component instanceof Blob)
+    component = component.buf();
 
   for (var i = 0; i < this.values.length; ++i) {
     if (this.values[i] == Exclude.ANY) {
@@ -11921,9 +20618,18 @@ Exclude.compareComponents = function(component1, component2)
 
   return Name.Component.compareBuffers(component1, component2);
 };
+
+/**
+ * Get the change count, which is incremented each time this object is changed.
+ * @returns {number} The change count.
+ */
+Exclude.prototype.getChangeCount = function()
+{
+  return this.changeCount;
+};
 /**
  * This class represents Interest Objects
- * Copyright (C) 2013-2014 Regents of the University of California.
+ * Copyright (C) 2013-2015 Regents of the University of California.
  * @author: Meki Cheraoui
  * @author: Jeff Thompson <jefft0@remap.ucla.edu>
  *
@@ -11935,14 +20641,16 @@ Exclude.compareComponents = function(component1, component2)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 var Blob = require('./util/blob.js').Blob;
+var SignedBlob = require('./util/signed-blob.js').SignedBlob;
+var ChangeCounter = require('./util/change-counter.js').ChangeCounter;
 var Name = require('./name.js').Name;
 var Exclude = require('./exclude.js').Exclude;
 var PublisherPublicKeyDigest = require('./publisher-public-key-digest.js').PublisherPublicKeyDigest;
@@ -11957,13 +20665,6 @@ var WireFormat = require('./encoding/wire-format.js').WireFormat;
  * other arguments.  Otherwise this is the optional name for the new Interest.
  * @param {number} minSuffixComponents
  * @param {number} maxSuffixComponents
- * @param {Buffer} publisherPublicKeyDigest
- * @param {Exclude} exclude
- * @param {number} childSelector
- * @param {number} answerOriginKind
- * @param {number} scope
- * @param {number} interestLifetimeMilliseconds in milliseconds
- * @param {Buffer} nonce
  */
 var Interest = function Interest
    (nameOrInterest, minSuffixComponents, maxSuffixComponents, publisherPublicKeyDigest, exclude,
@@ -11972,41 +20673,46 @@ var Interest = function Interest
   if (typeof nameOrInterest === 'object' && nameOrInterest instanceof Interest) {
     // Special case: this is a copy constructor.  Ignore all but the first argument.
     var interest = nameOrInterest;
-    if (interest.name)
-      // Copy the name.
-      this.name = new Name(interest.name);
-    this.maxSuffixComponents = interest.maxSuffixComponents;
-    this.minSuffixComponents = interest.minSuffixComponents;
+    // Copy the name.
+    this.name_ = new ChangeCounter(new Name(interest.getName()));
+    this.maxSuffixComponents_ = interest.maxSuffixComponents_;
+    this.minSuffixComponents_ = interest.minSuffixComponents_;
 
-    this.publisherPublicKeyDigest = interest.publisherPublicKeyDigest;
-    this.keyLocator = new KeyLocator(interest.keyLocator);
-    this.exclude = new Exclude(interest.exclude);
-    this.childSelector = interest.childSelector;
-    this.answerOriginKind = interest.answerOriginKind;
-    this.scope = interest.scope;
-    this.interestLifetime = interest.interestLifetime;
-    if (interest.nonce)
-      // Copy.
-      this.nonce = new Buffer(interest.nonce);
+    this.publisherPublicKeyDigest_ = interest.publisherPublicKeyDigest_;
+    this.keyLocator_ = new ChangeCounter(new KeyLocator(interest.getKeyLocator()));
+    this.exclude_ = new ChangeCounter(new Exclude(interest.getExclude()));
+    this.childSelector_ = interest.childSelector_;
+    this.answerOriginKind_ = interest.answerOriginKind_;
+    this.scope_ = interest.scope_;
+    this.interestLifetimeMilliseconds_ = interest.interestLifetimeMilliseconds_;
+    this.nonce_ = interest.nonce_;
+    this.defaultWireEncoding_ = interest.getDefaultWireEncoding();
+    this.defaultWireEncodingFormat_ = interest.defaultWireEncodingFormat_;
   }
   else {
-    this.name = typeof nameOrInterest === 'object' && nameOrInterest instanceof Name ?
-                new Name(nameOrInterest) : new Name();
-    this.maxSuffixComponents = maxSuffixComponents;
-    this.minSuffixComponents = minSuffixComponents;
+    this.name_ = new ChangeCounter(typeof nameOrInterest === 'object' &&
+                                   nameOrInterest instanceof Name ?
+      new Name(nameOrInterest) : new Name());
+    this.maxSuffixComponents_ = maxSuffixComponents;
+    this.minSuffixComponents_ = minSuffixComponents;
 
-    this.publisherPublicKeyDigest = publisherPublicKeyDigest;
-    this.keyLocator = new KeyLocator();
-    this.exclude = typeof exclude === 'object' && exclude instanceof Exclude ?
-                   new Exclude(exclude) : new Exclude();
-    this.childSelector = childSelector;
-    this.answerOriginKind = answerOriginKind;
-    this.scope = scope;
-    this.interestLifetime = interestLifetimeMilliseconds;
-    if (nonce)
-      // Copy and make sure it is a Buffer.
-      this.nonce = new Buffer(nonce);
+    this.publisherPublicKeyDigest_ = publisherPublicKeyDigest;
+    this.keyLocator_ = new ChangeCounter(new KeyLocator());
+    this.exclude_ = new ChangeCounter(typeof exclude === 'object' && exclude instanceof Exclude ?
+      new Exclude(exclude) : new Exclude());
+    this.childSelector_ = childSelector;
+    this.answerOriginKind_ = answerOriginKind;
+    this.scope_ = scope;
+    this.interestLifetimeMilliseconds_ = interestLifetimeMilliseconds;
+    this.nonce_ = typeof nonce === 'object' && nonce instanceof Blob ?
+      nonce : new Blob(nonce, true);
+    this.defaultWireEncoding_ = new SignedBlob();
+    this.defaultWireEncodingFormat_ = null;
   }
+
+  this.getNonceChangeCount_ = 0;
+  this.getDefaultWireEncodingChangeCount_ = 0;
+  this.changeCount_ = 0;
 };
 
 exports.Interest = Interest;
@@ -12025,25 +20731,26 @@ Interest.MARK_STALE = 16;    // Must have scope 0.  Michael calls this a "hack"
 Interest.DEFAULT_ANSWER_ORIGIN_KIND = Interest.ANSWER_CONTENT_STORE | Interest.ANSWER_GENERATED;
 
 /**
- * Return true if this.name.match(name) and the name conforms to the interest selectors.
- * @param {Name} name
- * @returns {boolean}
+ * Check if this interest's name matches the given name (using Name.match) and
+ * the given name also conforms to the interest selectors.
+ * @param {Name} name The name to check.
+ * @returns {boolean} True if the name and interest selectors match, False otherwise.
  */
 Interest.prototype.matchesName = function(/*Name*/ name)
 {
-  if (!this.name.match(name))
+  if (!this.getName().match(name))
     return false;
 
-  if (this.minSuffixComponents != null &&
+  if (this.minSuffixComponents_ != null &&
       // Add 1 for the implicit digest.
-      !(name.size() + 1 - this.name.size() >= this.minSuffixComponents))
+      !(name.size() + 1 - this.getName().size() >= this.minSuffixComponents_))
     return false;
-  if (this.maxSuffixComponents != null &&
+  if (this.maxSuffixComponents_ != null &&
       // Add 1 for the implicit digest.
-      !(name.size() + 1 - this.name.size() <= this.maxSuffixComponents))
+      !(name.size() + 1 - this.getName().size() <= this.maxSuffixComponents_))
     return false;
-  if (this.exclude != null && name.size() > this.name.size() &&
-      this.exclude.matches(name.get(this.name.size())))
+  if (this.getExclude() != null && name.size() > this.getName().size() &&
+      this.getExclude().matches(name.get(this.getName().size())))
     return false;
 
   return true;
@@ -12062,17 +20769,14 @@ Interest.prototype.matches_name = function(/*Name*/ name)
  */
 Interest.prototype.clone = function()
 {
-  return new Interest
-     (this.name, this.minSuffixComponents, this.maxSuffixComponents,
-      this.publisherPublicKeyDigest, this.exclude, this.childSelector, this.answerOriginKind,
-      this.scope, this.interestLifetime, this.nonce);
+  return new Interest(this);
 };
 
 /**
  * Get the interest Name.
  * @returns {Name} The name.  The name size() may be 0 if not specified.
  */
-Interest.prototype.getName = function() { return this.name; };
+Interest.prototype.getName = function() { return this.name_.get(); };
 
 /**
  * Get the min suffix components.
@@ -12080,7 +20784,7 @@ Interest.prototype.getName = function() { return this.name; };
  */
 Interest.prototype.getMinSuffixComponents = function()
 {
-  return this.minSuffixComponents;
+  return this.minSuffixComponents_;
 };
 
 /**
@@ -12089,7 +20793,7 @@ Interest.prototype.getMinSuffixComponents = function()
  */
 Interest.prototype.getMaxSuffixComponents = function()
 {
-  return this.maxSuffixComponents;
+  return this.maxSuffixComponents_;
 };
 
 /**
@@ -12099,7 +20803,7 @@ Interest.prototype.getMaxSuffixComponents = function()
  */
 Interest.prototype.getKeyLocator = function()
 {
-  return this.keyLocator;
+  return this.keyLocator_.get();
 };
 
 /**
@@ -12107,7 +20811,7 @@ Interest.prototype.getKeyLocator = function()
  * @returns {Exclude} The exclude object. If the exclude size() is zero, then
  * the exclude is not specified.
  */
-Interest.prototype.getExclude = function() { return this.exclude; };
+Interest.prototype.getExclude = function() { return this.exclude_.get(); };
 
 /**
  * Get the child selector.
@@ -12115,7 +20819,7 @@ Interest.prototype.getExclude = function() { return this.exclude; };
  */
 Interest.prototype.getChildSelector = function()
 {
-  return this.childSelector;
+  return this.childSelector_;
 };
 
 /**
@@ -12123,13 +20827,12 @@ Interest.prototype.getChildSelector = function()
  */
 Interest.prototype.getAnswerOriginKind = function()
 {
-  return this.answerOriginKind;
-};
+  if (!WireFormat.ENABLE_NDNX)
+    throw new Error
+      ("getAnswerOriginKind is for NDNx and is deprecated. To enable while you upgrade your code to use NFD's getMustBeFresh(), set WireFormat.ENABLE_NDNX = true");
 
-  /**
-   * Return true if the content must be fresh.
-   * @return true if must be fresh, otherwise false.
-   */
+  return this.answerOriginKind_;
+};
 
 /**
  * Get the must be fresh flag. If not specified, the default is true.
@@ -12137,10 +20840,10 @@ Interest.prototype.getAnswerOriginKind = function()
  */
 Interest.prototype.getMustBeFresh = function()
 {
-  if (this.answerOriginKind == null || this.answerOriginKind < 0)
+  if (this.answerOriginKind_ == null || this.answerOriginKind_ < 0)
     return true;
   else
-    return (this.answerOriginKind & Interest.ANSWER_STALE) == 0;
+    return (this.answerOriginKind_ & Interest.ANSWER_STALE) == 0;
 };
 
 /**
@@ -12150,8 +20853,13 @@ Interest.prototype.getMustBeFresh = function()
  */
 Interest.prototype.getNonce = function()
 {
-  // For backwards-compatibility, leave this.nonce as a Buffer but return a Blob.
-  return  new Blob(this.nonce, false);
+  if (this.getNonceChangeCount_ != this.getChangeCount()) {
+    // The values have changed, so the existing nonce is invalidated.
+    this.nonce_ = new Blob();
+    this.getNonceChangeCount_ = this.getChangeCount();
+  }
+
+  return this.nonce_;
 };
 
 /**
@@ -12160,14 +20868,20 @@ Interest.prototype.getNonce = function()
  */
 Interest.prototype.getNonceAsBuffer = function()
 {
-  return this.nonce;
+  return this.getNonce().buf();
 };
 
 /**
- * Get the interest scope.
- * @returns {number} The scope, or null if not specified.
+ * @deprecated Scope is not used by NFD.
  */
-Interest.prototype.getScope = function() { return this.scope; };
+Interest.prototype.getScope = function()
+{
+  if (!WireFormat.ENABLE_NDNX)
+    throw new Error
+      ("getScope is for NDNx and is deprecated. To enable while you upgrade your code to not use Scope, set WireFormat.ENABLE_NDNX = true");
+
+  return this.scope_;
+};
 
 /**
  * Get the interest lifetime.
@@ -12176,55 +20890,104 @@ Interest.prototype.getScope = function() { return this.scope; };
  */
 Interest.prototype.getInterestLifetimeMilliseconds = function()
 {
-  return this.interestLifetime;
+  return this.interestLifetimeMilliseconds_;
 };
 
+/**
+ * Return the default wire encoding, which was encoded with
+ * getDefaultWireEncodingFormat().
+ * @returns {SignedBlob} The default wire encoding, whose isNull() may be true
+ * if there is no default wire encoding.
+ */
+Interest.prototype.getDefaultWireEncoding = function()
+{
+  if (this.getDefaultWireEncodingChangeCount_ != this.getChangeCount()) {
+    // The values have changed, so the default wire encoding is invalidated.
+    this.defaultWireEncoding_ = new SignedBlob();
+    this.defaultWireEncodingFormat_ = null;
+    this.getDefaultWireEncodingChangeCount_ = this.getChangeCount();
+  }
+
+  return this.defaultWireEncoding_;
+};
+
+/**
+ * Get the WireFormat which is used by getDefaultWireEncoding().
+ * @returns {WireFormat} The WireFormat, which is only meaningful if the
+ * getDefaultWireEncoding() is not isNull().
+ */
+Interest.prototype.getDefaultWireEncodingFormat = function()
+{
+  return this.defaultWireEncodingFormat_;
+};
+
+/**
+ * Set the interest name.
+ * Note: You can also call getName and change the name values directly.
+ * @param {Name} name The interest name. This makes a copy of the name.
+ * @returns {Interest} This Interest so that you can chain calls to update values.
+ */
 Interest.prototype.setName = function(name)
 {
-  // The object has changed, so the nonce is invalid.
-  this.nonce = null;
-
-  this.name = typeof name === 'object' && name instanceof Interest ?
-              new Name(name) : new Name();
+  this.name_.set(typeof name === 'object' && name instanceof Name ?
+    new Name(name) : new Name());
+  ++this.changeCount_;
+  return this;
 };
 
+/**
+ * Set the min suffix components count.
+ * @param {number} minSuffixComponents The min suffix components count. If not
+ * specified, set to undefined.
+ * @returns {Interest} This Interest so that you can chain calls to update values.
+ */
 Interest.prototype.setMinSuffixComponents = function(minSuffixComponents)
 {
-  // The object has changed, so the nonce is invalid.
-  this.nonce = null;
-
-  this.minSuffixComponents = minSuffixComponents;
+  this.minSuffixComponents_ = minSuffixComponents;
+  ++this.changeCount_;
+  return this;
 };
 
+/**
+ * Set the max suffix components count.
+ * @param {number} maxSuffixComponents The max suffix components count. If not
+ * specified, set to undefined.
+ * @returns {Interest} This Interest so that you can chain calls to update values.
+ */
 Interest.prototype.setMaxSuffixComponents = function(maxSuffixComponents)
 {
-  // The object has changed, so the nonce is invalid.
-  this.nonce = null;
-
-  this.maxSuffixComponents = maxSuffixComponents;
+  this.maxSuffixComponents_ = maxSuffixComponents;
+  ++this.changeCount_;
+  return this;
 };
 
 /**
  * Set this interest to use a copy of the given exclude object. Note: You can
- * also change this interest's exclude object modifying the object from
- * getExclude().
- * @param {Exclude} exclude The exlcude object that is copied.
+ * also call getExclude and change the exclude entries directly.
+ * @param {Exclude} exclude The Exclude object. This makes a copy of the object.
+ * If no exclude is specified, set to a new default Exclude(), or to an Exclude
+ * with size() 0.
+ * @returns {Interest} This Interest so that you can chain calls to update values.
  */
 Interest.prototype.setExclude = function(exclude)
 {
-  // The object has changed, so the nonce is invalid.
-  this.nonce = null;
-
-  this.exclude = typeof exclude === 'object' && exclude instanceof Exclude ?
-                 new Exclude(exclude) : new Exclude();
+  this.exclude_.set(typeof exclude === 'object' && exclude instanceof Exclude ?
+    new Exclude(exclude) : new Exclude());
+  ++this.changeCount_;
+  return this;
 };
 
+/**
+ * Set the child selector.
+ * @param {number} childSelector The child selector. If not specified, set to
+ * undefined.
+ * @returns {Interest} This Interest so that you can chain calls to update values.
+ */
 Interest.prototype.setChildSelector = function(childSelector)
 {
-  // The object has changed, so the nonce is invalid.
-  this.nonce = null;
-
-  this.childSelector = childSelector;
+  this.childSelector_ = childSelector;
+  ++this.changeCount_;
+  return this;
 };
 
 /**
@@ -12232,51 +20995,66 @@ Interest.prototype.setChildSelector = function(childSelector)
  */
 Interest.prototype.setAnswerOriginKind = function(answerOriginKind)
 {
-  // The object has changed, so the nonce is invalid.
-  this.nonce = null;
+  if (!WireFormat.ENABLE_NDNX)
+    throw new Error
+      ("setAnswerOriginKind is for NDNx and is deprecated. To enable while you upgrade your code to use NFD's setMustBeFresh(), set WireFormat.ENABLE_NDNX = true");
 
-  this.answerOriginKind = answerOriginKind;
+  this.answerOriginKind_ = answerOriginKind;
+  ++this.changeCount_;
+  return this;
 };
 
 /**
  * Set the MustBeFresh flag.
- * @param {boolean} mustBeFresh True if the content must be fresh, otherwise false.
+ * @param {boolean} mustBeFresh True if the content must be fresh, otherwise
+ * false. If you do not set this flag, the default value is true.
+ * @returns {Interest} This Interest so that you can chain calls to update values.
  */
 Interest.prototype.setMustBeFresh = function(mustBeFresh)
 {
-  // The object has changed, so the nonce is invalid.
-  this.nonce = null;
-
-  if (this.answerOriginKind == null || this.answerOriginKind < 0) {
+  if (this.answerOriginKind_ == null || this.answerOriginKind_ < 0) {
     // It is is already the default where MustBeFresh is true.
     if (!mustBeFresh)
       // Set answerOriginKind_ so that getMustBeFresh returns false.
-      this.answerOriginKind = Interest.ANSWER_STALE;
+      this.answerOriginKind_ = Interest.ANSWER_STALE;
   }
   else {
     if (mustBeFresh)
       // Clear the stale bit.
-      this.answerOriginKind &= ~Interest.ANSWER_STALE;
+      this.answerOriginKind_ &= ~Interest.ANSWER_STALE;
     else
       // Set the stale bit.
-      this.answerOriginKind |= Interest.ANSWER_STALE;
+      this.answerOriginKind_ |= Interest.ANSWER_STALE;
   }
+  ++this.changeCount_;
+  return this;
 };
 
+/**
+ * @deprecated Scope is not used by NFD.
+ */
 Interest.prototype.setScope = function(scope)
 {
-  // The object has changed, so the nonce is invalid.
-  this.nonce = null;
+  if (!WireFormat.ENABLE_NDNX)
+    throw new Error
+      ("setScope is for NDNx and is deprecated. To enable while you upgrade your code to not use Scope, set WireFormat.ENABLE_NDNX = true");
 
-  this.scope = scope;
+  this.scope_ = scope;
+  ++this.changeCount_;
+  return this;
 };
 
+/**
+ * Set the interest lifetime.
+ * @param {number} interestLifetimeMilliseconds The interest lifetime in
+ * milliseconds. If not specified, set to -1.
+ * @returns {Interest} This Interest so that you can chain calls to update values.
+ */
 Interest.prototype.setInterestLifetimeMilliseconds = function(interestLifetimeMilliseconds)
 {
-  // The object has changed, so the nonce is invalid.
-  this.nonce = null;
-
-  this.interestLifetime = interestLifetimeMilliseconds;
+  this.interestLifetimeMilliseconds_ = interestLifetimeMilliseconds;
+  ++this.changeCount_;
+  return this;
 };
 
 /**
@@ -12285,48 +21063,46 @@ Interest.prototype.setInterestLifetimeMilliseconds = function(interestLifetimeMi
  */
 Interest.prototype.setNonce = function(nonce)
 {
-  if (nonce) {
-    if (typeof nonce === 'object' && nonce instanceof Blob)
-      this.nonce = nonce.buf();
-    else
-      // Copy and make sure it is a Buffer.
-      this.nonce = new Buffer(nonce);
-  }
-  else
-    this.nonce = null;
+  this.nonce_ = typeof nonce === 'object' && nonce instanceof Blob ?
+    nonce : new Blob(nonce, true);
+  // Set _getNonceChangeCount so that the next call to getNonce() won't clear
+  // this.nonce_.
+  ++this.changeCount_;
+  this.getNonceChangeCount_ = this.getChangeCount();
+  return this;
 };
 
 /**
  * Encode the name according to the "NDN URI Scheme".  If there are interest selectors, append "?" and
  * added the selectors as a query string.  For example "/test/name?ndn.ChildSelector=1".
- * @returns {string} The URI string.
- * @note This is an experimental feature.  See the API docs for more detail at
+ * Note: This is an experimental feature.  See the API docs for more detail at
  * http://named-data.net/doc/ndn-ccl-api/interest.html#interest-touri-method .
+ * @returns {string} The URI string.
  */
 Interest.prototype.toUri = function()
 {
   var selectors = "";
 
-  if (this.minSuffixComponents != null)
-    selectors += "&ndn.MinSuffixComponents=" + this.minSuffixComponents;
-  if (this.maxSuffixComponents != null)
-    selectors += "&ndn.MaxSuffixComponents=" + this.maxSuffixComponents;
-  if (this.childSelector != null)
-    selectors += "&ndn.ChildSelector=" + this.childSelector;
-  if (this.answerOriginKind != null)
-    selectors += "&ndn.AnswerOriginKind=" + this.answerOriginKind;
-  if (this.scope != null)
-    selectors += "&ndn.Scope=" + this.scope;
-  if (this.interestLifetime != null)
-    selectors += "&ndn.InterestLifetime=" + this.interestLifetime;
-  if (this.publisherPublicKeyDigest != null)
-    selectors += "&ndn.PublisherPublicKeyDigest=" + Name.toEscapedString(this.publisherPublicKeyDigest.publisherPublicKeyDigest);
-  if (this.nonce != null)
-    selectors += "&ndn.Nonce=" + Name.toEscapedString(this.nonce);
-  if (this.exclude != null && this.exclude.size() > 0)
-    selectors += "&ndn.Exclude=" + this.exclude.toUri();
+  if (this.minSuffixComponents_ != null)
+    selectors += "&ndn.MinSuffixComponents=" + this.minSuffixComponents_;
+  if (this.maxSuffixComponents_ != null)
+    selectors += "&ndn.MaxSuffixComponents=" + this.maxSuffixComponents_;
+  if (this.childSelector_ != null)
+    selectors += "&ndn.ChildSelector=" + this.childSelector_;
+  if (this.answerOriginKind_ != null)
+    selectors += "&ndn.AnswerOriginKind=" + this.answerOriginKind_;
+  if (this.scope_ != null)
+    selectors += "&ndn.Scope=" + this.scope_;
+  if (this.interestLifetimeMilliseconds_ != null)
+    selectors += "&ndn.InterestLifetime=" + this.interestLifetimeMilliseconds_;
+  if (this.publisherPublicKeyDigest_ != null)
+    selectors += "&ndn.PublisherPublicKeyDigest=" + Name.toEscapedString(this.publisherPublicKeyDigest_.publisherPublicKeyDigest_);
+  if (this.getNonce().size() > 0)
+    selectors += "&ndn.Nonce=" + Name.toEscapedString(this.getNonce().buf());
+  if (this.getExclude() != null && this.getExclude().size() > 0)
+    selectors += "&ndn.Exclude=" + this.getExclude().toUri();
 
-  var result = this.name.toUri();
+  var result = this.getName().toUri();
   if (selectors != "")
     // Replace the first & with ?.
     result += "?" + selectors.substr(1);
@@ -12335,30 +21111,78 @@ Interest.prototype.toUri = function()
 };
 
 /**
- * Encode this Interest for a particular wire format.
+ * Encode this Interest for a particular wire format. If wireFormat is the
+ * default wire format, also set the defaultWireEncoding field to the encoded
+ * result.
  * @param {WireFormat} wireFormat (optional) A WireFormat object  used to encode
  * this object. If omitted, use WireFormat.getDefaultWireFormat().
- * @returns {Blob} The encoded buffer in a Blob object.
+ * @returns {SignedBlob} The encoded buffer in a SignedBlob object.
  */
 Interest.prototype.wireEncode = function(wireFormat)
 {
   wireFormat = (wireFormat || WireFormat.getDefaultWireFormat());
-  return wireFormat.encodeInterest(this);
+
+  if (!this.getDefaultWireEncoding().isNull() &&
+      this.getDefaultWireEncodingFormat() == wireFormat)
+    // We already have an encoding in the desired format.
+    return this.getDefaultWireEncoding();
+
+  var result = wireFormat.encodeInterest(this);
+  var wireEncoding = new SignedBlob
+    (result.encoding, result.signedPortionBeginOffset,
+     result.signedPortionEndOffset);
+
+  if (wireFormat == WireFormat.getDefaultWireFormat())
+    // This is the default wire encoding.
+    this.setDefaultWireEncoding
+      (wireEncoding, WireFormat.getDefaultWireFormat());
+  return wireEncoding;
 };
 
 /**
- * Decode the input using a particular wire format and update this Interest.
- * @param {Buffer} input The buffer with the bytes to decode.
+ * Decode the input using a particular wire format and update this Interest. If
+ * wireFormat is the default wire format, also set the defaultWireEncoding to
+ * another pointer to the input.
+ * @param {Blob|Buffer} input The buffer with the bytes to decode.
  * @param {WireFormat} wireFormat (optional) A WireFormat object used to decode
  * this object. If omitted, use WireFormat.getDefaultWireFormat().
  */
 Interest.prototype.wireDecode = function(input, wireFormat)
 {
   wireFormat = (wireFormat || WireFormat.getDefaultWireFormat());
+
   // If input is a blob, get its buf().
   var decodeBuffer = typeof input === 'object' && input instanceof Blob ?
-                     input.buf() : input;
-  wireFormat.decodeInterest(this, decodeBuffer);
+    input.buf() : input;
+  var result = wireFormat.decodeInterest(this, decodeBuffer);
+
+  if (wireFormat == WireFormat.getDefaultWireFormat())
+    // This is the default wire encoding.  In the Blob constructor, set copy
+    // true, but if input is already a Blob, it won't copy.
+    this.setDefaultWireEncoding(new SignedBlob
+      (new Blob(input, true), result.signedPortionBeginOffset,
+       result.signedPortionEndOffset),
+      WireFormat.getDefaultWireFormat());
+  else
+    this.setDefaultWireEncoding(new SignedBlob(), null);
+};
+
+/**
+ * Get the change count, which is incremented each time this object (or a child
+ * object) is changed.
+ * @returns {number} The change count.
+ */
+Interest.prototype.getChangeCount = function()
+{
+  // Make sure each of the checkChanged is called.
+  var changed = this.name_.checkChanged();
+  changed = this.keyLocator_.checkChanged() || changed;
+  changed = this.exclude_.checkChanged() || changed;
+  if (changed)
+    // A child object has changed, so update the change count.
+    ++this.changeCount_;
+
+  return this.changeCount_;
 };
 
 // Since binary-xml-wire-format.js includes this file, put these at the bottom
@@ -12398,9 +21222,66 @@ Interest.prototype.decode = function(input, wireFormat)
 {
   this.wireDecode(input, BinaryXmlWireFormat.get())
 };
+
+Interest.prototype.setDefaultWireEncoding = function
+  (defaultWireEncoding, defaultWireEncodingFormat)
+{
+  this.defaultWireEncoding_ = defaultWireEncoding;
+  this.defaultWireEncodingFormat_ = defaultWireEncodingFormat;
+  // Set getDefaultWireEncodingChangeCount_ so that the next call to
+  // getDefaultWireEncoding() won't clear _defaultWireEncoding.
+  this.getDefaultWireEncodingChangeCount_ = this.getChangeCount();
+};
+
+// Define properties so we can change member variable types and implement changeCount_.
+Object.defineProperty(Interest.prototype, "name",
+  { get: function() { return this.getName(); },
+    set: function(val) { this.setName(val); } });
+Object.defineProperty(Interest.prototype, "minSuffixComponents",
+  { get: function() { return this.getMinSuffixComponents(); },
+    set: function(val) { this.setMinSuffixComponents(val); } });
+Object.defineProperty(Interest.prototype, "maxSuffixComponents",
+  { get: function() { return this.getMaxSuffixComponents(); },
+    set: function(val) { this.setMaxSuffixComponents(val); } });
+Object.defineProperty(Interest.prototype, "keyLocator",
+  { get: function() { return this.getKeyLocator(); },
+    set: function(val) { this.setKeyLocator(val); } });
+Object.defineProperty(Interest.prototype, "exclude",
+  { get: function() { return this.getExclude(); },
+    set: function(val) { this.setExclude(val); } });
+Object.defineProperty(Interest.prototype, "childSelector",
+  { get: function() { return this.getChildSelector(); },
+    set: function(val) { this.setChildSelector(val); } });
+Object.defineProperty(Interest.prototype, "scope",
+  { get: function() { return this.getScope(); },
+    set: function(val) { this.setScope(val); } });
+/**
+ * @deprecated Use getInterestLifetimeMilliseconds and setInterestLifetimeMilliseconds.
+ */
+Object.defineProperty(Interest.prototype, "interestLifetime",
+  { get: function() { return this.getInterestLifetimeMilliseconds(); },
+    set: function(val) { this.setInterestLifetimeMilliseconds(val); } });
+/**
+ * @deprecated Use getMustBeFresh and setMustBeFresh.
+ */
+Object.defineProperty(Interest.prototype, "answerOriginKind",
+  { get: function() { return this.getAnswerOriginKind(); },
+    set: function(val) { this.setAnswerOriginKind(val); } });
+/**
+ * @deprecated Use getNonce and setNonce.
+ */
+Object.defineProperty(Interest.prototype, "nonce",
+  { get: function() { return this.getNonceAsBuffer(); },
+    set: function(val) { this.setNonce(val); } });
+/**
+ * @deprecated Use KeyLocator where keyLocatorType is KEY_LOCATOR_DIGEST.
+ */
+Object.defineProperty(Interest.prototype, "publisherPublicKeyDigest",
+  { get: function() { return this.publisherPublicKeyDigest_; },
+    set: function(val) { this.publisherPublicKeyDigest_ = val; ++this.changeCount_; } });
 /**
  * This class represents Face Instances
- * Copyright (C) 2013-2014 Regents of the University of California.
+ * Copyright (C) 2013-2015 Regents of the University of California.
  * @author: Meki Cheraoui
  *
  * This program is free software: you can redistribute it and/or modify
@@ -12411,18 +21292,18 @@ Interest.prototype.decode = function(input, wireFormat)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 var NDNProtocolDTags = require('./util/ndn-protoco-id-tags.js').NDNProtocolDTags;
 var PublisherPublicKeyDigest = require('./publisher-public-key-digest.js').PublisherPublicKeyDigest;
 
 /**
- * @constructor
+ * @deprecated This is only used for NDNx support which is deprecated.
  */
 var FaceInstance  = function FaceInstance(action, publisherPublicKeyDigest, faceID, ipProto, host, port, multicastInterface,
     multicastTTL, freshnessSeconds)
@@ -12524,110 +21405,7 @@ FaceInstance.prototype.getElementLabel = function()
 };
 
 /**
- * This class represents Forwarding Entries
- * Copyright (C) 2013-2014 Regents of the University of California.
- * @author: Meki Cheraoui
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
- */
-
-var NDNProtocolDTags = require('./util/ndn-protoco-id-tags.js').NDNProtocolDTags;
-var PublisherPublicKeyDigest = require('./publisher-public-key-digest.js').PublisherPublicKeyDigest;
-var Name = require('./name.js').Name;
-
-/**
- * Create a new ForwardingEntry with the optional arguments.
- * @constructor
- * @param {String} action
- * @param {Name} prefixName
- * @param {PublisherPublicKeyDigest} ndndId
- * @param {number} faceID
- * @param {number} flags
- * @param {number} lifetime in seconds
- */
-var ForwardingEntry = function ForwardingEntry(action, prefixName, ndndId, faceID, flags, lifetime)
-{
-  this.action = action;
-  this.prefixName = prefixName;
-  this.ndndID = ndndId;
-  this.faceID = faceID;
-  this.flags = flags;
-  this.lifetime = lifetime;
-};
-
-exports.ForwardingEntry = ForwardingEntry;
-
-ForwardingEntry.ACTIVE         = 1;
-ForwardingEntry.CHILD_INHERIT  = 2;
-ForwardingEntry.ADVERTISE      = 4;
-ForwardingEntry.LAST           = 8;
-ForwardingEntry.CAPTURE       = 16;
-ForwardingEntry.LOCAL         = 32;
-ForwardingEntry.TAP           = 64;
-ForwardingEntry.CAPTURE_OK   = 128;
-
-ForwardingEntry.prototype.from_ndnb = function(
-  //XMLDecoder
-  decoder)
-  //throws DecodingException
-{
-  decoder.readElementStartDTag(this.getElementLabel());
-  if (decoder.peekDTag(NDNProtocolDTags.Action))
-    this.action = decoder.readUTF8DTagElement(NDNProtocolDTags.Action);
-  if (decoder.peekDTag(NDNProtocolDTags.Name)) {
-    this.prefixName = new Name();
-    this.prefixName.from_ndnb(decoder) ;
-  }
-  if (decoder.peekDTag(NDNProtocolDTags.PublisherPublicKeyDigest)) {
-    this.NdndId = new PublisherPublicKeyDigest();
-    this.NdndId.from_ndnb(decoder);
-  }
-  if (decoder.peekDTag(NDNProtocolDTags.FaceID))
-    this.faceID = decoder.readIntegerDTagElement(NDNProtocolDTags.FaceID);
-  if (decoder.peekDTag(NDNProtocolDTags.ForwardingFlags))
-    this.flags = decoder.readIntegerDTagElement(NDNProtocolDTags.ForwardingFlags);
-  if (decoder.peekDTag(NDNProtocolDTags.FreshnessSeconds))
-    this.lifetime = decoder.readIntegerDTagElement(NDNProtocolDTags.FreshnessSeconds);
-
-  decoder.readElementClose();
-};
-
-ForwardingEntry.prototype.to_ndnb = function(
-  //XMLEncoder
-  encoder)
-{
-  encoder.writeElementStartDTag(this.getElementLabel());
-  if (null != this.action && this.action.length != 0)
-    encoder.writeDTagElement(NDNProtocolDTags.Action, this.action);
-  if (null != this.prefixName)
-    this.prefixName.to_ndnb(encoder);
-  if (null != this.NdndId)
-    this.NdndId.to_ndnb(encoder);
-  if (null != this.faceID)
-    encoder.writeDTagElement(NDNProtocolDTags.FaceID, this.faceID);
-  if (null != this.flags)
-    encoder.writeDTagElement(NDNProtocolDTags.ForwardingFlags, this.flags);
-  if (null != this.lifetime)
-    encoder.writeDTagElement(NDNProtocolDTags.FreshnessSeconds, this.lifetime);
-
-  encoder.writeElementClose();
-};
-
-ForwardingEntry.prototype.getElementLabel = function() { return NDNProtocolDTags.ForwardingEntry; }
-/**
- * Copyright (C) 2013-2014 Regents of the University of California.
+ * Copyright (C) 2013-2015 Regents of the University of California.
  * @author: Jeff Thompson <jefft0@remap.ucla.edu>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -12638,14 +21416,12 @@ ForwardingEntry.prototype.getElementLabel = function() { return NDNProtocolDTags
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
-
-var ForwardingEntry = require('./forwarding-entry.js').ForwardingEntry;
 
 /**
  * A ForwardingFlags object holds the flags which specify how the forwarding daemon should forward an interest for
@@ -12653,19 +21429,44 @@ var ForwardingEntry = require('./forwarding-entry.js').ForwardingEntry;
  * bits are changed, amended or deprecated.
  * Create a new ForwardingFlags with "active" and "childInherit" set and all other flags cleared.
  */
-var ForwardingFlags = function ForwardingFlags()
+var ForwardingFlags = function ForwardingFlags(value)
 {
-  this.active = true;
-  this.childInherit = true;
-  this.advertise = false;
-  this.last = false;
-  this.capture = false;
-  this.local = false;
-  this.tap = false;
-  this.captureOk = false;
-}
+  if (typeof value === 'object' && value instanceof ForwardingFlags) {
+    // Make a copy.
+    this.active = value.active;
+    this.childInherit = value.childInherit;
+    this.advertise = value.advertise;
+    this.last = value.last;
+    this.capture = value.capture;
+    this.local = value.local;
+    this.tap = value.tap;
+    this.captureOk = value.captureOk;
+  }
+  else {
+    this.active = true;
+    this.childInherit = true;
+    this.advertise = false;
+    this.last = false;
+    this.capture = false;
+    this.local = false;
+    this.tap = false;
+    this.captureOk = false;
+  }
+};
 
 exports.ForwardingFlags = ForwardingFlags;
+
+ForwardingFlags.ForwardingEntryFlags_ACTIVE         = 1;
+ForwardingFlags.ForwardingEntryFlags_CHILD_INHERIT  = 2;
+ForwardingFlags.ForwardingEntryFlags_ADVERTISE      = 4;
+ForwardingFlags.ForwardingEntryFlags_LAST           = 8;
+ForwardingFlags.ForwardingEntryFlags_CAPTURE       = 16;
+ForwardingFlags.ForwardingEntryFlags_LOCAL         = 32;
+ForwardingFlags.ForwardingEntryFlags_TAP           = 64;
+ForwardingFlags.ForwardingEntryFlags_CAPTURE_OK   = 128;
+
+ForwardingFlags.NfdForwardingFlags_CHILD_INHERIT = 1;
+ForwardingFlags.NfdForwardingFlags_CAPTURE       = 2;
 
 /**
  * Get an integer with the bits set according to the flags as used by the ForwardingEntry message.
@@ -12676,21 +21477,21 @@ ForwardingFlags.prototype.getForwardingEntryFlags = function()
   var result = 0;
 
   if (this.active)
-    result |= ForwardingEntry.ACTIVE;
+    result |= ForwardingFlags.ForwardingEntryFlags_ACTIVE;
   if (this.childInherit)
-    result |= ForwardingEntry.CHILD_INHERIT;
+    result |= ForwardingFlags.ForwardingEntryFlags_CHILD_INHERIT;
   if (this.advertise)
-    result |= ForwardingEntry.ADVERTISE;
+    result |= ForwardingFlags.ForwardingEntryFlags_ADVERTISE;
   if (this.last)
-    result |= ForwardingEntry.LAST;
+    result |= ForwardingFlags.ForwardingEntryFlags_LAST;
   if (this.capture)
-    result |= ForwardingEntry.CAPTURE;
+    result |= ForwardingFlags.ForwardingEntryFlags_CAPTURE;
   if (this.local)
-    result |= ForwardingEntry.LOCAL;
+    result |= ForwardingFlags.ForwardingEntryFlags_LOCAL;
   if (this.tap)
-    result |= ForwardingEntry.TAP;
+    result |= ForwardingFlags.ForwardingEntryFlags_TAP;
   if (this.captureOk)
-    result |= ForwardingEntry.CAPTURE_OK;
+    result |= ForwardingFlags.ForwardingEntryFlags_CAPTURE_OK;
 
   return result;
 };
@@ -12701,14 +21502,44 @@ ForwardingFlags.prototype.getForwardingEntryFlags = function()
  */
 ForwardingFlags.prototype.setForwardingEntryFlags = function(forwardingEntryFlags)
 {
-  this.active = ((forwardingEntryFlags & ForwardingEntry.ACTIVE) != 0);
-  this.childInherit = ((forwardingEntryFlags & ForwardingEntry.CHILD_INHERIT) != 0);
-  this.advertise = ((forwardingEntryFlags & ForwardingEntry.ADVERTISE) != 0);
-  this.last = ((forwardingEntryFlags & ForwardingEntry.LAST) != 0);
-  this.capture = ((forwardingEntryFlags & ForwardingEntry.CAPTURE) != 0);
-  this.local = ((forwardingEntryFlags & ForwardingEntry.LOCAL) != 0);
-  this.tap = ((forwardingEntryFlags & ForwardingEntry.TAP) != 0);
-  this.captureOk = ((forwardingEntryFlags & ForwardingEntry.CAPTURE_OK) != 0);
+  this.active = ((forwardingEntryFlags & ForwardingFlags.ForwardingEntryFlags_ACTIVE) != 0);
+  this.childInherit = ((forwardingEntryFlags & ForwardingFlags.ForwardingEntryFlags_CHILD_INHERIT) != 0);
+  this.advertise = ((forwardingEntryFlags & ForwardingFlags.ForwardingEntryFlags_ADVERTISE) != 0);
+  this.last = ((forwardingEntryFlags & ForwardingFlags.ForwardingEntryFlags_LAST) != 0);
+  this.capture = ((forwardingEntryFlags & ForwardingFlags.ForwardingEntryFlags_CAPTURE) != 0);
+  this.local = ((forwardingEntryFlags & ForwardingFlags.ForwardingEntryFlags_LOCAL) != 0);
+  this.tap = ((forwardingEntryFlags & ForwardingFlags.ForwardingEntryFlags_TAP) != 0);
+  this.captureOk = ((forwardingEntryFlags & ForwardingFlags.ForwardingEntryFlags_CAPTURE_OK) != 0);
+};
+
+/**
+ * Get an integer with the bits set according to the NFD forwarding flags as
+ * used in the ControlParameters of the command interest.
+ * @returns {number} An integer with the bits set.
+ */
+ForwardingFlags.prototype.getNfdForwardingFlags = function()
+{
+  var result = 0;
+
+  if (this.childInherit)
+    result |= ForwardingFlags.NfdForwardingFlags_CHILD_INHERIT;
+  if (this.capture)
+    result |= ForwardingFlags.NfdForwardingFlags_CAPTURE;
+
+  return result;
+};
+
+/**
+ * Set the flags according to the NFD forwarding flags as used in the
+ * ControlParameters of the command interest.
+ * @param {number} nfdForwardingFlags An integer with the bits set.
+ */
+ForwardingFlags.prototype.setNfdForwardingFlags = function(nfdForwardingFlags)
+{
+  this.childInherit =
+    ((nfdForwardingFlags & ForwardingFlags.NfdForwardingFlags_CHILD_INHERIT) != 0);
+  this.capture =
+    ((nfdForwardingFlags & ForwardingFlags.NfdForwardingFlags_CAPTURE) != 0);
 };
 
 /**
@@ -12807,7 +21638,107 @@ ForwardingFlags.prototype.setTap = function(value) { this.tap = value; };
  */
 ForwardingFlags.prototype.setCaptureOk = function(value) { this.captureOk = value; };
 /**
- * Copyright (C) 2013-2014 Regents of the University of California.
+ * This class represents Forwarding Entries
+ * Copyright (C) 2013-2015 Regents of the University of California.
+ * @author: Meki Cheraoui
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+var ForwardingFlags = require('./forwarding-flags.js').ForwardingFlags;
+var NDNProtocolDTags = require('./util/ndn-protoco-id-tags.js').NDNProtocolDTags;
+var PublisherPublicKeyDigest = require('./publisher-public-key-digest.js').PublisherPublicKeyDigest;
+var Name = require('./name.js').Name;
+var WireFormat = require('./encoding/wire-format.js').WireFormat;
+
+/**
+ * Create a new ForwardingEntry with the optional arguments.
+ * @constructor
+ * @param {String} action
+ * @param {Name} prefixName
+ * @param {PublisherPublicKeyDigest} ndndId
+ * @param {number} faceID
+ * @param {number} flags
+ * @param {number} lifetime in seconds
+ */
+var ForwardingEntry = function ForwardingEntry(action, prefixName, ndndId, faceID, flags, lifetime)
+{
+  if (!WireFormat.ENABLE_NDNX)
+    throw new Error
+      ("ForwardingEntry is for NDNx and is deprecated. To enable while you upgrade your code to use NFD, set WireFormat.ENABLE_NDNX = true");
+
+  this.action = action;
+  this.prefixName = prefixName;
+  this.ndndID = ndndId;
+  this.faceID = faceID;
+  this.flags = flags;
+  this.lifetime = lifetime;
+};
+
+exports.ForwardingEntry = ForwardingEntry;
+
+ForwardingEntry.prototype.from_ndnb = function(
+  //XMLDecoder
+  decoder)
+  //throws DecodingException
+{
+  decoder.readElementStartDTag(this.getElementLabel());
+  if (decoder.peekDTag(NDNProtocolDTags.Action))
+    this.action = decoder.readUTF8DTagElement(NDNProtocolDTags.Action);
+  if (decoder.peekDTag(NDNProtocolDTags.Name)) {
+    this.prefixName = new Name();
+    this.prefixName.from_ndnb(decoder) ;
+  }
+  if (decoder.peekDTag(NDNProtocolDTags.PublisherPublicKeyDigest)) {
+    this.NdndId = new PublisherPublicKeyDigest();
+    this.NdndId.from_ndnb(decoder);
+  }
+  if (decoder.peekDTag(NDNProtocolDTags.FaceID))
+    this.faceID = decoder.readIntegerDTagElement(NDNProtocolDTags.FaceID);
+  if (decoder.peekDTag(NDNProtocolDTags.ForwardingFlags))
+    this.flags = decoder.readIntegerDTagElement(NDNProtocolDTags.ForwardingFlags);
+  if (decoder.peekDTag(NDNProtocolDTags.FreshnessSeconds))
+    this.lifetime = decoder.readIntegerDTagElement(NDNProtocolDTags.FreshnessSeconds);
+
+  decoder.readElementClose();
+};
+
+ForwardingEntry.prototype.to_ndnb = function(
+  //XMLEncoder
+  encoder)
+{
+  encoder.writeElementStartDTag(this.getElementLabel());
+  if (null != this.action && this.action.length != 0)
+    encoder.writeDTagElement(NDNProtocolDTags.Action, this.action);
+  if (null != this.prefixName)
+    this.prefixName.to_ndnb(encoder);
+  if (null != this.NdndId)
+    this.NdndId.to_ndnb(encoder);
+  if (null != this.faceID)
+    encoder.writeDTagElement(NDNProtocolDTags.FaceID, this.faceID);
+  if (null != this.flags)
+    encoder.writeDTagElement(NDNProtocolDTags.ForwardingFlags, this.flags);
+  if (null != this.lifetime)
+    encoder.writeDTagElement(NDNProtocolDTags.FreshnessSeconds, this.lifetime);
+
+  encoder.writeElementClose();
+};
+
+ForwardingEntry.prototype.getElementLabel = function() { return NDNProtocolDTags.ForwardingEntry; }
+/**
+ * Copyright (C) 2014-2015 Regents of the University of California.
  * @author: Jeff Thompson <jefft0@remap.ucla.edu>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -12818,11 +21749,422 @@ ForwardingFlags.prototype.setCaptureOk = function(value) { this.captureOk = valu
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+var ForwardingFlags = require('./forwarding-flags.js').ForwardingFlags;
+var Name = require('./name.js').Name;
+var WireFormat = require('./encoding/wire-format.js').WireFormat;
+var Blob = require('./util/blob').Blob;
+
+/**
+ * A ControlParameters which holds a Name and other fields for a
+ * ControlParameters which is used, for example, in the command interest to
+ * register a prefix with a forwarder. See
+ * http://redmine.named-data.net/projects/nfd/wiki/ControlCommand#ControlParameters
+ * @constructor
+ */
+var ControlParameters = function ControlParameters(value)
+{
+  if (typeof value === 'object' && value instanceof ControlParameters) {
+    // Make a deep copy.
+    this.name = value.name == null ? null : new Name(value.name);
+    this.faceId = value.faceId;
+    this.uri = value.uri;
+    this.localControlFeature = value.localControlFeature;
+    this.origin = value.origin;
+    this.cost = value.cost;
+    this.forwardingFlags = new ForwardingFlags(value.forwardingFlags);
+    this.strategy = new Name(value.strategy);
+    this.expirationPeriod = value.expirationPeriod;
+  }
+  else {
+    this.name = null;
+    this.faceId = null;
+    this.uri = '';
+    this.localControlFeature = null;
+    this.origin = null;
+    this.cost = null;
+    this.forwardingFlags = new ForwardingFlags();
+    this.strategy = new Name();
+    this.expirationPeriod = null;
+  }
+};
+
+exports.ControlParameters = ControlParameters;
+
+ControlParameters.prototype.clear = function()
+{
+  this.name = null;
+  this.faceId = null;
+  this.uri = '';
+  this.localControlFeature = null;
+  this.origin = null;
+  this.cost = null;
+  this.forwardingFlags = new ForwardingFlags();
+  this.strategy = new Name();
+  this.expirationPeriod = null;
+};
+
+/**
+ * Encode this ControlParameters for a particular wire format.
+ * @param {WireFormat} wireFormat (optional) A WireFormat object  used to encode
+ * this object. If omitted, use WireFormat.getDefaultWireFormat().
+ * @returns {Blob} The encoded buffer in a Blob object.
+ */
+ControlParameters.prototype.wireEncode = function(wireFormat)
+{
+  wireFormat = (wireFormat || WireFormat.getDefaultWireFormat());
+  return wireFormat.encodeControlParameters(this);
+};
+
+/**
+ * Decode the input using a particular wire format and update this
+ * ControlParameters.
+ * @param {Blob|Buffer} input The buffer with the bytes to decode.
+ * @param {WireFormat} wireFormat (optional) A WireFormat object used to decode
+ * this object. If omitted, use WireFormat.getDefaultWireFormat().
+ */
+ControlParameters.prototype.wireDecode = function(input, wireFormat)
+{
+  wireFormat = (wireFormat || WireFormat.getDefaultWireFormat());
+  // If input is a blob, get its buf().
+  var decodeBuffer = typeof input === 'object' && input instanceof Blob ?
+                     input.buf() : input;
+  wireFormat.decodeControlParameters(this, decodeBuffer);
+};
+
+/**
+ * Get the name.
+ * @returns {Name} The name. If not specified, return null.
+ */
+ControlParameters.prototype.getName = function()
+{
+  return this.name;
+};
+
+/**
+ * Get the face ID.
+ * @returns {number} The face ID, or null if not specified.
+ */
+ControlParameters.prototype.getFaceId = function()
+{
+  return this.faceId;
+};
+
+/**
+ * Get the URI.
+ * @returns {string} The face URI, or an empty string if not specified.
+ */
+ControlParameters.prototype.getUri = function()
+{
+  return this.uri;
+};
+
+/**
+ * Get the local control feature value.
+ * @returns {number} The local control feature value, or null if not specified.
+ */
+ControlParameters.prototype.getLocalControlFeature = function()
+{
+  return this.localControlFeature;
+};
+
+/**
+ * Get the origin value.
+ * @returns {number} The origin value, or null if not specified.
+ */
+ControlParameters.prototype.getOrigin = function()
+{
+  return this.origin;
+};
+
+/**
+ * Get the cost value.
+ * @returns {number} The cost value, or null if not specified.
+ */
+ControlParameters.prototype.getCost = function()
+{
+  return this.cost;
+};
+
+/**
+ * Get the ForwardingFlags object.
+ * @returns {ForwardingFlags} The ForwardingFlags object.
+ */
+ControlParameters.prototype.getForwardingFlags = function()
+{
+  return this.forwardingFlags;
+};
+
+/**
+ * Get the strategy.
+ * @returns {Name} The strategy or an empty Name
+ */
+ControlParameters.prototype.getStrategy = function()
+{
+  return this.strategy;
+};
+
+/**
+ * Get the expiration period.
+ * @returns {number} The expiration period in milliseconds, or null if not specified.
+ */
+ControlParameters.prototype.getExpirationPeriod = function()
+{
+  return this.expirationPeriod;
+};
+
+/**
+ * Set the name.
+ * @param {Name} name The name. If not specified, set to null. If specified, this
+ * makes a copy of the name.
+ */
+ControlParameters.prototype.setName = function(name)
+{
+  this.name = typeof name === 'object' && name instanceof Name ?
+              new Name(name) : null;
+};
+
+/**
+ * Set the Face ID.
+ * @param {number} faceId The new face ID, or null for not specified.
+ */
+ControlParameters.prototype.setFaceId = function(faceId)
+{
+  this.faceId = faceId;
+};
+
+/**
+ * Set the URI.
+ * @param {string} uri The new uri, or an empty string for not specified.
+ */
+ControlParameters.prototype.setUri = function(uri)
+{
+  this.uri = uri || '';
+};
+
+/**
+ * Set the local control feature value.
+ * @param {number} localControlFeature The new local control feature value, or
+ * null for not specified.
+ */
+ControlParameters.prototype.setLocalControlFeature = function(localControlFeature)
+{
+  this.localControlFeature = localControlFeature;
+};
+
+/**
+ * Set the origin value.
+ * @param {number} origin The new origin value, or null for not specified.
+ */
+ControlParameters.prototype.setOrigin = function(origin)
+{
+  this.origin = origin;
+};
+
+/**
+ * Set the cost value.
+ * @param {number} cost The new cost value, or null for not specified.
+ */
+ControlParameters.prototype.setCost = function(cost)
+{
+  this.cost = cost;
+};
+
+/**
+ * Set the ForwardingFlags object to a copy of forwardingFlags. You can use
+ * getForwardingFlags() and change the existing ForwardingFlags object.
+ * @param {ForwardingFlags} forwardingFlags The new cost value, or null for not specified.
+ */
+ControlParameters.prototype.setForwardingFlags = function(forwardingFlags)
+{
+  this.forwardingFlags =
+    typeof forwardingFlags === 'object' && forwardingFlags instanceof ForwardingFlags ?
+      new ForwardingFlags(forwardingFlags) : new ForwardingFlags();
+};
+
+/**
+ * Set the strategy to a copy of the given Name.
+ * @param {Name} strategy The Name to copy, or an empty Name if not specified.
+ */
+ControlParameters.prototype.setStrategy = function(strategy)
+{
+  this.strategy = typeof strategy === 'object' && strategy instanceof Name ?
+              new Name(strategy) : new Name();
+};
+
+/**
+ * Set the expiration period.
+ * @param {number} expirationPeriod The expiration period in milliseconds, or
+ * null for not specified.
+ */
+ControlParameters.prototype.setExpirationPeriod = function(expirationPeriod)
+{
+  this.expirationPeriod = expirationPeriod;
+};
+/**
+ * Copyright (C) 2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+var Name = require('./name.js').Name;
+var NdnRegexMatcher = require('./util/ndn-regex-matcher.js').NdnRegexMatcher;
+
+/**
+ * An InterestFilter holds a Name prefix and optional regex match expression for
+ * use in Face.setInterestFilter.
+ *
+ * Create an InterestFilter to match any Interest whose name starts with the
+ * given prefix. If the optional regexFilter is provided then the remaining
+ * components match the regexFilter regular expression as described in doesMatch.
+ * @param {Name|string} prefix The prefix. If a Name then this makes a copy of
+ * the Name. Otherwise it create a Name from the URI string.
+ * @param {string} regexFilter (optional) The regular expression for matching
+ * the remaining name components.
+ * @constructor
+ */
+var InterestFilter = function InterestFilter(prefix, regexFilter)
+{
+  if (typeof prefix === 'object' && prefix instanceof InterestFilter) {
+    // The copy constructor.
+    var interestFilter = prefix;
+    this.prefix = new Name(interestFilter.prefix);
+    this.regexFilter = interestFilter.regexFilter;
+    this.regexFilterPattern = interestFilter.regexFilterPattern;
+  }
+  else {
+    this.prefix = new Name(prefix);
+    if (regexFilter) {
+      this.regexFilter = regexFilter;
+      this.regexFilterPattern = InterestFilter.makePattern(regexFilter);
+    }
+    else {
+      this.regexFilter = null;
+      this.regexFilterPattern = null;
+    }
+  }
+};
+
+exports.InterestFilter = InterestFilter;
+
+/**
+ * Check if the given name matches this filter. Match if name starts with this
+ * filter's prefix. If this filter has the optional regexFilter then the
+ * remaining components match the regexFilter regular expression.
+ * For example, the following InterestFilter:
+ *
+ *    InterestFilter("/hello", "<world><>+")
+ *
+ * will match all Interests, whose name has the prefix `/hello` which is
+ * followed by a component `world` and has at least one more component after it.
+ * Examples:
+ *
+ *    /hello/world/!
+ *    /hello/world/x/y/z
+ *
+ * Note that the regular expression will need to match all remaining components
+ * (e.g., there are implicit heading `^` and trailing `$` symbols in the
+ * regular expression).
+ * @param {Name} name The name to check against this filter.
+ * @returns {boolean} True if name matches this filter, otherwise false.
+ */
+InterestFilter.prototype.doesMatch = function(name)
+{
+  if (name.size() < this.prefix.size())
+    return false;
+
+  if (this.hasRegexFilter()) {
+    // Perform a prefix match and regular expression match for the remaining
+    // components.
+    if (!this.prefix.match(name))
+      return false;
+
+    return null != NdnRegexMatcher.match
+      (this.regexFilterPattern, name.getSubName(this.prefix.size()));
+  }
+  else
+    // Just perform a prefix match.
+    return this.prefix.match(name);
+};
+
+/**
+ * Get the prefix given to the constructor.
+ * @returns {Name} The prefix Name which you should not modify.
+ */
+InterestFilter.prototype.getPrefix = function() { return this.prefix; };
+
+/**
+ * Check if a regexFilter was supplied to the constructor.
+ * @returns {boolean} True if a regexFilter was supplied to the constructor.
+ */
+InterestFilter.prototype.hasRegexFilter = function()
+{
+  return this.regexFilter != null;
+};
+
+/**
+ * Get the regex filter. This is only valid if hasRegexFilter() is true.
+ * @returns {string} The regular expression for matching the remaining name
+ * components.
+ */
+InterestFilter.prototype.getRegexFilter = function() { return this.regexFilter; };
+
+/**
+ * If regexFilter doesn't already have them, add ^ to the beginning and $ to
+ * the end since these are required by NdnRegexMatcher.match.
+ * @param {string} regexFilter The regex filter.
+ * @returns {string} The regex pattern with ^ and $.
+ */
+InterestFilter.makePattern = function(regexFilter)
+{
+  if (regexFilter.length == 0)
+    // We don't expect this.
+    return "^$";
+
+  var pattern = regexFilter;
+  if (pattern[0] != '^')
+    pattern = "^" + pattern;
+  if (pattern[pattern.length - 1] != '$')
+    pattern = pattern + "$";
+
+  return pattern;
+};
+/**
+ * Copyright (C) 2013-2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 var Blob = require('../util/blob.js').Blob;
@@ -12832,7 +22174,7 @@ var BinaryXMLDecoder = require('./binary-xml-decoder.js').BinaryXMLDecoder;
 var WireFormat = require('./wire-format.js').WireFormat;
 var Name = require('../name.js').Name;
 var Exclude = require('../exclude.js').Exclude;
-var Signature = require('../signature.js').Signature;
+var Sha256WithRsaSignature = require('../sha256-with-rsa-signature.js').Sha256WithRsaSignature;
 var MetaInfo = require('../meta-info.js').MetaInfo;
 var PublisherPublicKeyDigest = require('../publisher-public-key-digest.js').PublisherPublicKeyDigest;
 var DataUtils = require('./data-utils.js').DataUtils;
@@ -12846,6 +22188,10 @@ var BinaryXmlWireFormat = function BinaryXmlWireFormat()
 {
   // Inherit from WireFormat.
   WireFormat.call(this);
+
+  if (!WireFormat.ENABLE_NDNX)
+    throw new Error
+      ("BinaryXmlWireFormat (NDNx) is deprecated. To enable while you upgrade your code to use NDN-TLV, set WireFormat.ENABLE_NDNX = true");
 };
 
 exports.BinaryXmlWireFormat = BinaryXmlWireFormat;
@@ -12855,25 +22201,64 @@ BinaryXmlWireFormat.instance = null;
 
 /**
  * Encode interest as Binary XML and return the encoding.
+ * @param {Name} interest The Name to encode.
+ * @returns {Blobl} A Blob containing the encoding.
+ */
+BinaryXmlWireFormat.prototype.encodeName = function(name)
+{
+  var encoder = new BinaryXMLEncoder();
+  name.to_ndnb(encoder);
+  return new Blob(encoder.getReducedOstream(), false);
+};
+
+/**
+ * Decode input as a Binary XML name and set the fields of the Name object.
+ * @param {Name} name The Name object whose fields are updated.
+ * @param {Buffer} input The buffer with the bytes to decode.
+ */
+BinaryXmlWireFormat.prototype.decodeName = function(name, input)
+{
+  var decoder = new BinaryXMLDecoder(input);
+  name.from_ndnb(decoder);
+};
+
+/**
+ * Encode interest as Binary XML and return the encoding.
  * @param {Interest} interest The Interest to encode.
- * @returns {Blob} A Blob containing the encoding.
+ * @returns {object} An associative array with fields
+ * (encoding, signedPortionBeginOffset, signedPortionEndOffset) where encoding
+ * is a Blob containing the encoding, signedPortionBeginOffset is the offset in
+ * the encoding of the beginning of the signed portion, and
+ * signedPortionEndOffset is the offset in the encoding of the end of the signed
+ * portion. The signed portion starts from the first name component and ends
+ * just before the final name component (which is assumed to be a signature for
+ * a signed interest).
  */
 BinaryXmlWireFormat.prototype.encodeInterest = function(interest)
 {
   var encoder = new BinaryXMLEncoder();
-  BinaryXmlWireFormat.encodeInterest(interest, encoder);
-  return new Blob(encoder.getReducedOstream(), false);
+  var offsets = BinaryXmlWireFormat.encodeInterest(interest, encoder);
+  return { encoding: new Blob(encoder.getReducedOstream(), false),
+           signedPortionBeginOffset: offsets.signedPortionBeginOffset,
+           signedPortionEndOffset: offsets.signedPortionEndOffset };
 };
 
 /**
  * Decode input as a Binary XML interest and set the fields of the interest object.
  * @param {Interest} interest The Interest object whose fields are updated.
  * @param {Buffer} input The buffer with the bytes to decode.
+ * @returns {object} An associative array with fields
+ * (signedPortionBeginOffset, signedPortionEndOffset) where
+ * signedPortionBeginOffset is the offset in the encoding of the beginning of
+ * the signed portion, and signedPortionEndOffset is the offset in the encoding
+ * of the end of the signed portion. The signed portion starts from the first
+ * name component and ends just before the final name component (which is
+ * assumed to be a signature for a signed interest).
  */
 BinaryXmlWireFormat.prototype.decodeInterest = function(interest, input)
 {
   var decoder = new BinaryXMLDecoder(input);
-  BinaryXmlWireFormat.decodeInterest(interest, decoder);
+  return BinaryXmlWireFormat.decodeInterest(interest, decoder);
 };
 
 /**
@@ -12946,12 +22331,19 @@ BinaryXmlWireFormat.get = function()
  * Encode the interest by calling the operations on the encoder.
  * @param {Interest} interest
  * @param {BinaryXMLEncoder} encoder
+ * @returns {object} An associative array with fields
+ * (signedPortionBeginOffset, signedPortionEndOffset) where
+ * signedPortionBeginOffset is the offset in the encoding of the beginning of
+ * the signed portion, and signedPortionEndOffset is the offset in the encoding
+ * of the end of the signed portion. The signed portion starts from the first
+ * name component and ends just before the final name component (which is
+ * assumed to be a signature for a signed interest).
  */
 BinaryXmlWireFormat.encodeInterest = function(interest, encoder)
 {
   encoder.writeElementStartDTag(NDNProtocolDTags.Interest);
 
-  interest.getName().to_ndnb(encoder);
+  var offsets = interest.getName().to_ndnb(encoder);
 
   if (null != interest.getMinSuffixComponents())
     encoder.writeDTagElement(NDNProtocolDTags.MinSuffixComponents, interest.getMinSuffixComponents());
@@ -12977,11 +22369,11 @@ BinaryXmlWireFormat.encodeInterest = function(interest, encoder)
   if (null != interest.getChildSelector())
     encoder.writeDTagElement(NDNProtocolDTags.ChildSelector, interest.getChildSelector());
 
-  if (interest.DEFAULT_ANSWER_ORIGIN_KIND != interest.setAnswerOriginKind() && interest.setAnswerOriginKind()!=null)
-    encoder.writeDTagElement(NDNProtocolDTags.AnswerOriginKind, interest.setAnswerOriginKind());
+  if (interest.DEFAULT_ANSWER_ORIGIN_KIND != interest.getAnswerOriginKind() && interest.getAnswerOriginKind()!=null)
+    encoder.writeDTagElement(NDNProtocolDTags.AnswerOriginKind, interest.getAnswerOriginKind());
 
-  if (null != interest.setScope())
-    encoder.writeDTagElement(NDNProtocolDTags.Scope, interest.setScope());
+  if (null != interest.getScope())
+    encoder.writeDTagElement(NDNProtocolDTags.Scope, interest.getScope());
 
   if (null != interest.getInterestLifetimeMilliseconds())
     encoder.writeDTagElement(NDNProtocolDTags.InterestLifetime,
@@ -12991,19 +22383,27 @@ BinaryXmlWireFormat.encodeInterest = function(interest, encoder)
     encoder.writeDTagElement(NDNProtocolDTags.Nonce, interest.getNonce());
 
   encoder.writeElementClose();
+  return offsets;
 };
 
 /**
  * Use the decoder to place the result in interest.
  * @param {Interest} interest
  * @param {BinaryXMLDecoder} decoder
+ * @returns {object} An associative array with fields
+ * (signedPortionBeginOffset, signedPortionEndOffset) where
+ * signedPortionBeginOffset is the offset in the encoding of the beginning of
+ * the signed portion, and signedPortionEndOffset is the offset in the encoding
+ * of the end of the signed portion. The signed portion starts from the first
+ * name component and ends just before the final name component (which is
+ * assumed to be a signature for a signed interest).
  */
 BinaryXmlWireFormat.decodeInterest = function(interest, decoder)
 {
   decoder.readElementStartDTag(NDNProtocolDTags.Interest);
 
   interest.setName(new Name());
-  interest.getName().from_ndnb(decoder);
+  var offsets = interest.getName().from_ndnb(decoder);
 
   if (decoder.peekDTag(NDNProtocolDTags.MinSuffixComponents))
     interest.setMinSuffixComponents(decoder.readIntegerDTagElement(NDNProtocolDTags.MinSuffixComponents));
@@ -13067,6 +22467,7 @@ BinaryXmlWireFormat.decodeInterest = function(interest, decoder)
     interest.setNonce(null);
 
   decoder.readElementClose();
+  return offsets;
 };
 
 /**
@@ -13123,11 +22524,11 @@ BinaryXmlWireFormat.decodeData = function(data, decoder)
   decoder.readElementStartDTag(data.getElementLabel());
 
   if (decoder.peekDTag(NDNProtocolDTags.Signature)) {
-    data.setSignature(new Signature());
+    data.setSignature(new Sha256WithRsaSignature());
     data.getSignature().from_ndnb(decoder);
   }
   else
-    data.setSignature(new Signature());
+    data.setSignature(new Sha256WithRsaSignature());
 
   var signedPortionBeginOffset = decoder.offset;
 
@@ -13155,7 +22556,7 @@ BinaryXmlWireFormat.decodeData = function(data, decoder)
            signedPortionEndOffset: signedPortionEndOffset };
 };
 /**
- * Copyright (C) 2013-2014 Regents of the University of California.
+ * Copyright (C) 2013-2015 Regents of the University of California.
  * @author: Jeff Thompson <jefft0@remap.ucla.edu>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -13166,63 +22567,100 @@ BinaryXmlWireFormat.decodeData = function(data, decoder)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
-var crypto = require('crypto');
+var Crypto = require('../crypto.js');
 var Blob = require('../util/blob.js').Blob;
+var Name = require('../name').Name;
+var ForwardingFlags = require('../forwarding-flags').ForwardingFlags;
 var Tlv = require('./tlv/tlv.js').Tlv;
 var TlvEncoder = require('./tlv/tlv-encoder.js').TlvEncoder;
 var TlvDecoder = require('./tlv/tlv-decoder.js').TlvDecoder;
 var WireFormat = require('./wire-format.js').WireFormat;
 var Exclude = require('../exclude.js').Exclude;
 var ContentType = require('../meta-info.js').ContentType;
+var KeyLocator = require('../key-locator.js').KeyLocator;
 var KeyLocatorType = require('../key-locator.js').KeyLocatorType;
-var Signature = require('../signature.js').Signature;
+var Sha256WithRsaSignature = require('../sha256-with-rsa-signature.js').Sha256WithRsaSignature;
+var DigestSha256Signature = require('../digest-sha256-signature.js').DigestSha256Signature;
+var ForwardingFlags = require('../forwarding-flags.js').ForwardingFlags;
+var PublisherPublicKeyDigest = require('../publisher-public-key-digest.js').PublisherPublicKeyDigest;
 var DecodingException = require('./decoding-exception.js').DecodingException;
 
 /**
- * A Tlv0_1WireFormat implements the WireFormat interface for encoding and
- * decoding with the NDN-TLV wire format, version 0.1a2.
+ * A Tlv0_1_1WireFormat implements the WireFormat interface for encoding and
+ * decoding with the NDN-TLV wire format, version 0.1.1.
  * @constructor
  */
-var Tlv0_1WireFormat = function Tlv0_1WireFormat()
+var Tlv0_1_1WireFormat = function Tlv0_1_1WireFormat()
 {
   // Inherit from WireFormat.
   WireFormat.call(this);
 };
 
-Tlv0_1WireFormat.prototype = new WireFormat();
-Tlv0_1WireFormat.prototype.name = "Tlv0_1WireFormat";
+Tlv0_1_1WireFormat.prototype = new WireFormat();
+Tlv0_1_1WireFormat.prototype.name = "Tlv0_1_1WireFormat";
 
-exports.Tlv0_1WireFormat = Tlv0_1WireFormat;
+exports.Tlv0_1_1WireFormat = Tlv0_1_1WireFormat;
 
 // Default object.
-Tlv0_1WireFormat.instance = null;
+Tlv0_1_1WireFormat.instance = null;
+
+/**
+ * Encode interest as NDN-TLV and return the encoding.
+ * @param {Name} interest The Name to encode.
+ * @returns {Blobl} A Blob containing the encoding.
+ */
+Tlv0_1_1WireFormat.prototype.encodeName = function(name)
+{
+  var encoder = new TlvEncoder();
+  Tlv0_1_1WireFormat.encodeName(name, encoder);
+  return new Blob(encoder.getOutput(), false);
+};
+
+/**
+ * Decode input as a NDN-TLV name and set the fields of the Name object.
+ * @param {Name} name The Name object whose fields are updated.
+ * @param {Buffer} input The buffer with the bytes to decode.
+ */
+Tlv0_1_1WireFormat.prototype.decodeName = function(name, input)
+{
+  var decoder = new TlvDecoder(input);
+  Tlv0_1_1WireFormat.decodeName(name, decoder);
+};
 
 /**
  * Encode the interest using NDN-TLV and return a Buffer.
  * @param {Interest} interest The Interest object to encode.
- * @returns {Blob} A Blob containing the encoding.
+ * @returns {object} An associative array with fields
+ * (encoding, signedPortionBeginOffset, signedPortionEndOffset) where encoding
+ * is a Blob containing the encoding, signedPortionBeginOffset is the offset in
+ * the encoding of the beginning of the signed portion, and
+ * signedPortionEndOffset is the offset in the encoding of the end of the signed
+ * portion. The signed portion starts from the first name component and ends
+ * just before the final name component (which is assumed to be a signature for
+ * a signed interest).
  */
-Tlv0_1WireFormat.prototype.encodeInterest = function(interest)
+Tlv0_1_1WireFormat.prototype.encodeInterest = function(interest)
 {
-  var encoder = new TlvEncoder();
+  var encoder = new TlvEncoder(256);
   var saveLength = encoder.getLength();
 
   // Encode backwards.
   encoder.writeOptionalNonNegativeIntegerTlv
     (Tlv.InterestLifetime, interest.getInterestLifetimeMilliseconds());
-  encoder.writeOptionalNonNegativeIntegerTlv(Tlv.Scope, interest.getScope());
+  // Access scope_ directy to avoid throwing the deprecated exception.
+  encoder.writeOptionalNonNegativeIntegerTlv(Tlv.Scope, interest.scope_);
 
   // Encode the Nonce as 4 bytes.
   if (interest.getNonce().isNull() || interest.getNonce().size() == 0)
     // This is the most common case. Generate a nonce.
-    encoder.writeBlobTlv(Tlv.Nonce, require("crypto").randomBytes(4));
+    encoder.writeBlobTlv(Tlv.Nonce, Crypto.randomBytes(4));
   else if (interest.getNonce().size() < 4) {
     var nonce = Buffer(4);
     // Copy existing nonce bytes.
@@ -13230,7 +22668,7 @@ Tlv0_1WireFormat.prototype.encodeInterest = function(interest)
 
     // Generate random bytes for remaining bytes in the nonce.
     for (var i = interest.getNonce().size(); i < 4; ++i)
-      nonce[i] = require("crypto").randomBytes(1)[0];
+      nonce[i] = Crypto.randomBytes(1)[0];
 
     encoder.writeBlobTlv(Tlv.Nonce, nonce);
   }
@@ -13241,12 +22679,22 @@ Tlv0_1WireFormat.prototype.encodeInterest = function(interest)
     // Truncate.
     encoder.writeBlobTlv(Tlv.Nonce, interest.getNonce().buf().slice(0, 4));
 
-  Tlv0_1WireFormat.encodeSelectors(interest, encoder);
-  Tlv0_1WireFormat.encodeName(interest.getName(), encoder);
+  Tlv0_1_1WireFormat.encodeSelectors(interest, encoder);
+  var tempOffsets = Tlv0_1_1WireFormat.encodeName(interest.getName(), encoder);
+  var signedPortionBeginOffsetFromBack =
+    encoder.getLength() - tempOffsets.signedPortionBeginOffset;
+  var signedPortionEndOffsetFromBack =
+    encoder.getLength() - tempOffsets.signedPortionEndOffset;
 
   encoder.writeTypeAndLength(Tlv.Interest, encoder.getLength() - saveLength);
+  var signedPortionBeginOffset =
+    encoder.getLength() - signedPortionBeginOffsetFromBack;
+  var signedPortionEndOffset =
+    encoder.getLength() - signedPortionEndOffsetFromBack;
 
-  return new Blob(encoder.getOutput(), false);
+  return { encoding: new Blob(encoder.getOutput(), false),
+           signedPortionBeginOffset: signedPortionBeginOffset,
+           signedPortionEndOffset: signedPortionEndOffset };
 };
 
 /**
@@ -13254,19 +22702,27 @@ Tlv0_1WireFormat.prototype.encodeInterest = function(interest)
  * object.
  * @param {Interest} interest The Interest object whose fields are updated.
  * @param {Buffer} input The buffer with the bytes to decode.
+ * @returns {object} An associative array with fields
+ * (signedPortionBeginOffset, signedPortionEndOffset) where
+ * signedPortionBeginOffset is the offset in the encoding of the beginning of
+ * the signed portion, and signedPortionEndOffset is the offset in the encoding
+ * of the end of the signed portion. The signed portion starts from the first
+ * name component and ends just before the final name component (which is
+ * assumed to be a signature for a signed interest).
  */
-Tlv0_1WireFormat.prototype.decodeInterest = function(interest, input)
+Tlv0_1_1WireFormat.prototype.decodeInterest = function(interest, input)
 {
   var decoder = new TlvDecoder(input);
 
   var endOffset = decoder.readNestedTlvsStart(Tlv.Interest);
-  Tlv0_1WireFormat.decodeName(interest.getName(), decoder);
+  var offsets = Tlv0_1_1WireFormat.decodeName(interest.getName(), decoder);
   if (decoder.peekType(Tlv.Selectors, endOffset))
-    Tlv0_1WireFormat.decodeSelectors(interest, decoder);
+    Tlv0_1_1WireFormat.decodeSelectors(interest, decoder);
   // Require a Nonce, but don't force it to be 4 bytes.
   var nonce = decoder.readBlobTlv(Tlv.Nonce);
-  interest.setScope(decoder.readOptionalNonNegativeIntegerTlv
-    (Tlv.Scope, endOffset));
+  // Access scope_ directy to avoid throwing the deprecated exception.
+  interest.scope_ = decoder.readOptionalNonNegativeIntegerTlv
+    (Tlv.Scope, endOffset);
   interest.setInterestLifetimeMilliseconds
     (decoder.readOptionalNonNegativeIntegerTlv(Tlv.InterestLifetime, endOffset));
 
@@ -13274,6 +22730,7 @@ Tlv0_1WireFormat.prototype.decodeInterest = function(interest, input)
   interest.setNonce(nonce);
 
   decoder.finishNestedTlvs(endOffset);
+  return offsets;
 };
 
 /**
@@ -13286,24 +22743,23 @@ Tlv0_1WireFormat.prototype.decodeInterest = function(interest, input)
  * signedPortionEndOffset is the offset in the encoding of the end of the
  * signed portion.
  */
-Tlv0_1WireFormat.prototype.encodeData = function(data)
+Tlv0_1_1WireFormat.prototype.encodeData = function(data)
 {
   var encoder = new TlvEncoder(1500);
   var saveLength = encoder.getLength();
 
   // Encode backwards.
-  // TODO: The library needs to handle other signature types than
-  //   SignatureSha256WithRsa.
   encoder.writeBlobTlv(Tlv.SignatureValue, data.getSignature().getSignature().buf());
   var signedPortionEndOffsetFromBack = encoder.getLength();
 
   // Use getSignatureOrMetaInfoKeyLocator for the transition of moving
-  //   the key locator from the MetaInfo to the Signauture object.
-  Tlv0_1WireFormat.encodeSignatureSha256WithRsaValue
+  //   the key locator from the MetaInfo to the Signauture object. (Note that
+  //   getSignatureOrMetaInfoKeyLocator checks canGetFromSignature.)
+  Tlv0_1_1WireFormat.encodeSignatureInfo_
     (data.getSignature(), encoder, data.getSignatureOrMetaInfoKeyLocator());
   encoder.writeBlobTlv(Tlv.Content, data.getContent().buf());
-  Tlv0_1WireFormat.encodeMetaInfo(data.getMetaInfo(), encoder);
-  Tlv0_1WireFormat.encodeName(data.getName(), encoder);
+  Tlv0_1_1WireFormat.encodeMetaInfo(data.getMetaInfo(), encoder);
+  Tlv0_1_1WireFormat.encodeName(data.getName(), encoder);
   var signedPortionBeginOffsetFromBack = encoder.getLength();
 
   encoder.writeTypeAndLength(Tlv.Data, encoder.getLength() - saveLength);
@@ -13327,17 +22783,17 @@ Tlv0_1WireFormat.prototype.encodeData = function(data)
  * the signed portion, and signedPortionEndOffset is the offset in the encoding
  * of the end of the signed portion.
  */
-Tlv0_1WireFormat.prototype.decodeData = function(data, input)
+Tlv0_1_1WireFormat.prototype.decodeData = function(data, input)
 {
   var decoder = new TlvDecoder(input);
 
   var endOffset = decoder.readNestedTlvsStart(Tlv.Data);
   var signedPortionBeginOffset = decoder.getOffset();
 
-  Tlv0_1WireFormat.decodeName(data.getName(), decoder);
-  Tlv0_1WireFormat.decodeMetaInfo(data.getMetaInfo(), decoder);
+  Tlv0_1_1WireFormat.decodeName(data.getName(), decoder);
+  Tlv0_1_1WireFormat.decodeMetaInfo(data.getMetaInfo(), decoder);
   data.setContent(decoder.readBlobTlv(Tlv.Content));
-  Tlv0_1WireFormat.decodeSignatureInfo(data, decoder);
+  Tlv0_1_1WireFormat.decodeSignatureInfo(data, decoder);
   if (data.getSignature() != null &&
       data.getSignature().getKeyLocator() != null &&
       data.getMetaInfo() != null)
@@ -13346,9 +22802,8 @@ Tlv0_1WireFormat.prototype.decodeData = function(data, input)
     data.getMetaInfo().locator = data.getSignature().getKeyLocator();
 
   var signedPortionEndOffset = decoder.getOffset();
-  // TODO: The library needs to handle other signature types than
-  //   SignatureSha256WithRsa.
-  data.getSignature().setSignature(decoder.readBlobTlv(Tlv.SignatureValue));
+  data.getSignature().setSignature
+    (new Blob(decoder.readBlobTlv(Tlv.SignatureValue), true));
 
   decoder.finishNestedTlvs(endOffset);
   return { signedPortionBeginOffset: signedPortionBeginOffset,
@@ -13356,44 +22811,282 @@ Tlv0_1WireFormat.prototype.decodeData = function(data, input)
 };
 
 /**
- * Get a singleton instance of a Tlv1_0a2WireFormat.  To always use the
- * preferred version NDN-TLV, you should use TlvWireFormat.get().
- * @returns {Tlv0_1WireFormat} The singleton instance.
+ * Encode controlParameters as NDN-TLV and return the encoding.
+ * @param {ControlParameters} controlParameters The ControlParameters object to
+ * encode.
+ * @returns {Blob} A Blob containing the encoding.
  */
-Tlv0_1WireFormat.get = function()
+Tlv0_1_1WireFormat.prototype.encodeControlParameters = function(controlParameters)
 {
-  if (Tlv0_1WireFormat.instance === null)
-    Tlv0_1WireFormat.instance = new Tlv0_1WireFormat();
-  return Tlv0_1WireFormat.instance;
+  var encoder = new TlvEncoder(256);
+  var saveLength = encoder.getLength();
+
+  // Encode backwards.
+  encoder.writeOptionalNonNegativeIntegerTlv
+    (Tlv.ControlParameters_ExpirationPeriod,
+     controlParameters.getExpirationPeriod());
+
+  if (controlParameters.getStrategy().size() > 0){
+    var strategySaveLength = encoder.getLength();
+    Tlv0_1_1WireFormat.encodeName(controlParameters.getStrategy(), encoder);
+    encoder.writeTypeAndLength(Tlv.ControlParameters_Strategy,
+      encoder.getLength() - strategySaveLength);
+  }
+
+  var flags = controlParameters.getForwardingFlags().getNfdForwardingFlags();
+  if (flags != new ForwardingFlags().getNfdForwardingFlags())
+      // The flags are not the default value.
+      encoder.writeNonNegativeIntegerTlv
+        (Tlv.ControlParameters_Flags, flags);
+
+  encoder.writeOptionalNonNegativeIntegerTlv
+    (Tlv.ControlParameters_Cost, controlParameters.getCost());
+  encoder.writeOptionalNonNegativeIntegerTlv
+    (Tlv.ControlParameters_Origin, controlParameters.getOrigin());
+  encoder.writeOptionalNonNegativeIntegerTlv
+    (Tlv.ControlParameters_LocalControlFeature,
+     controlParameters.getLocalControlFeature());
+
+  if (controlParameters.getUri().length != 0)
+    encoder.writeBlobTlv
+      (Tlv.ControlParameters_Uri, new Blob(controlParameters.getUri()).buf());
+
+  encoder.writeOptionalNonNegativeIntegerTlv
+    (Tlv.ControlParameters_FaceId, controlParameters.getFaceId());
+  if (controlParameters.getName() != null)
+    Tlv0_1_1WireFormat.encodeName(controlParameters.getName(), encoder);
+
+  encoder.writeTypeAndLength
+    (Tlv.ControlParameters_ControlParameters, encoder.getLength() - saveLength);
+
+  return new Blob(encoder.getOutput(), false);
 };
 
-Tlv0_1WireFormat.encodeName = function(name, encoder)
+/**
+  * Decode controlParameters in NDN-TLV and return the encoding.
+  * @param controlParameters The ControlParameters object to encode.
+  * @param input
+  * @throws EncodingException For invalid encoding
+  */
+Tlv0_1_1WireFormat.prototype.decodeControlParameters = function(controlParameters, input)
+{
+  controlParameters.clear();
+  var decoder = new TlvDecoder(input);
+  var endOffset = decoder.
+    readNestedTlvsStart(Tlv.ControlParameters_ControlParameters);
+
+  // decode name
+  if (decoder.peekType(Tlv.Name, endOffset)) {
+    var name = new Name();
+    Tlv0_1_1WireFormat.decodeName(name, decoder);
+    controlParameters.setName(name);
+  }
+
+  // decode face ID
+  controlParameters.setFaceId(decoder.readOptionalNonNegativeIntegerTlv
+    (Tlv.ControlParameters_FaceId, endOffset));
+
+  // decode URI
+  if (decoder.peekType(Tlv.ControlParameters_Uri, endOffset)) {
+    var uri = new Blob
+      (decoder.readOptionalBlobTlv(Tlv.ControlParameters_Uri, endOffset), false);
+    controlParameters.setUri(uri.toString());
+  }
+
+  // decode integers
+  controlParameters.setLocalControlFeature(decoder.
+    readOptionalNonNegativeIntegerTlv(
+      Tlv.ControlParameters_LocalControlFeature, endOffset));
+  controlParameters.setOrigin(decoder.
+    readOptionalNonNegativeIntegerTlv(Tlv.ControlParameters_Origin,
+      endOffset));
+  controlParameters.setCost(decoder.readOptionalNonNegativeIntegerTlv(
+    Tlv.ControlParameters_Cost, endOffset));
+
+  // set forwarding flags
+  if (decoder.peekType(Tlv.ControlParameters_Flags, endOffset)) {
+    var flags = new ForwardingFlags();
+    flags.setNfdForwardingFlags(decoder.
+      readNonNegativeIntegerTlv(Tlv.ControlParameters_Flags, endOffset));
+    controlParameters.setForwardingFlags(flags);
+  }
+
+  // decode strategy
+  if (decoder.peekType(Tlv.ControlParameters_Strategy, endOffset)) {
+    var strategyEndOffset = decoder.readNestedTlvsStart(Tlv.ControlParameters_Strategy);
+    Tlv0_1_1WireFormat.decodeName(controlParameters.getStrategy(), decoder);
+    decoder.finishNestedTlvs(strategyEndOffset);
+  }
+
+  // decode expiration period
+  controlParameters.setExpirationPeriod(
+    decoder.readOptionalNonNegativeIntegerTlv(
+      Tlv.ControlParameters_ExpirationPeriod, endOffset));
+
+  decoder.finishNestedTlvs(endOffset);
+};
+
+/**
+ * Encode signature as a SignatureInfo and return the encoding.
+ * @param {Signature} signature An object of a subclass of Signature to encode.
+ * @returns {Blob} A Blob containing the encoding.
+ */
+Tlv0_1_1WireFormat.prototype.encodeSignatureInfo = function(signature)
+{
+  var encoder = new TlvEncoder(256);
+
+  // For now, encodeSignatureInfo_ needs to be passed the keyLocator.
+  var keyLocator = null;
+  if (KeyLocator.canGetFromSignature(signature))
+    keyLocator = KeyLocator.getFromSignature(signature);
+  Tlv0_1_1WireFormat.encodeSignatureInfo_(signature, encoder, keyLocator);
+
+  return new Blob(encoder.getOutput(), false);
+};
+
+// SignatureHolder is used by decodeSignatureInfoAndValue.
+Tlv0_1_1WireFormat.SignatureHolder = function Tlv0_1_1WireFormatSignatureHolder()
+{
+};
+
+Tlv0_1_1WireFormat.SignatureHolder.prototype.setSignature = function(signature)
+{
+  this.signature = signature;
+};
+
+Tlv0_1_1WireFormat.SignatureHolder.prototype.getSignature = function()
+{
+  return this.signature;
+};
+
+/**
+ * Decode signatureInfo as a signature info and signatureValue as the related
+ * SignatureValue, and return a new object which is a subclass of Signature.
+ * @param {Buffer} signatureInfo The buffer with the signature info bytes to
+ * decode.
+ * @param {Buffer} signatureValue The buffer with the signature value to decode.
+ * @returns {Signature} A new object which is a subclass of Signature.
+ */
+Tlv0_1_1WireFormat.prototype.decodeSignatureInfoAndValue = function
+  (signatureInfo, signatureValue)
+{
+  // Use a SignatureHolder to imitate a Data object for decodeSignatureInfo.
+  var signatureHolder = new Tlv0_1_1WireFormat.SignatureHolder();
+  var decoder = new TlvDecoder(signatureInfo);
+  Tlv0_1_1WireFormat.decodeSignatureInfo(signatureHolder, decoder);
+
+  decoder = new TlvDecoder(signatureValue);
+  signatureHolder.getSignature().setSignature
+    (new Blob(decoder.readBlobTlv(Tlv.SignatureValue), true));
+
+  return signatureHolder.getSignature();
+};
+
+/**
+ * Encode the signatureValue in the Signature object as a SignatureValue (the
+ * signature bits) and return the encoding.
+ * @param {Signature} signature An object of a subclass of Signature with the
+ * signature value to encode.
+ * @returns {Blob} A Blob containing the encoding.
+ */
+Tlv0_1_1WireFormat.prototype.encodeSignatureValue = function(signature)
+{
+  var encoder = new TlvEncoder(256);
+  encoder.writeBlobTlv(Tlv.SignatureValue, signature.getSignature().buf());
+
+  return new Blob(encoder.getOutput(), false);
+};
+
+/**
+ * Get a singleton instance of a Tlv0_1_1WireFormat.  To always use the
+ * preferred version NDN-TLV, you should use TlvWireFormat.get().
+ * @returns {Tlv0_1_1WireFormat} The singleton instance.
+ */
+Tlv0_1_1WireFormat.get = function()
+{
+  if (Tlv0_1_1WireFormat.instance === null)
+    Tlv0_1_1WireFormat.instance = new Tlv0_1_1WireFormat();
+  return Tlv0_1_1WireFormat.instance;
+};
+
+/**
+ * Encode the name to the encoder.
+ * @param {Name} name The name to encode.
+ * @param {TlvEncoder} encoder The encoder to receive the encoding.
+ * @returns {object} An associative array with fields
+ * (signedPortionBeginOffset, signedPortionEndOffset) where
+ * signedPortionBeginOffset is the offset in the encoding of the beginning of
+ * the signed portion, and signedPortionEndOffset is the offset in the encoding
+ * of the end of the signed portion. The signed portion starts from the first
+ * name component and ends just before the final name component (which is
+ * assumed to be a signature for a signed interest).
+ */
+Tlv0_1_1WireFormat.encodeName = function(name, encoder)
 {
   var saveLength = encoder.getLength();
 
   // Encode the components backwards.
-  for (var i = name.size() - 1; i >= 0; --i)
+  var signedPortionEndOffsetFromBack;
+  for (var i = name.size() - 1; i >= 0; --i) {
     encoder.writeBlobTlv(Tlv.NameComponent, name.get(i).getValue().buf());
+    if (i == name.size() - 1)
+      signedPortionEndOffsetFromBack = encoder.getLength();
+  }
 
+  var signedPortionBeginOffsetFromBack = encoder.getLength();
   encoder.writeTypeAndLength(Tlv.Name, encoder.getLength() - saveLength);
+
+  var signedPortionBeginOffset =
+    encoder.getLength() - signedPortionBeginOffsetFromBack;
+  var signedPortionEndOffset;
+  if (name.size() == 0)
+    // There is no "final component", so set signedPortionEndOffset arbitrarily.
+    signedPortionEndOffset = signedPortionBeginOffset;
+  else
+    signedPortionEndOffset = encoder.getLength() - signedPortionEndOffsetFromBack;
+
+  return { signedPortionBeginOffset: signedPortionBeginOffset,
+           signedPortionEndOffset: signedPortionEndOffset };
 };
 
-Tlv0_1WireFormat.decodeName = function(name, decoder)
+/**
+ * Clear the name, decode a Name from the decoder and set the fields of the name
+ * object.
+ * @param {Name} name The name object whose fields are updated.
+ * @param {TlvDecoder} decoder The decoder with the input.
+ * @returns {object} An associative array with fields
+ * (signedPortionBeginOffset, signedPortionEndOffset) where
+ * signedPortionBeginOffset is the offset in the encoding of the beginning of
+ * the signed portion, and signedPortionEndOffset is the offset in the encoding
+ * of the end of the signed portion. The signed portion starts from the first
+ * name component and ends just before the final name component (which is
+ * assumed to be a signature for a signed interest).
+ */
+Tlv0_1_1WireFormat.decodeName = function(name, decoder)
 {
   name.clear();
 
   var endOffset = decoder.readNestedTlvsStart(Tlv.Name);
-  while (decoder.getOffset() < endOffset)
-      name.append(decoder.readBlobTlv(Tlv.NameComponent));
+  var signedPortionBeginOffset = decoder.getOffset();
+  // In case there are no components, set signedPortionEndOffset arbitrarily.
+  var signedPortionEndOffset = signedPortionBeginOffset;
+
+  while (decoder.getOffset() < endOffset) {
+    signedPortionEndOffset = decoder.getOffset();
+    name.append(decoder.readBlobTlv(Tlv.NameComponent));
+  }
 
   decoder.finishNestedTlvs(endOffset);
+
+  return { signedPortionBeginOffset: signedPortionBeginOffset,
+           signedPortionEndOffset: signedPortionEndOffset };
 };
 
 /**
  * Encode the interest selectors.  If no selectors are written, do not output a
  * Selectors TLV.
  */
-Tlv0_1WireFormat.encodeSelectors = function(interest, encoder)
+Tlv0_1_1WireFormat.encodeSelectors = function(interest, encoder)
 {
   var saveLength = encoder.getLength();
 
@@ -13403,10 +23096,10 @@ Tlv0_1WireFormat.encodeSelectors = function(interest, encoder)
   encoder.writeOptionalNonNegativeIntegerTlv(
     Tlv.ChildSelector, interest.getChildSelector());
   if (interest.getExclude().size() > 0)
-    Tlv0_1WireFormat.encodeExclude(interest.getExclude(), encoder);
+    Tlv0_1_1WireFormat.encodeExclude(interest.getExclude(), encoder);
 
   if (interest.getKeyLocator().getType() != null)
-    Tlv0_1WireFormat.encodeKeyLocator
+    Tlv0_1_1WireFormat.encodeKeyLocator
       (Tlv.PublisherPublicKeyLocator, interest.getKeyLocator(), encoder);
   else {
     // There is no keyLocator. If there is a publisherPublicKeyDigest, then
@@ -13433,7 +23126,7 @@ Tlv0_1WireFormat.encodeSelectors = function(interest, encoder)
     encoder.writeTypeAndLength(Tlv.Selectors, encoder.getLength() - saveLength);
 };
 
-Tlv0_1WireFormat.decodeSelectors = function(interest, decoder)
+Tlv0_1_1WireFormat.decodeSelectors = function(interest, decoder)
 {
   var endOffset = decoder.readNestedTlvsStart(Tlv.Selectors);
 
@@ -13445,7 +23138,7 @@ Tlv0_1WireFormat.decodeSelectors = function(interest, decoder)
   // Initially set publisherPublicKeyDigest to none.
   interest.publisherPublicKeyDigest = null;
   if (decoder.peekType(Tlv.PublisherPublicKeyLocator, endOffset)) {
-    Tlv0_1WireFormat.decodeKeyLocator
+    Tlv0_1_1WireFormat.decodeKeyLocator
       (Tlv.PublisherPublicKeyLocator, interest.getKeyLocator(), decoder);
     if (interest.getKeyLocator().getType() == KeyLocatorType.KEY_LOCATOR_DIGEST) {
       // For backwards compatibility, also set the publisherPublicKeyDigest.
@@ -13458,7 +23151,7 @@ Tlv0_1WireFormat.decodeSelectors = function(interest, decoder)
     interest.getKeyLocator().clear();
 
   if (decoder.peekType(Tlv.Exclude, endOffset))
-    Tlv0_1WireFormat.decodeExclude(interest.getExclude(), decoder);
+    Tlv0_1_1WireFormat.decodeExclude(interest.getExclude(), decoder);
   else
     interest.getExclude().clear();
 
@@ -13469,7 +23162,7 @@ Tlv0_1WireFormat.decodeSelectors = function(interest, decoder)
   decoder.finishNestedTlvs(endOffset);
 };
 
-Tlv0_1WireFormat.encodeExclude = function(exclude, encoder)
+Tlv0_1_1WireFormat.encodeExclude = function(exclude, encoder)
 {
   var saveLength = encoder.getLength();
 
@@ -13487,7 +23180,7 @@ Tlv0_1WireFormat.encodeExclude = function(exclude, encoder)
   encoder.writeTypeAndLength(Tlv.Exclude, encoder.getLength() - saveLength);
 };
 
-Tlv0_1WireFormat.decodeExclude = function(exclude, decoder)
+Tlv0_1_1WireFormat.decodeExclude = function(exclude, decoder)
 {
   var endOffset = decoder.readNestedTlvsStart(Tlv.Exclude);
 
@@ -13505,14 +23198,14 @@ Tlv0_1WireFormat.decodeExclude = function(exclude, decoder)
   decoder.finishNestedTlvs(endOffset);
 };
 
-Tlv0_1WireFormat.encodeKeyLocator = function(type, keyLocator, encoder)
+Tlv0_1_1WireFormat.encodeKeyLocator = function(type, keyLocator, encoder)
 {
   var saveLength = encoder.getLength();
 
   // Encode backwards.
   if (keyLocator.getType() != null) {
     if (keyLocator.getType() == KeyLocatorType.KEYNAME)
-      Tlv0_1WireFormat.encodeName(keyLocator.getKeyName(), encoder);
+      Tlv0_1_1WireFormat.encodeName(keyLocator.getKeyName(), encoder);
     else if (keyLocator.getType() == KeyLocatorType.KEY_LOCATOR_DIGEST &&
              keyLocator.getKeyData().size() > 0)
       encoder.writeBlobTlv(Tlv.KeyLocatorDigest, keyLocator.getKeyData().buf());
@@ -13523,7 +23216,7 @@ Tlv0_1WireFormat.encodeKeyLocator = function(type, keyLocator, encoder)
   encoder.writeTypeAndLength(type, encoder.getLength() - saveLength);
 };
 
-Tlv0_1WireFormat.decodeKeyLocator = function
+Tlv0_1_1WireFormat.decodeKeyLocator = function
   (expectedType, keyLocator, decoder)
 {
   var endOffset = decoder.readNestedTlvsStart(expectedType);
@@ -13537,7 +23230,7 @@ Tlv0_1WireFormat.decodeKeyLocator = function
   if (decoder.peekType(Tlv.Name, endOffset)) {
     // KeyLocator is a Name.
     keyLocator.setType(KeyLocatorType.KEYNAME);
-    Tlv0_1WireFormat.decodeName(keyLocator.getKeyName(), decoder);
+    Tlv0_1_1WireFormat.decodeName(keyLocator.getKeyName(), decoder);
   }
   else if (decoder.peekType(Tlv.KeyLocatorDigest, endOffset)) {
     // KeyLocator is a KeyLocatorDigest.
@@ -13545,61 +23238,69 @@ Tlv0_1WireFormat.decodeKeyLocator = function
     keyLocator.setKeyData(decoder.readBlobTlv(Tlv.KeyLocatorDigest));
   }
   else
-    throw new DecodingException
-      ("decodeKeyLocator: Unrecognized key locator type");
+    throw new DecodingException(new Error
+      ("decodeKeyLocator: Unrecognized key locator type"));
 
   decoder.finishNestedTlvs(endOffset);
 };
 
 /**
- * Encode the signature object in TLV, using the given keyLocator instead of the
+ * An internal method to encode signature as the appropriate form of
+ * SignatureInfo in NDN-TLV. Use the given keyLocator instead of the
  * locator in this object.
- * @param {Signature} signature The Signature object to encode.
+ * @param {Signature} signature An object of a subclass of Signature to encode.
  * @param {TlvEncoder} encoder The encoder.
  * @param {KeyLocator} keyLocator The key locator to use (from
- * Data.getSignatureOrMetaInfoKeyLocator).
+ * Data.getSignatureOrMetaInfoKeyLocator). This may be null if the signature
+ * does not support a KeyLocator.
  */
-Tlv0_1WireFormat.encodeSignatureSha256WithRsaValue = function
-  (signature, encoder, keyLocator)
+Tlv0_1_1WireFormat.encodeSignatureInfo_ = function(signature, encoder, keyLocator)
 {
   var saveLength = encoder.getLength();
 
   // Encode backwards.
-  Tlv0_1WireFormat.encodeKeyLocator(Tlv.KeyLocator, keyLocator, encoder);
-  encoder.writeNonNegativeIntegerTlv
-    (Tlv.SignatureType, Tlv.SignatureType_SignatureSha256WithRsa);
+  if (signature instanceof Sha256WithRsaSignature) {
+    Tlv0_1_1WireFormat.encodeKeyLocator(Tlv.KeyLocator, keyLocator, encoder);
+    encoder.writeNonNegativeIntegerTlv
+      (Tlv.SignatureType, Tlv.SignatureType_SignatureSha256WithRsa);
+  }
+  else if (signature instanceof DigestSha256Signature)
+    encoder.writeNonNegativeIntegerTlv
+      (Tlv.SignatureType, Tlv.SignatureType_DigestSha256);
+  else
+    throw new Error("encodeSignatureInfo: Unrecognized Signature object type");
 
   encoder.writeTypeAndLength(Tlv.SignatureInfo, encoder.getLength() - saveLength);
 };
 
-Tlv0_1WireFormat.decodeSignatureInfo = function(data, decoder)
+Tlv0_1_1WireFormat.decodeSignatureInfo = function(data, decoder)
 {
   var endOffset = decoder.readNestedTlvsStart(Tlv.SignatureInfo);
 
   var signatureType = decoder.readNonNegativeIntegerTlv(Tlv.SignatureType);
-  // TODO: The library needs to handle other signature types than
-  //     SignatureSha256WithRsa.
   if (signatureType == Tlv.SignatureType_SignatureSha256WithRsa) {
-      data.setSignature(Signature());
+      data.setSignature(new Sha256WithRsaSignature());
       // Modify data's signature object because if we create an object
       //   and set it, then data will have to copy all the fields.
       var signatureInfo = data.getSignature();
-      Tlv0_1WireFormat.decodeKeyLocator
+      Tlv0_1_1WireFormat.decodeKeyLocator
         (Tlv.KeyLocator, signatureInfo.getKeyLocator(), decoder);
   }
+  else if (signatureType == Tlv.SignatureType_DigestSha256)
+      data.setSignature(new DigestSha256Signature());
   else
-      throw new DecodingException
-       ("decodeSignatureInfo: unrecognized SignatureInfo type" + signatureType);
+      throw new DecodingException(new Error
+       ("decodeSignatureInfo: unrecognized SignatureInfo type" + signatureType));
 
   decoder.finishNestedTlvs(endOffset);
 };
 
-Tlv0_1WireFormat.encodeMetaInfo = function(metaInfo, encoder)
+Tlv0_1_1WireFormat.encodeMetaInfo = function(metaInfo, encoder)
 {
   var saveLength = encoder.getLength();
 
   // Encode backwards.
-  var finalBlockIdBuf = metaInfo.getFinalBlockID().getValue().buf();
+  var finalBlockIdBuf = metaInfo.getFinalBlockId().getValue().buf();
   if (finalBlockIdBuf != null && finalBlockIdBuf.length > 0) {
     // FinalBlockId has an inner NameComponent.
     var finalBlockIdSaveLength = encoder.getLength();
@@ -13624,7 +23325,7 @@ Tlv0_1WireFormat.encodeMetaInfo = function(metaInfo, encoder)
   encoder.writeTypeAndLength(Tlv.MetaInfo, encoder.getLength() - saveLength);
 };
 
-Tlv0_1WireFormat.decodeMetaInfo = function(metaInfo, decoder)
+Tlv0_1_1WireFormat.decodeMetaInfo = function(metaInfo, decoder)
 {
   var endOffset = decoder.readNestedTlvsStart(Tlv.MetaInfo);
 
@@ -13637,16 +23338,16 @@ Tlv0_1WireFormat.decodeMetaInfo = function(metaInfo, decoder)
     (decoder.readOptionalNonNegativeIntegerTlv(Tlv.FreshnessPeriod, endOffset));
   if (decoder.peekType(Tlv.FinalBlockId, endOffset)) {
     var finalBlockIdEndOffset = decoder.readNestedTlvsStart(Tlv.FinalBlockId);
-    metaInfo.setFinalBlockID(decoder.readBlobTlv(Tlv.NameComponent));
+    metaInfo.setFinalBlockId(decoder.readBlobTlv(Tlv.NameComponent));
     decoder.finishNestedTlvs(finalBlockIdEndOffset);
   }
   else
-    metaInfo.setFinalBlockID(null);
+    metaInfo.setFinalBlockId(null);
 
   decoder.finishNestedTlvs(endOffset);
 };
 /**
- * Copyright (C) 2013-2014 Regents of the University of California.
+ * Copyright (C) 2013-2015 Regents of the University of California.
  * @author: Jeff Thompson <jefft0@remap.ucla.edu>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -13657,15 +23358,68 @@ Tlv0_1WireFormat.decodeMetaInfo = function(metaInfo, decoder)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 var WireFormat = require('./wire-format.js').WireFormat;
-var Tlv0_1WireFormat = require('./tlv-0_1-wire-format.js').Tlv0_1WireFormat;
+var Tlv0_1_1WireFormat = require('./tlv-0_1_1-wire-format.js').Tlv0_1_1WireFormat;
+
+/**
+ * A Tlv0_1WireFormat extends Tlv0_1_1WireFormat so that it is an alias in case
+ * any applications use Tlv0_1WireFormat directly.  These two wire formats are
+ * the same except that Tlv0_1_1WireFormat adds support for
+ * Sha256WithEcdsaSignature.
+ * @constructor
+ */
+var Tlv0_1WireFormat = function Tlv0_1WireFormat()
+{
+  // Inherit from Tlv0_1_1WireFormat.
+  Tlv0_1_1WireFormat.call(this);
+};
+
+Tlv0_1WireFormat.prototype = new Tlv0_1_1WireFormat();
+Tlv0_1WireFormat.prototype.name = "Tlv0_1WireFormat";
+
+exports.Tlv0_1WireFormat = Tlv0_1WireFormat;
+
+// Default object.
+Tlv0_1WireFormat.instance = null;
+
+/**
+ * Get a singleton instance of a Tlv0_1WireFormat.
+ * @returns {Tlv0_1WireFormat} The singleton instance.
+ */
+Tlv0_1WireFormat.get = function()
+{
+  if (Tlv0_1WireFormat.instance === null)
+    Tlv0_1WireFormat.instance = new Tlv0_1WireFormat();
+  return Tlv0_1WireFormat.instance;
+};
+/**
+ * Copyright (C) 2013-2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+var WireFormat = require('./wire-format.js').WireFormat;
+var Tlv0_1_1WireFormat = require('./tlv-0_1_1-wire-format.js').Tlv0_1_1WireFormat;
 
 /**
  * A TlvWireFormat extends WireFormat to override its methods to
@@ -13674,11 +23428,11 @@ var Tlv0_1WireFormat = require('./tlv-0_1-wire-format.js').Tlv0_1WireFormat;
  */
 var TlvWireFormat = function TlvWireFormat()
 {
-  // Inherit from Tlv0_1WireFormat.
-  Tlv0_1WireFormat.call(this);
+  // Inherit from Tlv0_1_1WireFormat.
+  Tlv0_1_1WireFormat.call(this);
 };
 
-TlvWireFormat.prototype = new Tlv0_1WireFormat();
+TlvWireFormat.prototype = new Tlv0_1_1WireFormat();
 TlvWireFormat.prototype.name = "TlvWireFormat";
 
 exports.TlvWireFormat = TlvWireFormat;
@@ -13705,7 +23459,7 @@ TlvWireFormat.get = function()
 WireFormat.setDefaultWireFormat(TlvWireFormat.get());
 /**
  * This file contains utilities to help encode and decode NDN objects.
- * Copyright (C) 2013-2014 Regents of the University of California.
+ * Copyright (C) 2013-2015 Regents of the University of California.
  * author: Meki Cheraoui
  *
  * This program is free software: you can redistribute it and/or modify
@@ -13716,11 +23470,11 @@ WireFormat.setDefaultWireFormat(TlvWireFormat.get());
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
 var DataUtils = require('./data-utils.js').DataUtils;
@@ -13866,53 +23620,19 @@ EncodingUtils.dataToHtml = function(/* Data */ data)
       output+= "<br />";
       output+= "<br />";
     }
-    if (data.getSignature() != null && data.getSignature().digestAlgorithm != null) {
-      output += "DigestAlgorithm (hex): "+ DataUtils.toHex(data.getSignature().digestAlgorithm);
-
-      output+= "<br />";
-      output+= "<br />";
-    }
-    if (data.getSignature() != null && data.getSignature().witness != null) {
-      output += "Witness (hex): "+ DataUtils.toHex(data.getSignature().witness);
-
-      output+= "<br />";
-      output+= "<br />";
-    }
     if (data.getSignature() != null && data.getSignature().getSignature() != null) {
       output += "Signature(hex): "+ data.getSignature().getSignature().toHex();
 
       output+= "<br />";
       output+= "<br />";
     }
-    if (data.getMetaInfo() != null && data.getMetaInfo().publisher != null && data.getMetaInfo().publisher.publisherPublicKeyDigest != null) {
-      output += "Publisher Public Key Digest(hex): "+ DataUtils.toHex(data.getMetaInfo().publisher.publisherPublicKeyDigest);
-
-      output+= "<br />";
-      output+= "<br />";
-    }
-    if (data.getMetaInfo() != null && data.getMetaInfo().timestamp != null) {
-      var d = new Date();
-      d.setTime(data.getMetaInfo().timestamp.msec);
-
-      var bytes = [217, 185, 12, 225, 217, 185, 12, 225];
-
-      output += "TimeStamp: "+d;
-      output+= "<br />";
-      output += "TimeStamp(number): "+ data.getMetaInfo().timestamp.msec;
-
-      output+= "<br />";
-    }
-    if (data.getMetaInfo() != null && data.getMetaInfo().getFinalBlockID().getValue().size() > 0) {
-      output += "FinalBlockID: "+ data.getMetaInfo().getFinalBlockID().getValue().toHex();
+    if (data.getMetaInfo() != null && data.getMetaInfo().getFinalBlockId().getValue().size() > 0) {
+      output += "FinalBlockId: "+ data.getMetaInfo().getFinalBlockId().getValue().toHex();
       output+= "<br />";
     }
     if (data.getMetaInfo() != null && data.getMetaInfo().locator != null && data.getMetaInfo().locator.getType()) {
       output += "keyLocator: ";
-      if (data.getMetaInfo().locator.getType() == KeyLocatorType.KEY)
-        output += "Key: " + DataUtils.toHex(data.getMetaInfo().locator.publicKey).toLowerCase() + "<br />";
-      else if (data.getMetaInfo().locator.getType() == KeyLocatorType.KEY_LOCATOR_DIGEST)
-        output += "KeyLocatorDigest: " + DataUtils.toHex(data.getMetaInfo().locator.getKeyData().buf()).toLowerCase() + "<br />";
-      else if (data.getMetaInfo().locator.getType() == KeyLocatorType.CERTIFICATE)
+      if (data.getMetaInfo().locator.getType() == KeyLocatorType.CERTIFICATE)
         output += "Certificate: " + DataUtils.toHex(data.getMetaInfo().locator.certificate).toLowerCase() + "<br />";
       else if (data.getMetaInfo().locator.getType() == KeyLocatorType.KEYNAME)
         output += "KeyName: " + data.getMetaInfo().locator.keyName.contentName.to_uri() + "<br />";
@@ -13955,8 +23675,1021 @@ function encodeToBinaryInterest(interest) { return interest.wireEncode().buf(); 
  */
 function encodeToBinaryContentObject(data) { return data.wireEncode().buf(); }
 /**
+ * This class represents the digest tree for chrono-sync2013.
+ * Copyright (C) 2014-2015 Regents of the University of California.
+ * @author: Zhehao Wang, based on Jeff T.'s implementation in ndn-cpp
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+var DigestTree = require('./digest-tree.js').DigestTree;
+var Interest = require('../interest.js').Interest;
+var Data = require('../data.js').Data;
+var Name = require('../name.js').Name;
+var Blob = require('../util/blob.js').Blob;
+var MemoryContentCache = require('../util/memory-content-cache.js').MemoryContentCache;
+var SyncStateProto = require('./sync-state').SyncStateProto;
+
+/**
+ * ChronoSync2013 implements the NDN ChronoSync protocol as described in the
+ * 2013 paper "Let's ChronoSync: Decentralized Dataset State Synchronization in
+ * Named Data Networking". http://named-data.net/publications/chronosync .
+ * @note The support for ChronoSync is experimental and the API is not finalized.
+ * See the API docs for more detail at
+ * http://named-data.net/doc/ndn-ccl-api/chrono-sync2013.html .
+ *
+ * Create a new ChronoSync2013 to communicate using the given face. Initialize
+ * the digest log with a digest of "00" and and empty content. Register the
+ * applicationBroadcastPrefix to receive interests for sync state messages and
+ * express an interest for the initial root digest "00".
+ * @param {function} onReceivedSyncState When ChronoSync receives a sync state message,
+ * this calls onReceivedSyncState(syncStates, isRecovery) where syncStates is the
+ * list of SyncState messages and isRecovery is true if this is the initial
+ * list of SyncState messages or from a recovery interest. (For example, if
+ * isRecovery is true, a chat application would not want to re-display all
+ * the associated chat messages.) The callback should send interests to fetch
+ * the application data for the sequence numbers in the sync state.
+ * @param {function} onInitialized This calls onInitialized() when the first sync data
+ * is received (or the interest times out because there are no other
+ * publishers yet).
+ * @param {Name} applicationDataPrefix The prefix used by this application instance
+ * for application data. For example, "/my/local/prefix/ndnchat4/0K4wChff2v".
+ * This is used when sending a sync message for a new sequence number.
+ * In the sync message, this uses applicationDataPrefix.toUri().
+ * @param {Name} applicationBroadcastPrefix The broadcast name prefix including the
+ * application name. For example, "/ndn/broadcast/ChronoChat-0.3/ndnchat1".
+ * This makes a copy of the name.
+ * @param {int} sessionNo The session number used with the applicationDataPrefix in
+ * sync state messages.
+ * @param {Face} face The Face for calling registerPrefix and expressInterest. The
+ * Face object must remain valid for the life of this ChronoSync2013 object.
+ * @param {KeyChain} keyChain To sign a data packet containing a sync state message, this
+ * calls keyChain.sign(data, certificateName).
+ * @param {Name} certificateName The certificate name of the key to use for signing a
+ * data packet containing a sync state message.
+ * @param {Milliseconds} syncLifetime The interest lifetime in milliseconds for sending
+ * sync interests.
+ * @param {function} onRegisterFailed If failed to register the prefix to receive
+ * interests for the applicationBroadcastPrefix, this calls
+ * onRegisterFailed(applicationBroadcastPrefix).
+ */
+var ChronoSync2013 = function ChronoSync2013
+  (onReceivedSyncState, onInitialized, applicationDataPrefix,
+   applicationBroadcastPrefix, sessionNo, face, keyChain, certificateName,
+   syncLifetime, onRegisterFailed)
+{
+  // assigning function pointers
+  this.onReceivedSyncState = onReceivedSyncState;
+  this.onInitialized = onInitialized;
+  this.applicationDataPrefixUri = applicationDataPrefix.toUri();
+  this.applicationBroadcastPrefix = applicationBroadcastPrefix;
+  this.session = sessionNo;
+  this.face = face;
+  this.keyChain = keyChain;
+  this.certificateName = certificateName;
+  this.sync_lifetime = syncLifetime;
+  this.usrseq = -1;
+
+  this.digest_tree = new DigestTree();
+  this.contentCache = new MemoryContentCache(face);
+
+  this.digest_log = new Array();
+  this.digest_log.push(new ChronoSync2013.DigestLogEntry("00",[]));
+
+  this.contentCache.registerPrefix
+    (this.applicationBroadcastPrefix, onRegisterFailed,
+     this.onInterest.bind(this));
+  this.enabled = true;
+
+  var interest = new Interest(this.applicationBroadcastPrefix);
+  interest.getName().append("00");
+
+  interest.setInterestLifetimeMilliseconds(1000);
+
+  var Sync;
+  try {
+    // Using protobuf.min.js in the browser.
+    Sync = dcodeIO.ProtoBuf.newBuilder().import(SyncStateProto).build("Sync");
+  }
+  catch (ex) {
+    // Using protobufjs in node.
+    Sync = require("protobufjs").newBuilder().import(SyncStateProto).build("Sync");
+  }
+  this.SyncStateMsg = Sync.SyncStateMsg;
+  this.SyncState = Sync.SyncState;
+
+  this.face.expressInterest(interest, this.onData.bind(this), this.initialTimeOut.bind(this));
+};
+
+exports.ChronoSync2013 = ChronoSync2013;
+
+ChronoSync2013.prototype.getProducerSequenceNo = function(dataPrefix, sessionNo)
+{
+  var index = this.digest_tree.find(dataPrefix, sessionNo);
+  if (index < 0)
+    return -1;
+  else
+    return this.digest_tree.get(index).getSequenceNo();
+};
+
+/**
+ * Increment the sequence number, create a sync message with the new sequence number,
+ * and publish a data packet where the name is applicationBroadcastPrefix + root
+ * digest of current digest tree. Then add the sync message to digest tree and digest
+ * log which creates a new root digest. Finally, express an interest for the next sync
+ * update with the name applicationBroadcastPrefix + the new root digest.
+ * After this, application should publish the content for the new sequence number.
+ * Get the new sequence number with getSequenceNo().
+ */
+ChronoSync2013.prototype.publishNextSequenceNo = function()
+{
+  this.usrseq ++;
+  var content = [new this.SyncState({ name:this.applicationDataPrefixUri,
+                                 type:'UPDATE',
+                                 seqno:{
+                                   seq:this.usrseq,
+                                   session:this.session
+                                  }
+                                })];
+  var content_t = new this.SyncStateMsg({ss:content});
+  this.broadcastSyncState(this.digest_tree.getRoot(), content_t);
+
+  if (!this.update(content))
+    console.log("Warning: ChronoSync: update did not create a new digest log entry");
+
+  var interest = new Interest(this.applicationBroadcastPrefix);
+  interest.getName().append(this.digest_tree.getRoot());
+  interest.setInterestLifetimeMilliseconds(this.sync_lifetime);
+
+  this.face.expressInterest(interest, this.onData.bind(this), this.syncTimeout.bind(this));
+};
+
+/**
+ * Get the sequence number of the latest data published by this application instance.
+ * @return {int} the sequence number
+ */
+ChronoSync2013.prototype.getSequenceNo = function()
+{
+  return this.usrseq;
+};
+
+// DigestLogEntry class
+
+ChronoSync2013.DigestLogEntry = function ChronoSync2013DisgestLogEntry(digest, data)
+{
+  this.digest = digest;
+  this.data = data;
+};
+
+ChronoSync2013.DigestLogEntry.prototype.getDigest = function()
+{
+  return this.digest;
+};
+
+ChronoSync2013.DigestLogEntry.prototype.getData = function()
+{
+  return this.data;
+};
+
+/**
+ * Unregister callbacks so that this does not respond to interests anymore.
+ * If you will dispose this ChronoSync2013 object while your application is
+ * still running, you should call shutdown() first.  After calling this, you
+ * should not call publishNextSequenceNo() again since the behavior will be
+ * undefined.
+ */
+ChronoSync2013.prototype.shutdown = function()
+{
+  this.enabled = false;
+  this.contentCache.unregisterAll();
+};
+
+// SyncState class
+/**
+ * A SyncState holds the values of a sync state message which is passed to the
+ * onReceivedSyncState callback which was given to the ChronoSyn2013
+ * constructor. Note: this has the same info as the Protobuf class
+ * Sync::SyncState, but we make a separate class so that we don't need the
+ * Protobuf definition in the ChronoSync API.
+ */
+ChronoSync2013.SyncState = function ChronoSync2013SyncState(dataPrefixUri, sessionNo, sequenceNo)
+{
+  this.dataPrefixUri_ = dataPrefixUri;
+  this.sessionNo_ = sessionNo;
+  this.sequenceNo_ = sequenceNo;
+};
+
+/**
+ * Get the application data prefix for this sync state message.
+ * @return The application data prefix as a Name URI string.
+ */
+ChronoSync2013.SyncState.prototype.getDataPrefix = function()
+{
+  return this.dataPrefixUri_;
+}
+
+/**
+ * Get the session number associated with the application data prefix for
+ * this sync state message.
+ * @return The session number.
+ */
+ChronoSync2013.SyncState.prototype.getSessionNo = function()
+{
+  return this.sessionNo_;
+}
+
+/**
+ * Get the sequence number for this sync state message.
+ * @return The sequence number.
+ */
+ChronoSync2013.SyncState.prototype.getSequenceNo = function()
+{
+  return this.sequenceNo_;
+}
+
+// Private methods for ChronoSync2013 class,
+/**
+ * Make a data packet with the syncMessage and with name applicationBroadcastPrefix_ + digest.
+ * Sign and send.
+ * @param {string} The root digest as a hex string for the data packet name.
+ * @param {SyncStateMsg} The syncMessage updates the digest tree state with the given digest.
+ */
+ChronoSync2013.prototype.broadcastSyncState = function(digest, syncMessage)
+{
+  var array = new Uint8Array(syncMessage.toArrayBuffer());
+  var data = new Data(this.applicationBroadcastPrefix);
+  data.getName().append(digest);
+  data.setContent(new Blob(array, false));
+  this.keyChain.sign(data, this.certificateName);
+  this.contentCache.add(data);
+};
+
+/**
+ * Update the digest tree with the messages in content. If the digest tree root is not in
+ * the digest log, also add a log entry with the content.
+ * @param {SyncStates[]} The sync state messages
+ * @return {bool} True if added a digest log entry (because the updated digest tree root
+ * was not in the log), false if didn't add a log entry.
+ */
+ // Whatever's received by ondata, is pushed into digest log as its data directly
+ChronoSync2013.prototype.update = function(content)
+{
+  for (var i = 0; i < content.length; i++) {
+    if (content[i].type == 0) {
+      if (this.digest_tree.update(content[i].name, content[i].seqno.session, content[i].seqno.seq)) {
+        if (this.applicationDataPrefixUri == content[i].name)
+          this.usrseq = content[i].seqno.seq;
+      }
+    }
+  }
+
+  if (this.logfind(this.digest_tree.getRoot()) == -1) {
+    var newlog = new ChronoSync2013.DigestLogEntry(this.digest_tree.getRoot(), content);
+    this.digest_log.push(newlog);
+    return true;
+  }
+  else
+    return false;
+};
+
+ChronoSync2013.prototype.logfind = function(digest)
+{
+  for (var i = 0; i < this.digest_log.length; i++) {
+    if(digest == this.digest_log[i].digest)
+      return i;
+  }
+  return -1;
+};
+
+/**
+ * Process the sync interest from the applicationBroadcastPrefix. If we can't
+ * satisfy the interest, add it to the pending interest table in
+ * this.contentCache so that a future call to contentCacheAdd may satisfy it.
+ */
+ChronoSync2013.prototype.onInterest = function
+  (prefix, interest, face, interestFilterId, filter)
+{
+  if (!this.enabled)
+    // Ignore callbacks after the application calls shutdown().
+    return;
+
+  //search if the digest is already exist in the digest log
+
+  var syncdigest = interest.getName().get(this.applicationBroadcastPrefix.size()).toEscapedString();
+  if (interest.getName().size() == this.applicationBroadcastPrefix.size() + 2) {
+    syncdigest = interest.getName().get(this.applicationBroadcastPrefix.size() + 1).toEscapedString();
+  }
+  if (interest.getName().size() == this.applicationBroadcastPrefix.size() + 2 || syncdigest == "00") {
+    this.processRecoveryInst(interest, syncdigest, face);
+  }
+  else {
+    this.contentCache.storePendingInterest(interest, face);
+
+    if (syncdigest != this.digest_tree.getRoot()) {
+      var index = this.logfind(syncdigest);
+      var content = [];
+      if(index == -1) {
+        var self = this;
+        // Are we sure that using a "/timeout" interest is the best future call approach?
+        var timeout = new Interest(new Name("/timeout"));
+        timeout.setInterestLifetimeMilliseconds(2000);
+        this.face.expressInterest
+          (timeout, this.dummyOnData,
+           this.judgeRecovery.bind(this, timeout, syncdigest, face));
+      }
+      else {
+        //common interest processing
+        this.processSyncInst(index, syncdigest, face);
+      }
+    }
+  }
+};
+
+/**
+ * Process sync/recovery data.
+ * @param {Interest}
+ * @param {Data}
+ */
+ChronoSync2013.prototype.onData = function(interest, co)
+{
+  if (!this.enabled)
+    // Ignore callbacks after the application calls shutdown().
+    return;
+
+  var arr = new Uint8Array(co.getContent().size());
+  arr.set(co.getContent().buf());
+  var content_t = this.SyncStateMsg.decode(arr.buffer);
+  var content = content_t.ss;
+
+  var isRecovery = false;
+
+  if (this.digest_tree.getRoot() == "00") {
+    isRecovery = true;
+    this.initialOndata(content);
+  }
+  else {
+    // Note: if, for some reasons, this update did not update anything,
+    // then the same message gets fetched again, and the same broadcast interest goes out again.
+    // It has the potential of creating loop, which existed in my tests.
+    this.update(content);
+    if (interest.getName().size() == this.applicationBroadcastPrefix.size() + 2)
+      // Assume this is a recovery interest.
+      isRecovery = true;
+    else
+      isRecovery = false;
+  }
+
+  var syncStates = [];
+
+  for (var i = 0; i < content.length; i++) {
+    if (content[i].type == 0) {
+      syncStates.push(new ChronoSync2013.SyncState
+        (content[i].name, content[i].seqno.session, content[i].seqno.seq));
+    }
+  }
+
+  // Instead of using Protobuf, use our own definition of SyncStates to pass to onReceivedSyncState.
+  this.onReceivedSyncState(syncStates, isRecovery);
+
+  var n = new Name(this.applicationBroadcastPrefix);
+  n.append(this.digest_tree.getRoot());
+
+  var interest = new Interest(n);
+  interest.setInterestLifetimeMilliseconds(this.sync_lifetime);
+
+  this.face.expressInterest(interest, this.onData.bind(this), this.syncTimeout.bind(this));
+};
+
+/**
+ * Interest variable not actually in use here
+ */
+ChronoSync2013.prototype.initialTimeOut = function(interest)
+{
+  if (!this.enabled)
+    // Ignore callbacks after the application calls shutdown().
+    return;
+
+  console.log("no other people");
+
+  this.usrseq++;
+  this.onInitialized();
+  var content = [new this.SyncState({ name:this.applicationDataPrefixUri,
+                                 type:'UPDATE',
+                                 seqno: {
+                                   seq:this.usrseq,
+                                   session:this.session
+                                 }
+                               })];
+  this.update(content);
+  var n = new Name(this.applicationBroadcastPrefix);
+  n.append(this.digest_tree.getRoot());
+  var retryInterest = new Interest(n);
+  retryInterest.setInterestLifetimeMilliseconds(this.sync_lifetime);
+
+  this.face.expressInterest(retryInterest, this.onData.bind(this), this.syncTimeout.bind(this));
+};
+
+ChronoSync2013.prototype.processRecoveryInst = function(interest, syncdigest, face)
+{
+  if (this.logfind(syncdigest) != -1) {
+    var content = [];
+
+    for(var i = 0; i < this.digest_tree.digestnode.length; i++) {
+      content[i] = new this.SyncState({ name:this.digest_tree.digestnode[i].getDataPrefix(),
+                                   type:'UPDATE',
+                                   seqno:{
+                                     seq:this.digest_tree.digestnode[i].getSequenceNo(),
+                                     session:this.digest_tree.digestnode[i].getSessionNo()
+                                    }
+                                 });
+    }
+
+    if (content.length != 0) {
+      var content_t = new this.SyncStateMsg({ss:content});
+      var str = new Uint8Array(content_t.toArrayBuffer());
+      var co = new Data(interest.getName());
+      co.setContent(new Blob(str, false));
+      this.keyChain.sign(co, this.certificateName);
+      try {
+        face.putData(co);
+      } catch (e) {
+        console.log(e.toString());
+      }
+    }
+  }
+};
+
+/**
+ * Common interest processing, using digest log to find the difference after syncdigest_t
+ * @return True if sent a data packet to satisfy the interest.
+ */
+ChronoSync2013.prototype.processSyncInst = function(index, syncdigest_t, face)
+{
+  var content = [];
+  var data_name = [];
+  var data_seq = [];
+  var data_ses = [];
+
+  for (var j = index + 1; j < this.digest_log.length; j++) {
+    var temp = this.digest_log[j].getData();
+    for (var i = 0 ; i < temp.length ; i++) {
+      if (temp[i].type != 0) {
+        continue;
+      }
+      if (this.digest_tree.find(temp[i].name, temp[i].seqno.session) != -1) {
+        var n = data_name.indexOf(temp[i].name);
+        if (n == -1) {
+          data_name.push(temp[i].name);
+          data_seq.push(temp[i].seqno.seq);
+          data_ses.push(temp[i].seqno.session);
+        }
+        else {
+          data_seq[n] = temp[i].seqno.seq;
+          data_ses[n] = temp[i].seqno.session;
+        }
+      }
+    }
+  }
+
+  for(var i = 0; i < data_name.length; i++) {
+    content[i] = new this.SyncState({ name:data_name[i],
+                                 type:'UPDATE',
+                                 seqno: {
+                                   seq:data_seq[i],
+                                   session:data_ses[i]
+                                 }
+                               });
+  }
+  if (content.length != 0) {
+    var content_t = new this.SyncStateMsg({ss:content});
+    var str = new Uint8Array(content_t.toArrayBuffer());
+    var n = new Name(this.prefix)
+    n.append(this.chatroom).append(syncdigest_t);
+
+    var co = new Data(n);
+    co.setContent(new Blob(str, false));
+    this.keyChain.sign(co, this.certificateName);
+    try {
+      face.putData(co);
+    }
+    catch (e) {
+      console.log(e.toString());
+    }
+  }
+};
+
+/**
+ * Send recovery interset.
+ * @param {string} syncdigest_t
+ */
+ChronoSync2013.prototype.sendRecovery = function(syncdigest_t)
+{
+  var n = new Name(this.applicationBroadcastPrefix);
+  n.append("recovery").append(syncdigest_t);
+
+  var interest = new Interest(n);
+
+  interest.setInterestLifetimeMilliseconds(this.sync_lifetime);
+
+  this.face.expressInterest(interest, this.onData.bind(this), this.syncTimeout.bind(this));
+};
+
+/**
+ * This is called by onInterest after a timeout to check if a recovery is needed.
+ * This method has an interest argument because we use it as the onTimeout for
+ * Face.expressInterest.
+ * @param {Interest}
+ * @param {string}
+ * @param {Face}
+ */
+ChronoSync2013.prototype.judgeRecovery = function(interest, syncdigest_t, face)
+{
+  //console.log("*** judgeRecovery interest " + interest.getName().toUri() + " times out. Digest: " + syncdigest_t + " ***");
+  var index = this.logfind(syncdigest_t);
+  if (index != -1) {
+    if (syncdigest_t != this.digest_tree.root)
+      this.processSyncInst(index, syncdigest_t, face);
+  }
+  else
+    this.sendRecovery(syncdigest_t);
+};
+
+ChronoSync2013.prototype.syncTimeout = function(interest)
+{
+  if (!this.enabled)
+    // Ignore callbacks after the application calls shutdown().
+    return;
+
+  var component = interest.getName().get(4).toEscapedString();
+  if (component == this.digest_tree.root) {
+    var n = new Name(interest.getName());
+    var newInterest = new Interest(n);
+
+    interest.setInterestLifetimeMilliseconds(this.sync_lifetime);
+    this.face.expressInterest(newInterest, this.onData.bind(this), this.syncTimeout.bind(this));
+  }
+};
+
+ChronoSync2013.prototype.initialOndata = function(content)
+{
+  this.update(content);
+
+  var digest_t = this.digest_tree.getRoot();
+  for (var i = 0; i < content.length; i++) {
+    if (content[i].name == this.applicationDataPrefixUri && content[i].seqno.session == this.session) {
+      //if the user was an old comer, after add the static log he need to increase his seqno by 1
+      var content_t = [new this.SyncState({ name:this.applicationDataPrefixUri,
+                                       type:'UPDATE',
+                                       seqno: {
+                                         seq:content[i].seqno.seq + 1,
+                                         session:this.session
+                                       }
+                                     })];
+      if (this.update(content_t)) {
+        var newlog = new ChronoSync2013.DigestLogEntry(this.digest_tree.getRoot(), content_t);
+        this.digest_log.push(newlog);
+        this.onInitialized();
+      }
+    }
+  }
+
+  var content_t;
+  if (this.usrseq >= 0) {
+    //send the data packet with new seqno back
+    content_t = new this.SyncState({ name:this.applicationDataPrefixUri,
+                                   type:'UPDATE',
+                                   seqno: {
+                                     seq:this.usrseq,
+                                     session:this.session
+                                   }
+                                 });
+  }
+  else
+    content_t = new this.SyncState({ name:this.applicationDataPrefixUri,
+                                   type:'UPDATE',
+                                   seqno: {
+                                     seq:0,
+                                     session:this.session
+                                   }
+                                 });
+  var content_tt = new this.SyncStateMsg({ss:content_t});
+  this.broadcastSyncState(digest_t, content_tt);
+
+  if (this.digest_tree.find(this.applicationDataPrefixUri, this.session) == -1) {
+    //the user haven't put himself in the digest tree
+    this.usrseq++;
+    var content = [new this.SyncState({ name:this.applicationDataPrefixUri,
+                                   type:'UPDATE',
+                                   seqno: {
+                                     seq:this.usrseq,
+                                     session:this.session
+                                   }
+                                 })];
+    if (this.update(content)) {
+      this.onInitialized();
+    }
+  }
+};
+
+ChronoSync2013.prototype.dummyOnData = function(interest, data)
+{
+  console.log("*** dummyOnData called. ***");
+};/**
+ * This class represents the digest tree for chrono-sync2013.
+ * Copyright (C) 2014-2015 Regents of the University of California.
+ * @author: Zhehao Wang, based on Jeff T.'s implementation in ndn-cpp
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+// Use capitalized Crypto to not clash with the browser's crypto.subtle.
+var Crypto = require("crypto");
+var DataUtils = require("../encoding/data-utils.js").DataUtils;
+
+var DigestTree = function DigestTree()
+{
+  this.root = "00";
+  this.digestnode = [];
+};
+
+exports.DigestTree = DigestTree;
+
+// The meaning of a session is explained here:
+// http://named-data.net/doc/ndn-ccl-api/chrono-sync2013.html
+// DigestTree.Node works with seqno_seq and seqno_session, without protobuf definition,
+DigestTree.Node = function DigestTreeNode(dataPrefix, seqno_session, seqno_seq)
+{
+  // In this context, this should mean DigestTree.Node instead
+  this.dataPrefix = dataPrefix;
+  this.seqno_session = seqno_session;
+  this.seqno_seq = seqno_seq;
+
+  this.recomputeDigest();
+};
+
+DigestTree.Node.prototype.getDataPrefix = function()
+{
+  return this.dataPrefix;
+};
+
+DigestTree.Node.prototype.getSessionNo = function()
+{
+  return this.seqno_session;
+};
+
+DigestTree.Node.prototype.getSequenceNo = function()
+{
+  return this.seqno_seq;
+};
+
+DigestTree.Node.prototype.getDigest = function()
+{
+  return this.digest;
+};
+
+DigestTree.Node.prototype.setSequenceNo = function(sequenceNo)
+{
+  this.seqno_seq = sequenceNo;
+  this.recomputeDigest();
+};
+
+// Using Node.JS buffer, as documented here http://nodejs.org/api/buffer.html.
+DigestTree.Node.prototype.Int32ToBuffer = function(value) {
+  var result = new Buffer(4);
+  for (var i = 0; i < 4; i++) {
+    result[i] = value % 256;
+    value = Math.floor(value / 256);
+  }
+  return result;
+}
+
+DigestTree.Node.prototype.recomputeDigest = function()
+{
+  var seqHash = Crypto.createHash('sha256');
+
+  seqHash.update(this.Int32ToBuffer(this.seqno_session));
+  seqHash.update(this.Int32ToBuffer(this.seqno_seq));
+
+  var digest_seq = seqHash.digest();
+
+  var nameHash = Crypto.createHash('sha256');
+  nameHash.update(this.dataPrefix);
+  var digest_name = nameHash.digest();
+
+  var hash = Crypto.createHash('sha256');
+  hash.update(digest_name);
+  hash.update(digest_seq);
+
+  this.digest = hash.digest('hex');
+};
+
+// Do the work of string and then sequence number compare
+DigestTree.Node.Compare = function(node1, node2)
+{
+  if (node1.dataPrefix != node2.dataPrefix)
+    return node1.dataPrefix < node2.dataPrefix;
+  return node1.seqno_session < node2.seqno_session;
+};
+
+/**
+ * Update the digest tree and recompute the root digest. If the combination of dataPrefix
+ * and sessionNo already exists in the tree then update its sequenceNo (only if the given
+ * sequenceNo is newer), otherwise add a new node.
+ * @param {string} The name prefix.
+ * @param {int} sessionNo The session number.
+ * @param {int} sequenceNo The sequence number.
+ * @return True if the digest tree is updated, false if not
+ */
+DigestTree.prototype.update = function(dataPrefix, sessionNo, sequenceNo)
+{
+  var n_index = this.find(dataPrefix, sessionNo);
+  if (n_index >= 0) {
+    if (this.digestnode[n_index].getSequenceNo() < sequenceNo)
+      this.digestnode[n_index].setSequenceNo(sequenceNo);
+    else
+      return false;
+  }
+  else {
+    var temp = new DigestTree.Node(dataPrefix, sessionNo, sequenceNo);
+    this.digestnode.push(temp);
+    this.digestnode.sort(this.sortNodes);
+  }
+  this.recomputeRoot();
+  return true;
+};
+
+// Need to confirm this sort works with the insertion in ndn-cpp.
+DigestTree.prototype.sortNodes = function()
+{
+  var temp;
+  for (var i = this.digestnode.length; i > 0; i--) {
+    for (var j = 0; j < i - 1; j++) {
+      if (this.digestnode[j].getDataPrefix() > this.digestnode[j + 1].getDataPrefix()) {
+        temp = this.digestnode[j];
+        this.digestnode[j] = this.digestnode[j + 1];
+        this.digestnode[j + 1] = temp;
+      }
+    }
+  }
+};
+
+DigestTree.prototype.sortNodes = function (node1, node2)
+{
+  if (node1.getDataPrefix() == node2.getDataPrefix() &&
+     node1.getSessionNo() == node2.getSessionNo())
+    return 0;
+
+  if ((node1.getDataPrefix() > node2.getDataPrefix()) ||
+     ((node1.getDataPrefix() == node2.getDataPrefix()) &&
+     (node1.getSessionNo() >node2.getSessionNo())))
+    return 1;
+  else
+    return -1;
+}
+
+DigestTree.prototype.find = function(dataPrefix, sessionNo)
+{
+  for (var i = 0; i < this.digestnode.length; ++i) {
+    if (this.digestnode[i].getDataPrefix() == dataPrefix &&
+        this.digestnode[i].getSessionNo() == sessionNo)
+      return i;
+  }
+  return -1;
+};
+
+DigestTree.prototype.size = function()
+{
+  return this.digestnode.size();
+};
+
+// Not really used
+DigestTree.prototype.get = function(i)
+{
+  return this.digestnode[i];
+};
+
+DigestTree.prototype.getRoot = function()
+{
+  return this.root;
+};
+
+DigestTree.prototype.recomputeRoot = function()
+{
+  var md = Crypto.createHash('sha256');
+  // The result of updateHex is related with the sequence of participants,
+  // I don't think that should be the case.
+  for (var i = 0; i < this.digestnode.length; i++) {
+    md.update(new Buffer(this.digestnode[i].digest, 'hex'));
+  }
+  this.root = md.digest('hex');
+};
+// Just define the SyncStateProto object. We do a Protobuf import dynamically
+// when we need it so that protobufjs is optional.
+var SyncStateProto = {
+    "package": "Sync",
+    "messages": [
+        {
+            "name": "SyncState",
+            "fields": [
+                {
+                    "rule": "required",
+                    "type": "string",
+                    "name": "name",
+                    "id": 1,
+                    "options": {}
+                },
+                {
+                    "rule": "required",
+                    "type": "ActionType",
+                    "name": "type",
+                    "id": 2,
+                    "options": {}
+                },
+                {
+                    "rule": "optional",
+                    "type": "SeqNo",
+                    "name": "seqno",
+                    "id": 3,
+                    "options": {}
+                }
+            ],
+            "enums": [
+                {
+                    "name": "ActionType",
+                    "values": [
+                        {
+                            "name": "UPDATE",
+                            "id": 0
+                        },
+                        {
+                            "name": "DELETE",
+                            "id": 1
+                        },
+                        {
+                            "name": "OTHER",
+                            "id": 2
+                        }
+                    ],
+                    "options": {}
+                }
+            ],
+            "messages": [
+                {
+                    "name": "SeqNo",
+                    "fields": [
+                        {
+                            "rule": "required",
+                            "type": "uint32",
+                            "name": "seq",
+                            "id": 1,
+                            "options": {}
+                        },
+                        {
+                            "rule": "required",
+                            "type": "uint32",
+                            "name": "session",
+                            "id": 2,
+                            "options": {}
+                        }
+                    ],
+                    "enums": [],
+                    "messages": [],
+                    "options": {}
+                }
+            ],
+            "options": {}
+        },
+        {
+            "name": "SyncStateMsg",
+            "fields": [
+                {
+                    "rule": "repeated",
+                    "type": "SyncState",
+                    "name": "ss",
+                    "id": 1,
+                    "options": {}
+                }
+            ],
+            "enums": [],
+            "messages": [],
+            "options": {}
+        }
+    ],
+    "enums": [],
+    "imports": [],
+    "options": {}
+};
+
+exports.SyncStateProto = SyncStateProto;
+/**
+ * Copyright (C) 2014-2015 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+// Use capitalized Crypto to not clash with the browser's crypto.subtle.
+var Crypto = require("crypto");
+var WireFormat = require('../encoding/wire-format.js').WireFormat;
+var TlvEncoder = require('../encoding/tlv/tlv-encoder.js').TlvEncoder;
+var Blob = require('./blob.js').Blob;
+
+/**
+ * A CommandInterestGenerator keeps track of a timestamp and generates command
+ * interests according to the NFD Signed Command Interests protocol:
+ * http://redmine.named-data.net/projects/nfd/wiki/Command_Interests
+ *
+ * Create a new CommandInterestGenerator and initialize the timestamp to now.
+ * @constructor
+ */
+var CommandInterestGenerator = function CommandInterestGenerator()
+{
+  this.lastTimestamp = Math.round(new Date().getTime());
+};
+
+exports.CommandInterestGenerator = CommandInterestGenerator;
+
+/**
+ * Append a timestamp component and a random value component to interest's name.
+ * This ensures that the timestamp is greater than the timestamp used in the
+ * previous call. Then use keyChain to sign the interest which appends a
+ * SignatureInfo component and a component with the signature bits. If the
+ * interest lifetime is not set, this sets it.
+ * @param {Interest} interest The interest whose name is append with components.
+ * @param {KeyChain} keyChain The KeyChain for calling sign.
+ * @param {Name} certificateName The certificate name of the key to use for
+ * signing.
+ * @param {WireFormat} wireFormat (optional) A WireFormat object used to encode
+ * the SignatureInfo and to encode interest name for signing. If omitted, use
+ * WireFormat.getDefaultWireFormat().
+ */
+CommandInterestGenerator.prototype.generate = function
+  (interest, keyChain, certificateName, wireFormat)
+{
+  wireFormat = (wireFormat || WireFormat.getDefaultWireFormat());
+
+  var timestamp = Math.round(new Date().getTime());
+  while (timestamp <= this.lastTimestamp)
+    timestamp += 1.0;
+
+  // The timestamp is encoded as a TLV nonNegativeInteger.
+  var encoder = new TlvEncoder(8);
+  encoder.writeNonNegativeInteger(timestamp);
+  interest.getName().append(new Blob(encoder.getOutput(), false));
+
+  // The random value is a TLV nonNegativeInteger too, but we know it is 8
+  // bytes, so we don't need to call the nonNegativeInteger encoder.
+  interest.getName().append(new Blob(Crypto.randomBytes(8), false));
+
+  keyChain.sign(interest, certificateName, wireFormat);
+
+  if (interest.getInterestLifetimeMilliseconds() == null ||
+      interest.getInterestLifetimeMilliseconds() < 0)
+    // The caller has not set the interest lifetime, so set it here.
+    interest.setInterestLifetimeMilliseconds(1000.0);
+
+  // We successfully signed the interest, so update the timestamp.
+  this.lastTimestamp = timestamp;
+};
+/**
  * This class represents the top-level object for communicating with an NDN host.
- * Copyright (C) 2013-2014 Regents of the University of California.
+ * Copyright (C) 2013-2015 Regents of the University of California.
  * @author: Meki Cherkaoui, Jeff Thompson <jefft0@remap.ucla.edu>, Wentao Shang
  *
  * This program is free software: you can redistribute it and/or modify
@@ -13967,20 +24700,24 @@ function encodeToBinaryContentObject(data) { return data.wireEncode().buf(); }
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- * A copy of the GNU General Public License is in the file COPYING.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
  */
 
-var crypto = require('crypto');
+// Use capitalized Crypto to not clash with the browser's crypto.subtle.
+var Crypto = require('crypto');
 var DataUtils = require('./encoding/data-utils.js').DataUtils;
 var Name = require('./name.js').Name;
 var Interest = require('./interest.js').Interest;
 var Data = require('./data.js').Data;
 var MetaInfo = require('./meta-info.js').MetaInfo;
 var ForwardingEntry = require('./forwarding-entry.js').ForwardingEntry;
+var ControlParameters = require('./control-parameters.js').ControlParameters;
+var InterestFilter = require('./interest-filter.js').InterestFilter;
+var WireFormat = require('./encoding/wire-format.js').WireFormat;
 var TlvWireFormat = require('./encoding/tlv-wire-format.js').TlvWireFormat;
 var BinaryXmlWireFormat = require('./encoding/binary-xml-wire-format.js').BinaryXmlWireFormat;
 var Tlv = require('./encoding/tlv/tlv.js').Tlv;
@@ -13997,6 +24734,8 @@ var UpcallInfo = require('./closure.js').UpcallInfo;
 var Transport = require('./transport/transport.js').Transport;
 var TcpTransport = require('./transport/tcp-transport.js').TcpTransport;
 var UnixTransport = require('./transport/unix-transport.js').UnixTransport;
+var CommandInterestGenerator = require('./util/command-interest-generator.js').CommandInterestGenerator;
+var NdnCommon = require('./util/ndn-common.js').NdnCommon;
 var fs = require('fs');
 var LOG = require('./log.js').Log.LOG;
 
@@ -14114,12 +24853,30 @@ var Face = function Face(transportOrSettings, connectionInfo)
 
   this.readyStatus = Face.UNOPEN;
   this.verify = (settings.verify !== undefined ? settings.verify : false);
+  if (this.verify) {
+    if (!WireFormat.ENABLE_NDNX)
+      throw new Error
+        ("NDNx-style verification in Closure.upcall is deprecated. To enable while you upgrade your code to use KeyChain.verifyData, set WireFormat.ENABLE_NDNX = true");
+  }
+
   // Event handler
   this.onopen = (settings.onopen || function() { if (LOG > 3) console.log("Face connection established."); });
   this.onclose = (settings.onclose || function() { if (LOG > 3) console.log("Face connection closed."); });
   this.ndndid = null;
   // This is used by reconnectAndExpressInterest.
   this.onConnectedCallbacks = [];
+  this.commandKeyChain = null;
+  this.commandCertificateName = new Name();
+  this.commandInterestGenerator = new CommandInterestGenerator();
+  this.timeoutPrefix = new Name("/local/timeout");
+
+  this.keyStore = new Array();
+  this.pendingInterestTable = new Array();  // of Face.PendingInterest
+  this.pitRemoveRequests = new Array();     // of number
+  this.registeredPrefixTable = new Array(); // of Face.RegisteredPrefix
+  this.registeredPrefixRemoveRequests = new Array(); // of number
+  this.interestFilterTable = new Array();   // of Face.InterestFilterEntry
+  this.lastEntryId = 0;
 };
 
 exports.Face = Face;
@@ -14128,6 +24885,8 @@ Face.UNOPEN = 0;  // the Face is created but not opened yet
 Face.OPEN_REQUESTED = 1;  // requested to connect but onopen is not called.
 Face.OPENED = 2;  // connection to the forwarder opened
 Face.CLOSED = 3;  // connection to the forwarder closed
+
+TcpTransport.importFace(Face);
 
 /**
  * If the forwarder's Unix socket file path exists, then return the file path.
@@ -14181,8 +24940,6 @@ Face.prototype.createRoute = function(hostOrConnectionInfo, port)
   this.host = this.connectionInfo.port;
 };
 
-Face.KeyStore = new Array();
-
 var KeyStoreEntry = function KeyStoreEntry(name, rsa, time)
 {
   this.keyName = name;  // KeyName
@@ -14190,23 +24947,23 @@ var KeyStoreEntry = function KeyStoreEntry(name, rsa, time)
   this.timeStamp = time;  // Time Stamp
 };
 
-Face.addKeyEntry = function(/* KeyStoreEntry */ keyEntry)
+Face.prototype.addKeyEntry = function(/* KeyStoreEntry */ keyEntry)
 {
-  var result = Face.getKeyByName(keyEntry.keyName);
+  var result = this.getKeyByName(keyEntry.keyName);
   if (result == null)
-    Face.KeyStore.push(keyEntry);
+    this.keyStore.push(keyEntry);
   else
     result = keyEntry;
 };
 
-Face.getKeyByName = function(/* KeyName */ name)
+Face.prototype.getKeyByName = function(/* KeyName */ name)
 {
   var result = null;
 
-  for (var i = 0; i < Face.KeyStore.length; i++) {
-    if (Face.KeyStore[i].keyName.contentName.match(name.contentName)) {
-      if (result == null || Face.KeyStore[i].keyName.contentName.size() > result.keyName.contentName.size())
-        result = Face.KeyStore[i];
+  for (var i = 0; i < this.keyStore.length; i++) {
+    if (this.keyStore[i].keyName.contentName.match(name.contentName)) {
+      if (result == null || this.keyStore[i].keyName.contentName.size() > result.keyName.contentName.size())
+        result = this.keyStore[i];
     }
   }
 
@@ -14222,88 +24979,140 @@ Face.prototype.close = function()
   this.transport.close();
 };
 
-// For fetching data
-Face.PITTable = new Array();
+/**
+ * An internal method to get the next unique entry ID for the pending interest
+ * table, interest filter table, etc. Most entry IDs are for the pending
+ * interest table (there usually are not many interest filter table entries) so
+ * we use a common pool to only have to have one method which is called by Face.
+ *
+ * @returns {number} The next entry ID.
+ */
+Face.prototype.getNextEntryId = function()
+{
+  return ++this.lastEntryId;
+};
 
 /**
  * @constructor
  */
-var PITEntry = function PITEntry(interest, closure)
+Face.PendingInterest = function FacePendingInterest(pendingInterestId, interest, closure)
 {
+  this.pendingInterestId = pendingInterestId;
   this.interest = interest;  // Interest
   this.closure = closure;    // Closure
   this.timerID = -1;  // Timer ID
 };
 
 /**
- * Return the entry from Face.PITTable where the name conforms to the interest selectors, and
- * the interest name is the longest that matches name.
- */
-
-/**
- * Find all entries from Face.PITTable where the name conforms to the entry's
+ * Find all entries from this.pendingInterestTable where the name conforms to the entry's
  * interest selectors, remove the entries from the table, cancel their timeout
  * timers and return them.
  * @param {Name} name The name to find the interest for (from the incoming data
  * packet).
- * @returns {Array<PITEntry>} The matching entries from Face.PITTable, or [] if
+ * @returns {Array<Face.PendingInterest>} The matching entries from this.pendingInterestTable, or [] if
  * none are found.
  */
-Face.extractEntriesForExpressedInterest = function(name)
+Face.prototype.extractEntriesForExpressedInterest = function(name)
 {
   var result = [];
 
   // Go backwards through the list so we can erase entries.
-  for (var i = Face.PITTable.length - 1; i >= 0; --i) {
-    var entry = Face.PITTable[i];
+  for (var i = this.pendingInterestTable.length - 1; i >= 0; --i) {
+    var entry = this.pendingInterestTable[i];
     if (entry.interest.matchesName(name)) {
       // Cancel the timeout timer.
       clearTimeout(entry.timerID);
 
       result.push(entry);
-      Face.PITTable.splice(i, 1);
+      this.pendingInterestTable.splice(i, 1);
     }
   }
 
   return result;
 };
 
-// For publishing data
-Face.registeredPrefixTable = new Array();
-
 /**
+ * A RegisteredPrefix holds a registeredPrefixId and information necessary to
+ * remove the registration later. It optionally holds a related interestFilterId
+ * if the InterestFilter was set in the same registerPrefix operation.
+ * @param {number} registeredPrefixId A unique ID for this entry, which you
+ * should get with getNextEntryId().
+ * @param {Name} prefix The name prefix.
+ * @param {number} relatedInterestFilterId (optional) The related
+ * interestFilterId for the filter set in the same registerPrefix operation. If
+ * omitted, set to 0.
  * @constructor
  */
-var RegisteredPrefix = function RegisteredPrefix(prefix, closure)
+Face.RegisteredPrefix = function FaceRegisteredPrefix
+  (registeredPrefixId, prefix, relatedInterestFilterId)
 {
-  this.prefix = prefix;        // String
-  this.closure = closure;  // Closure
+  this.registeredPrefixId = registeredPrefixId;
+  this.prefix = prefix;
+  this.relatedInterestFilterId = relatedInterestFilterId;
 };
 
 /**
- * Find the first entry from Face.registeredPrefixTable where the entry prefix is the longest that matches name.
- * @param {Name} name The name to find the PrefixEntry for (from the incoming interest packet).
- * @returns {object} The entry from Face.registeredPrefixTable, or 0 if not found.
+ * Get the registeredPrefixId given to the constructor.
+ * @returns {number} The registeredPrefixId.
  */
-function getEntryForRegisteredPrefix(name)
+Face.RegisteredPrefix.prototype.getRegisteredPrefixId = function()
 {
-  var iResult = -1;
+  return this.registeredPrefixId;
+};
 
-  for (var i = 0; i < Face.registeredPrefixTable.length; i++) {
-    if (LOG > 3) console.log("Registered prefix " + i + ": checking if " + Face.registeredPrefixTable[i].prefix + " matches " + name);
-    if (Face.registeredPrefixTable[i].prefix.match(name)) {
-      if (iResult < 0 ||
-          Face.registeredPrefixTable[i].prefix.size() > Face.registeredPrefixTable[iResult].prefix.size())
-        // Update to the longer match.
-        iResult = i;
-    }
-  }
+/**
+ * Get the name prefix given to the constructor.
+ * @returns {Name} The name prefix.
+ */
+Face.RegisteredPrefix.prototype.getPrefix = function()
+{
+  return this.prefix;
+};
 
-  if (iResult >= 0)
-    return Face.registeredPrefixTable[iResult];
-  else
-    return null;
-}
+/**
+ * Get the related interestFilterId given to the constructor.
+ * @returns {number} The related interestFilterId.
+ */
+Face.RegisteredPrefix.prototype.getRelatedInterestFilterId = function()
+{
+  return this.relatedInterestFilterId;
+};
+
+/**
+ * An InterestFilterEntry holds an interestFilterId, an InterestFilter and the
+ * OnInterest callback with its related Face.
+ * Create a new InterestFilterEntry with the given values.
+ * @param {number} interestFilterId The ID from getNextEntryId().
+ * @param {InterestFilter} filter The InterestFilter for this entry.
+ * @param {Closure} closure The closure for calling upcall on interest. TODO:
+ * Change to a function instead of a Closure object.
+ * @constructor
+ */
+Face.InterestFilterEntry = function FaceInterestFilterEntry
+  (interestFilterId, filter, closure)
+{
+  this.interestFilterId = interestFilterId;
+  this.filter = filter;
+  this.closure = closure;
+};
+
+/**
+ * Get the interestFilterId given to the constructor.
+ * @returns {number} The interestFilterId.
+ */
+Face.InterestFilterEntry.prototype.getInterestFilterId = function()
+{
+  return this.interestFilterId;
+};
+
+/**
+ * Get the InterestFilter given to the constructor.
+ * @returns {InterestFilter} The InterestFilter.
+ */
+Face.InterestFilterEntry.prototype.getFilter = function()
+{
+  return this.filter;
+};
 
 /**
  * Return a function that selects a host at random from hostList and returns
@@ -14348,36 +25157,38 @@ Face.makeShuffledHostGetConnectionInfo = function(hostList, port, makeConnection
  * @param {Name} name The Name for the interest. (only used for the second form of expressInterest).
  * @param {Interest} template (optional) If not omitted, copy the interest selectors from this Interest.
  * If omitted, use a default interest lifetime. (only used for the second form of expressInterest).
+ * @returns {number} The pending interest ID which can be used with removePendingInterest.
+ * @throws Error If the encoded interest size exceeds Face.getMaxNdnPacketSize().
+
  */
 Face.prototype.expressInterest = function(interestOrName, arg2, arg3, arg4)
 {
   // There are several overloaded versions of expressInterest, each shown inline below.
 
+  var interest;
   // expressInterest(Name name, Closure closure);                      // deprecated
   // expressInterest(Name name, Closure closure,   Interest template); // deprecated
   if (arg2 && arg2.upcall && typeof arg2.upcall == 'function') {
     // Assume arg2 is the deprecated use with Closure.
+    if (!WireFormat.ENABLE_NDNX)
+      throw new Error
+        ("expressInterest with NDNx-style Closure is deprecated. To enable while you upgrade your code to use function callbacks, set WireFormat.ENABLE_NDNX = true");
+
     // The first argument is a name. Make the interest from the name and possible template.
-    interest = new Interest(interestOrName);
     if (arg3) {
       var template = arg3;
-      interest.setMinSuffixComponents(template.getMinSuffixComponents());
-      interest.setMaxSuffixComponents(template.getMaxSuffixComponents());
-      interest.publisherPublicKeyDigest = template.publisherPublicKeyDigest;
-      interest.setExclude(template.getExclude());
-      interest.setChildSelector(template.getChildSelector());
-      interest.getAnswerOriginKind(template.getAnswerOriginKind());
-      interest.setScope(template.getScope());
-      interest.setInterestLifetimeMilliseconds(template.getInterestLifetimeMilliseconds());
+      // Copy the template.
+      interest = new Interest(template);
+      interest.setName(interestOrName);
     }
-    else
+    else {
+      interest = new Interest(interestOrName);
       interest.setInterestLifetimeMilliseconds(4000);   // default interest timeout value in milliseconds.
+    }
 
-    this.expressInterestWithClosure(interest, arg2);
-    return;
+    return this.expressInterestWithClosure(interest, arg2);
   }
 
-  var interest;
   var onData;
   var onTimeout;
   // expressInterest(Interest interest, function onData);
@@ -14390,19 +25201,14 @@ Face.prototype.expressInterest = function(interestOrName, arg2, arg3, arg4)
   }
   else {
     // The first argument is a name. Make the interest from the name and possible template.
-    interest = new Interest(interestOrName);
+
     // expressInterest(Name name, Interest template, function onData);
     // expressInterest(Name name, Interest template, function onData, function onTimeout);
     if (arg2 && typeof arg2 == 'object' && arg2 instanceof Interest) {
       var template = arg2;
-      interest.setMinSuffixComponents(template.getMinSuffixComponents());
-      interest.setMaxSuffixComponents(template.getMaxSuffixComponents());
-      interest.publisherPublicKeyDigest = template.publisherPublicKeyDigest;
-      interest.setExclude(template.getExclude());
-      interest.setChildSelector(template.getChildSelector());
-      interest.getAnswerOriginKind(template.getAnswerOriginKind());
-      interest.setScope(template.getScope());
-      interest.setInterestLifetimeMilliseconds(template.getInterestLifetimeMilliseconds());
+      // Copy the template.
+      interest = new Interest(template);
+      interest.setName(interestOrName);
 
       onData = arg3;
       onTimeout = (arg4 ? arg4 : function() {});
@@ -14410,6 +25216,7 @@ Face.prototype.expressInterest = function(interestOrName, arg2, arg3, arg4)
     // expressInterest(Name name, function onData);
     // expressInterest(Name name, function onData,   function onTimeout);
     else {
+      interest = new Interest(interestOrName);
       interest.setInterestLifetimeMilliseconds(4000);   // default interest timeout
       onData = arg2;
       onTimeout = (arg3 ? arg3 : function() {});
@@ -14418,18 +25225,20 @@ Face.prototype.expressInterest = function(interestOrName, arg2, arg3, arg4)
 
   // Make a Closure from the callbacks so we can use expressInterestWithClosure.
   // TODO: Convert the PIT to use callbacks, not a closure.
-  this.expressInterestWithClosure(interest, new Face.CallbackClosure(onData, onTimeout));
-}
+  return this.expressInterestWithClosure(interest, new Face.CallbackClosure(onData, onTimeout));
+};
 
-Face.CallbackClosure = function FaceCallbackClosure(onData, onTimeout, onInterest, prefix, transport) {
+Face.CallbackClosure = function FaceCallbackClosure
+  (onData, onTimeout, onInterest, face, interestFilterId, filter) {
   // Inherit from Closure.
   Closure.call(this);
 
   this.onData = onData;
   this.onTimeout = onTimeout;
   this.onInterest = onInterest;
-  this.prefix = prefix;
-  this.transport = transport;
+  this.face = face;
+  this.interestFilterId = interestFilterId;
+  this.filter = filter;
 };
 
 Face.CallbackClosure.prototype.upcall = function(kind, upcallInfo) {
@@ -14438,8 +25247,10 @@ Face.CallbackClosure.prototype.upcall = function(kind, upcallInfo) {
   else if (kind == Closure.UPCALL_INTEREST_TIMED_OUT)
     this.onTimeout(upcallInfo.interest);
   else if (kind == Closure.UPCALL_INTEREST)
-    // Note: We never return INTEREST_CONSUMED because onInterest will send the result to the transport.
-    this.onInterest(this.prefix, upcallInfo.interest, this.transport)
+    // Note: We never return INTEREST_CONSUMED because onInterest will send the result to the face.
+    this.onInterest
+      (this.filter.getPrefix(), upcallInfo.interest, this.face,
+       this.interestFilterId, this.filter)
 
   return Closure.RESULT_OK;
 };
@@ -14451,19 +25262,26 @@ Face.CallbackClosure.prototype.upcall = function(kind, upcallInfo) {
  * @deprecated Use expressInterest with callback functions, not Closure.
  * @param {Interest} the interest, already processed with a template (if supplied).
  * @param {Closure} closure
+ * @returns {number} The pending interest ID which can be used with removePendingInterest.
  */
 Face.prototype.expressInterestWithClosure = function(interest, closure)
 {
+  var pendingInterestId = this.getNextEntryId();
+
   if (this.connectionInfo == null) {
     if (this.getConnectionInfo == null)
       console.log('ERROR: connectionInfo is NOT SET');
     else {
       var thisFace = this;
-      this.connectAndExecute(function() { thisFace.reconnectAndExpressInterest(interest, closure); });
+      this.connectAndExecute(function() {
+        thisFace.reconnectAndExpressInterest(pendingInterestId, interest, closure);
+      });
     }
   }
   else
-    this.reconnectAndExpressInterest(interest, closure);
+    this.reconnectAndExpressInterest(pendingInterestId, interest, closure);
+
+  return pendingInterestId;
 };
 
 /**
@@ -14471,13 +25289,13 @@ Face.prototype.expressInterestWithClosure = function(interest, closure)
  *   this.transport.connect to change the connection (or connect for the first time).
  * Then call expressInterestHelper.
  */
-Face.prototype.reconnectAndExpressInterest = function(interest, closure)
+Face.prototype.reconnectAndExpressInterest = function(pendingInterestId, interest, closure)
 {
   var thisFace = this;
-  if (!this.connectionInfo.equals(this.transport.connectionInfo)) {
+  if (!this.connectionInfo.equals(this.transport.connectionInfo) || this.readyStatus === Face.UNOPEN) {
     this.readyStatus = Face.OPEN_REQUESTED;
     this.onConnectedCallbacks.push
-      (function() { thisFace.expressInterestHelper(interest, closure); });
+      (function() { thisFace.expressInterestHelper(pendingInterestId, interest, closure); });
 
     this.transport.connect
      (this.connectionInfo, this,
@@ -14503,9 +25321,9 @@ Face.prototype.reconnectAndExpressInterest = function(interest, closure)
     if (this.readyStatus === Face.OPEN_REQUESTED)
       // The connection is still opening, so add to the interests to express.
       this.onConnectedCallbacks.push
-        (function() { thisFace.expressInterestHelper(interest, closure); });
+        (function() { thisFace.expressInterestHelper(pendingInterestId, interest, closure); });
     else if (this.readyStatus === Face.OPENED)
-      this.expressInterestHelper(interest, closure);
+      this.expressInterestHelper(pendingInterestId, interest, closure);
     else
       throw new Error
         ("reconnectAndExpressInterest: unexpected connection is not opened");
@@ -14516,42 +25334,162 @@ Face.prototype.reconnectAndExpressInterest = function(interest, closure)
  * Do the work of reconnectAndExpressInterest once we know we are connected.  Set the PITTable and call
  *   this.transport.send to send the interest.
  */
-Face.prototype.expressInterestHelper = function(interest, closure)
+Face.prototype.expressInterestHelper = function(pendingInterestId, interest, closure)
 {
   var binaryInterest = interest.wireEncode();
+  if (binaryInterest.size() > Face.getMaxNdnPacketSize())
+    throw new Error
+      ("The encoded interest size exceeds the maximum limit getMaxNdnPacketSize()");
+
   var thisFace = this;
-  //TODO: check local content store first
   if (closure != null) {
-    var pitEntry = new PITEntry(interest, closure);
-    // TODO: This needs to be a single thread-safe transaction on a global object.
-    Face.PITTable.push(pitEntry);
-    closure.pitEntry = pitEntry;
+    var removeRequestIndex = -1;
+    if (removeRequestIndex != null)
+      removeRequestIndex = this.pitRemoveRequests.indexOf(pendingInterestId);
+    if (removeRequestIndex >= 0)
+      // removePendingInterest was called with the pendingInterestId returned by
+      //   expressInterest before we got here, so don't add a PIT entry.
+      this.pitRemoveRequests.splice(removeRequestIndex, 1);
+    else {
+      var pitEntry = new Face.PendingInterest(pendingInterestId, interest, closure);
+      this.pendingInterestTable.push(pitEntry);
+      closure.pitEntry = pitEntry;
 
-    // Set interest timer.
-    var timeoutMilliseconds = (interest.getInterestLifetimeMilliseconds() || 4000);
-    var timeoutCallback = function() {
-      if (LOG > 1) console.log("Interest time out: " + interest.getName().toUri());
+      // Set interest timer.
+      var timeoutMilliseconds = (interest.getInterestLifetimeMilliseconds() || 4000);
+      var thisFace = this;
+      var timeoutCallback = function() {
+        if (LOG > 1) console.log("Interest time out: " + interest.getName().toUri());
 
-      // Remove PIT entry from Face.PITTable, even if we add it again later to re-express
-      //   the interest because we don't want to match it in the mean time.
-      // TODO: Make this a thread-safe operation on the global PITTable.
-      var index = Face.PITTable.indexOf(pitEntry);
-      if (index >= 0)
-        Face.PITTable.splice(index, 1);
+        // Remove PIT entry from thisFace.pendingInterestTable, even if we add it again later to re-express
+        //   the interest because we don't want to match it in the mean time.
+        var index = thisFace.pendingInterestTable.indexOf(pitEntry);
+        if (index >= 0)
+          thisFace.pendingInterestTable.splice(index, 1);
 
-      // Raise closure callback
-      if (closure.upcall(Closure.UPCALL_INTEREST_TIMED_OUT, new UpcallInfo(thisFace, interest, 0, null)) == Closure.RESULT_REEXPRESS) {
-        if (LOG > 1) console.log("Re-express interest: " + interest.getName().toUri());
-        pitEntry.timerID = setTimeout(timeoutCallback, timeoutMilliseconds);
-        Face.PITTable.push(pitEntry);
-        thisFace.transport.send(binaryInterest.buf());
-      }
-    };
+        // Raise closure callback
+        if (closure.upcall(Closure.UPCALL_INTEREST_TIMED_OUT, new UpcallInfo(thisFace, interest, 0, null)) == Closure.RESULT_REEXPRESS) {
+          if (LOG > 1) console.log("Re-express interest: " + interest.getName().toUri());
+          pitEntry.timerID = setTimeout(timeoutCallback, timeoutMilliseconds);
+          thisFace.pendingInterestTable.push(pitEntry);
+          thisFace.transport.send(binaryInterest.buf());
+        }
+      };
 
-    pitEntry.timerID = setTimeout(timeoutCallback, timeoutMilliseconds);
+      pitEntry.timerID = setTimeout(timeoutCallback, timeoutMilliseconds);
+    }
   }
 
-  this.transport.send(binaryInterest.buf());
+  // Special case: For timeoutPrefix we don't actually send the interest.
+  if (!this.timeoutPrefix.match(interest.getName()))
+    this.transport.send(binaryInterest.buf());
+};
+
+/**
+ * Remove the pending interest entry with the pendingInterestId from the pending
+ * interest table. This does not affect another pending interest with a
+ * different pendingInterestId, even if it has the same interest name.
+ * If there is no entry with the pendingInterestId, do nothing.
+ * @param {number} pendingInterestId The ID returned from expressInterest.
+ */
+Face.prototype.removePendingInterest = function(pendingInterestId)
+{
+  if (pendingInterestId == null)
+    return;
+
+  // Go backwards through the list so we can erase entries.
+  // Remove all entries even though pendingInterestId should be unique.
+  var count = 0;
+  for (var i = this.pendingInterestTable.length - 1; i >= 0; --i) {
+    var entry = this.pendingInterestTable[i];
+    if (entry.pendingInterestId == pendingInterestId) {
+      // Cancel the timeout timer.
+      clearTimeout(entry.timerID);
+
+      this.pendingInterestTable.splice(i, 1);
+      ++count;
+    }
+  }
+
+  if (count == 0)
+    if (LOG > 0) console.log
+      ("removePendingInterest: Didn't find pendingInterestId " + pendingInterestId);
+
+  if (count == 0) {
+    // The pendingInterestId was not found. Perhaps this has been called before
+    //   the callback in expressInterest can add to the PIT. Add this
+    //   removal request which will be checked before adding to the PIT.
+    if (this.pitRemoveRequests.indexOf(pendingInterestId) < 0)
+      // Not already requested, so add the request.
+      this.pitRemoveRequests.push(pendingInterestId);
+  }
+};
+
+/**
+ * Set the KeyChain and certificate name used to sign command interests (e.g.
+ * for registerPrefix).
+ * @param {KeyChain} keyChain The KeyChain object for signing interests, which
+ * must remain valid for the life of this Face. You must create the KeyChain
+ * object and pass it in. You can create a default KeyChain for your system with
+ * the default KeyChain constructor.
+ * @param {Name} certificateName The certificate name for signing interests.
+ * This makes a copy of the Name. You can get the default certificate name with
+ * keyChain.getDefaultCertificateName() .
+ */
+Face.prototype.setCommandSigningInfo = function(keyChain, certificateName)
+{
+  this.commandKeyChain = keyChain;
+  this.commandCertificateName = new Name(certificateName);
+};
+
+/**
+ * Set the certificate name used to sign command interest (e.g. for
+ * registerPrefix), using the KeyChain that was set with setCommandSigningInfo.
+ * @param {Name} certificateName The certificate name for signing interest. This
+ * makes a copy of the Name.
+ */
+Face.prototype.setCommandCertificateName = function(certificateName)
+{
+  this.commandCertificateName = new Name(certificateName);
+};
+
+/**
+ * Append a timestamp component and a random value component to interest's name.
+ * Then use the keyChain and certificateName from setCommandSigningInfo to sign
+ * the interest. If the interest lifetime is not set, this sets it.
+ * @note This method is an experimental feature. See the API docs for more
+ * detail at
+ * http://named-data.net/doc/ndn-ccl-api/face.html#face-makecommandinterest-method .
+ * @param {Interest} interest The interest whose name is appended with
+ * components.
+ * @param {WireFormat} wireFormat (optional) A WireFormat object used to encode
+ * the SignatureInfo and to encode the interest name for signing.  If omitted,
+ * use WireFormat.getDefaultWireFormat().
+ */
+Face.prototype.makeCommandInterest = function(interest, wireFormat)
+{
+  wireFormat = (wireFormat || WireFormat.getDefaultWireFormat());
+  this.nodeMakeCommandInterest
+    (interest, this.commandKeyChain, this.commandCertificateName, wireFormat);
+};
+
+/**
+ * Append a timestamp component and a random value component to interest's name.
+ * Then use the keyChain and certificateName from setCommandSigningInfo to sign
+ * the interest. If the interest lifetime is not set, this sets it.
+ * @param {Interest} interest The interest whose name is appended with
+ * components.
+ * @param {KeyChain} keyChain The KeyChain for calling sign.
+ * @param {Name} certificateName The certificate name of the key to use for
+ * signing.
+ * @param {WireFormat} wireFormat A WireFormat object used to encode
+ * the SignatureInfo and to encode the interest name for signing.
+ */
+Face.prototype.nodeMakeCommandInterest = function
+  (interest, keyChain, certificateName, wireFormat)
+{
+  this.commandInterestGenerator.generate
+    (interest, keyChain, certificateName, wireFormat);
 };
 
 /**
@@ -14560,18 +25498,23 @@ Face.prototype.expressInterestHelper = function(interest, closure)
  * registerPrefix(name, onInterest, onRegisterFailed [, flags]).
  * This also supports the deprecated form registerPrefix(name, closure [, intFlags]), but you should use the main form.
  * @param {Name} prefix The Name prefix.
- * @param {function} onInterest When an interest is received which matches the name prefix, this calls
- * onInterest(prefix, interest, transport) where:
- *   prefix is the prefix given to registerPrefix.
- *   interest is the received interest.
- *   transport The Transport with the connection which received the interest. You must encode a signed Data packet and send it using transport.send().
+ * @param {function} onInterest (optional) If not None, this creates an interest
+ * filter from prefix so that when an Interest is received which matches the
+ * filter, this calls
+ * onInterest(prefix, interest, face, interestFilterId, filter).
  * NOTE: You must not change the prefix object - if you need to change it then
- * make a copy.
+ * make a copy. If onInterest is null, it is ignored and you must call
+ * setInterestFilter.
  * @param {function} onRegisterFailed If register prefix fails for any reason,
  * this calls onRegisterFailed(prefix) where:
  *   prefix is the prefix given to registerPrefix.
- * @param {ForwardingFlags} flags (optional) The flags for finer control of which interests are forward to the application.
+ * @param {ForwardingFlags} flags (optional) The ForwardingFlags object for finer control of which interests are forward to the application.
  * If omitted, use the default flags defined by the default ForwardingFlags constructor.
+ * @param {number} intFlags (optional) (only for the deprecated form of
+ * registerPrefix) The integer NDNx flags for finer control of which interests
+ * are forward to the application.
+ * @returns {number} The registered prefix ID which can be used with
+ * removeRegisteredPrefix.
  */
 Face.prototype.registerPrefix = function(prefix, arg2, arg3, arg4)
 {
@@ -14581,47 +25524,79 @@ Face.prototype.registerPrefix = function(prefix, arg2, arg3, arg4)
   // registerPrefix(Name prefix, Closure closure, int flags); // deprecated
   if (arg2 && arg2.upcall && typeof arg2.upcall == 'function') {
     // Assume arg2 is the deprecated use with Closure.
-    if (arg3)
-      this.registerPrefixWithClosure(prefix, arg2, arg3);
+    if (!WireFormat.ENABLE_NDNX)
+      throw new Error
+        ("registerPrefix with NDNx-style Closure is deprecated. To enable while you upgrade your code to use function callbacks, set WireFormat.ENABLE_NDNX = true");
+
+    if (arg3) {
+      var flags;
+      if (typeof flags === 'number') {
+        // Assume this deprecated form is only called for NDNx.
+        flags = new ForwardingFlags();
+        flags.setForwardingEntryFlags(arg3);
+      }
+      else
+        // Assume arg3 is already a ForwardingFlags.
+        flags = arg3;
+      return this.registerPrefixWithClosure(prefix, arg2, flags);
+    }
     else
-      this.registerPrefixWithClosure(prefix, arg2);
-    return;
+      return this.registerPrefixWithClosure(prefix, arg2, new ForwardingFlags());
   }
 
   // registerPrefix(Name prefix, function onInterest, function onRegisterFailed);
   // registerPrefix(Name prefix, function onInterest, function onRegisterFailed, ForwardingFlags flags);
   var onInterest = arg2;
   var onRegisterFailed = (arg3 ? arg3 : function() {});
-  var intFlags = (arg4 ? arg4.getForwardingEntryFlags() : new ForwardingFlags().getForwardingEntryFlags());
-  this.registerPrefixWithClosure(prefix, new Face.CallbackClosure(null, null, onInterest, prefix, this.transport),
-                                 intFlags, onRegisterFailed);
-}
+  var flags = (arg4 ? arg4 : new ForwardingFlags());
+  return this.registerPrefixWithClosure
+    (prefix, onInterest, flags, onRegisterFailed);
+};
 
 /**
  * A private method to register the prefix with the host, receive the data and call
  * closure.upcall(Closure.UPCALL_INTEREST, new UpcallInfo(this, interest, 0, null)).
  * @deprecated Use registerPrefix with callback functions, not Closure.
  * @param {Name} prefix
- * @param {Closure} closure
- * @param {number} intFlags
- * @param {function} (optional) If called from the non-deprecated registerPrefix, call onRegisterFailed(prefix)
- * if registration fails.
+ * @param {Closure|function} closure or onInterest.
+ * @param {ForwardingFlags} flags
+ * @param {function} onRegisterFailed (optional) If called from the
+ * non-deprecated registerPrefix, call onRegisterFailed(prefix) if registration
+ * fails.
+ * @returns {number} The registered prefix ID which can be used with
+ * removeRegisteredPrefix.
  */
-Face.prototype.registerPrefixWithClosure = function(prefix, closure, intFlags, onRegisterFailed)
+Face.prototype.registerPrefixWithClosure = function
+  (prefix, closure, flags, onRegisterFailed)
 {
-  intFlags = intFlags | 3;
+  var registeredPrefixId = this.getNextEntryId();
   var thisFace = this;
   var onConnected = function() {
-    if (thisFace.ndndid == null) {
-      // Fetch ndndid first, then register.
-      var interest = new Interest(Face.ndndIdFetcher);
-      interest.setInterestLifetimeMilliseconds(4000);
-      if (LOG > 3) console.log('Expressing interest for ndndid from ndnd.');
-      thisFace.reconnectAndExpressInterest
-        (interest, new Face.FetchNdndidClosure(thisFace, prefix, closure, intFlags, onRegisterFailed));
+    // If we have an _ndndId, we know we already connected to NDNx.
+    if (thisFace.ndndid != null || thisFace.commandKeyChain == null) {
+      // Assume we are connected to a legacy NDNx server.
+      if (!WireFormat.ENABLE_NDNX)
+        throw new Error
+          ("registerPrefix with NDNx is deprecated. To enable while you upgrade your code to use NFD, set WireFormat.ENABLE_NDNX = true");
+
+      if (thisFace.ndndid == null) {
+        // Fetch ndndid first, then register.
+        var interest = new Interest(Face.ndndIdFetcher);
+        interest.setInterestLifetimeMilliseconds(4000);
+        if (LOG > 3) console.log('Expressing interest for ndndid from ndnd.');
+        thisFace.reconnectAndExpressInterest
+          (null, interest, new Face.FetchNdndidClosure
+           (thisFace, registeredPrefixId, prefix, closure, flags, onRegisterFailed));
+      }
+      else
+        thisFace.registerPrefixHelper
+          (registeredPrefixId, prefix, closure, flags, onRegisterFailed);
     }
     else
-      thisFace.registerPrefixHelper(prefix, closure, flags, onRegisterFailed);
+      // The application set the KeyChain for signing NFD interests.
+      thisFace.nfdRegisterPrefix
+        (registeredPrefixId, prefix, closure, flags, onRegisterFailed,
+         thisFace.commandKeyChain, thisFace.commandCertificateName);
   };
 
   if (this.connectionInfo == null) {
@@ -14632,28 +25607,42 @@ Face.prototype.registerPrefixWithClosure = function(prefix, closure, intFlags, o
   }
   else
     onConnected();
+
+  return registeredPrefixId;
 };
 
 /**
- * This is a closure to receive the Data for Face.ndndIdFetcher and call
- *   registerPrefixHelper(prefix, callerClosure, flags).
+ * Get the practical limit of the size of a network-layer packet. If a packet
+ * is larger than this, the library or application MAY drop it.
+ * @return {number} The maximum NDN packet size.
  */
-Face.FetchNdndidClosure = function FetchNdndidClosure(face, prefix, callerClosure, flags, onRegisterFailed)
+Face.getMaxNdnPacketSize = function() { return NdnCommon.MAX_NDN_PACKET_SIZE; };
+
+/**
+ * This is a closure to receive the Data for Face.ndndIdFetcher and call
+ *   registerPrefixHelper(registeredPrefixId, prefix, callerClosure, flags).
+ */
+Face.FetchNdndidClosure = function FetchNdndidClosure
+  (face, registeredPrefixId, prefix, callerClosure, flags, onRegisterFailed)
 {
   // Inherit from Closure.
   Closure.call(this);
 
   this.face = face;
+  this.registeredPrefixId = registeredPrefixId;
   this.prefix = prefix;
   this.callerClosure = callerClosure;
-  this.flags = flags;
+  this.flags = flags; // FOrwardingFlags
   this.onRegisterFailed = onRegisterFailed;
 };
 
 Face.FetchNdndidClosure.prototype.upcall = function(kind, upcallInfo)
 {
   if (kind == Closure.UPCALL_INTEREST_TIMED_OUT) {
-    console.log("Timeout while requesting the ndndid.  Cannot registerPrefix for " + this.prefix.toUri() + " .");
+    if (LOG > 0)
+      console.log
+        ("Timeout while requesting the ndndid.  Cannot registerPrefix for " +
+         this.prefix.toUri() + " .");
     if (this.onRegisterFailed)
       this.onRegisterFailed(this.prefix);
     return Closure.RESULT_OK;
@@ -14665,36 +25654,72 @@ Face.FetchNdndidClosure.prototype.upcall = function(kind, upcallInfo)
 
   if (LOG > 3) console.log('Got ndndid from ndnd.');
   // Get the digest of the public key in the data packet content.
-  var hash = require("crypto").createHash('sha256');
+  var hash = Crypto.createHash('sha256');
   hash.update(upcallInfo.data.getContent().buf());
   this.face.ndndid = new Buffer(DataUtils.toNumbersIfString(hash.digest()));
   if (LOG > 3) console.log(this.face.ndndid);
 
   this.face.registerPrefixHelper
-    (this.prefix, this.callerClosure, this.flags, this.onRegisterFailed);
+    (this.registeredPrefixId, this.prefix, this.callerClosure, this.flags,
+     this.onRegisterFailed);
 
   return Closure.RESULT_OK;
 };
+
 /**
  * This is a closure to receive the response Data packet from the register
  * prefix interest sent to the connected NDN hub. If this gets a bad response
  * or a timeout, call onRegisterFailed.
  */
 Face.RegisterResponseClosure = function RegisterResponseClosure
-  (prefix, onRegisterFailed)
+  (face, prefix, callerClosure, onRegisterFailed, flags, wireFormat, isNfdCommand)
 {
   // Inherit from Closure.
   Closure.call(this);
 
+  this.face = face;
   this.prefix = prefix;
+  this.callerClosure = callerClosure;
   this.onRegisterFailed = onRegisterFailed;
+  this.flags = flags;
+  this.wireFormat = wireFormat;
+  this.isNfdCommand = isNfdCommand;
 };
 
 Face.RegisterResponseClosure.prototype.upcall = function(kind, upcallInfo)
 {
   if (kind == Closure.UPCALL_INTEREST_TIMED_OUT) {
-    if (this.onRegisterFailed)
-      this.onRegisterFailed(this.prefix);
+    // We timed out waiting for the response.
+    if (this.isNfdCommand) {
+      // The application set the commandKeyChain, but we may be connected to NDNx.
+      if (LOG > 2)
+        console.log("Timeout for NFD register prefix command. Attempting an NDNx command...");
+      if (this.face.ndndid == null) {
+        // Fetch ndndid first, then register.
+        // Pass 0 for registeredPrefixId since the entry was already added to
+        //   registeredPrefixTable_ on the first try.
+        var interest = new Interest(Face.ndndIdFetcher);
+        interest.setInterestLifetimeMilliseconds(4000);
+        this.face.reconnectAndExpressInterest
+          (null, interest, new Face.FetchNdndidClosure
+           (this.face, 0, this.prefix, this.closure, this.flags, this.onRegisterFailed));
+      }
+      else
+        // Pass 0 for registeredPrefixId since the entry was already added to
+        //   registeredPrefixTable_ on the first try.
+        this.face.registerPrefixHelper
+          (0, this.prefix, this.closure, this.flags, this.onRegisterFailed);
+    }
+    else {
+      // An NDNx command was sent because there is no commandKeyChain, so we
+      //   can't try an NFD command. Or it was sent from this callback after
+      //   trying an NFD command. Fail.
+      if (LOG > 0)
+        console.log("Register prefix failed: Timeout waiting for the response from the register prefix interest");
+      if (this.onRegisterFailed)
+        this.onRegisterFailed(this.prefix);
+    }
+
     return Closure.RESULT_OK;
   }
   if (!(kind == Closure.UPCALL_CONTENT ||
@@ -14702,26 +25727,93 @@ Face.RegisterResponseClosure.prototype.upcall = function(kind, upcallInfo)
     // The upcall is not for us.  Don't expect this to happen.
     return Closure.RESULT_ERR;
 
-  var expectedName = new Name("/ndnx/.../selfreg");
-  // Got a response. Do a quick check of expected name components.
-  if (upcallInfo.data.getName().size() < 4 ||
-      !upcallInfo.data.getName().get(0).equals(expectedName.get(0)) ||
-      !upcallInfo.data.getName().get(2).equals(expectedName.get(2))) {
-    this.onRegisterFailed(this.prefix);
-    return;
+  if (this.isNfdCommand) {
+    // Decode responseData->getContent() and check for a success code.
+    // TODO: Move this into the TLV code.
+    var statusCode;
+    try {
+        var decoder = new TlvDecoder(upcallInfo.data.getContent().buf());
+        decoder.readNestedTlvsStart(Tlv.NfdCommand_ControlResponse);
+        statusCode = decoder.readNonNegativeIntegerTlv(Tlv.NfdCommand_StatusCode);
+    }
+    catch (e) {
+      // Error decoding the ControlResponse.
+      if (LOG > 0)
+        console.log("Register prefix failed: Error decoding the NFD response: " + e);
+      if (this.onRegisterFailed)
+        this.onRegisterFailed(this.prefix);
+      return Closure.RESULT_OK;
+    }
+
+    // Status code 200 is "OK".
+    if (statusCode != 200) {
+      if (LOG > 0)
+        console.log("Register prefix failed: Expected NFD status code 200, got: " +
+                    statusCode);
+      if (this.onRegisterFailed)
+        this.onRegisterFailed(this.prefix);
+      return Closure.RESULT_OK;
+    }
+
+    if (LOG > 2)
+      console.log("Register prefix succeeded with the NFD forwarder for prefix " +
+                  this.prefix.toUri());
+  }
+  else {
+    var expectedName = new Name("/ndnx/.../selfreg");
+    // Got a response. Do a quick check of expected name components.
+    if (upcallInfo.data.getName().size() < 4 ||
+        !upcallInfo.data.getName().get(0).equals(expectedName.get(0)) ||
+        !upcallInfo.data.getName().get(2).equals(expectedName.get(2))) {
+      if (LOG > 0)
+        console.log("Register prefix failed: Unexpected name in NDNx response: " +
+                    upcallInfo.data.getName().toUri());
+      this.onRegisterFailed(this.prefix);
+      return Closure.RESULT_OK;
+    }
+
+    if (LOG > 2)
+      console.log("Register prefix succeeded with the NDNx forwarder for prefix " +
+                  this.prefix.toUri());
   }
 
-  // Otherwise, silently succeed.
   return Closure.RESULT_OK;
 };
 
 /**
- * Do the work of registerPrefix once we know we are connected with a ndndid.
+ * Do the work of registerPrefix once we know we are connected with an ndndid.
+ * @param {type} registeredPrefixId The Face.getNextEntryId() which
+ * registerPrefix got so it could return it to the caller. If this is 0, then
+ * don't add to registeredPrefixTable (assuming it has already been done).
+ * @param {Name} prefix
+ * @param {Closure} closure
+ * @param {ForwardingFlags} flags
+ * @param {function} onRegisterFailed
+ * @returns {undefined}
  */
 Face.prototype.registerPrefixHelper = function
-  (prefix, closure, flags, onRegisterFailed)
+  (registeredPrefixId, prefix, closure, flags, onRegisterFailed)
 {
-  var fe = new ForwardingEntry('selfreg', prefix, null, null, flags, null);
+  var removeRequestIndex = -1;
+  if (removeRequestIndex != null)
+    removeRequestIndex = this.registeredPrefixRemoveRequests.indexOf
+      (registeredPrefixId);
+  if (removeRequestIndex >= 0) {
+    // removeRegisteredPrefix was called with the registeredPrefixId returned by
+    //   registerPrefix before we got here, so don't add a registeredPrefixTable
+    //   entry.
+    this.registeredPrefixRemoveRequests.splice(removeRequestIndex, 1);
+    return;
+  }
+
+  if (!WireFormat.ENABLE_NDNX)
+    // We can get here if the command signing info is set, but running NDNx.
+    throw new Error
+      ("registerPrefix with NDNx is deprecated. To enable while you upgrade your code to use NFD, set WireFormat.ENABLE_NDNX = true");
+
+  // A ForwardingEntry is only used with NDNx.
+  var fe = new ForwardingEntry
+    ('selfreg', prefix, null, null, flags.getForwardingEntryFlags(), null);
 
   // Always encode as BinaryXml until we support TLV for ForwardingEntry.
   var encoder = new BinaryXMLEncoder();
@@ -14748,10 +25840,275 @@ Face.prototype.registerPrefixHelper = function
   interest.setScope(1);
   if (LOG > 3) console.log('Send Interest registration packet.');
 
-  Face.registeredPrefixTable.push(new RegisteredPrefix(prefix, closure));
+  if (registeredPrefixId != 0) {
+    var interestFilterId = 0;
+    if (closure != null)
+      // registerPrefix was called with the "combined" form that includes the
+      // callback, so add an InterestFilterEntry.
+      interestFilterId = this.setInterestFilter
+        (new InterestFilter(prefix), closure);
 
+    this.registeredPrefixTable.push
+      (new Face.RegisteredPrefix(registeredPrefixId, prefix, interestFilterId));
+  }
+
+  // Send the registration interest.
   this.reconnectAndExpressInterest
-    (interest, new Face.RegisterResponseClosure(prefix, onRegisterFailed));
+    (null, interest, new Face.RegisterResponseClosure
+     (this, prefix, closure, onRegisterFailed, flags, BinaryXmlWireFormat.get(), false));
+};
+
+/**
+ * Do the work of registerPrefix to register with NFD.
+ * @param {number} registeredPrefixId The Face.getNextEntryId() which
+ * registerPrefix got so it could return it to the caller. If this is 0, then
+ * don't add to registeredPrefixTable (assuming it has already been done).
+ * @param {Name} prefix
+ * @param {Closure} closure
+ * @param {ForwardingFlags} flags
+ * @param {function} onRegisterFailed
+ * @param {KeyChain} commandKeyChain
+ * @param {Name} commandCertificateName
+ */
+Face.prototype.nfdRegisterPrefix = function
+  (registeredPrefixId, prefix, closure, flags, onRegisterFailed, commandKeyChain,
+   commandCertificateName)
+{
+  var removeRequestIndex = -1;
+  if (removeRequestIndex != null)
+    removeRequestIndex = this.registeredPrefixRemoveRequests.indexOf
+      (registeredPrefixId);
+  if (removeRequestIndex >= 0) {
+    // removeRegisteredPrefix was called with the registeredPrefixId returned by
+    //   registerPrefix before we got here, so don't add a registeredPrefixTable
+    //   entry.
+    this.registeredPrefixRemoveRequests.splice(removeRequestIndex, 1);
+    return;
+  }
+
+  if (commandKeyChain == null)
+      throw new Error
+        ("registerPrefix: The command KeyChain has not been set. You must call setCommandSigningInfo.");
+  if (commandCertificateName.size() == 0)
+      throw new Error
+        ("registerPrefix: The command certificate name has not been set. You must call setCommandSigningInfo.");
+
+  var controlParameters = new ControlParameters();
+  controlParameters.setName(prefix);
+  controlParameters.setForwardingFlags(flags);
+
+  // Make the callback for this.isLocal().
+  var thisFace = this;
+  var onIsLocalResult = function(isLocal) {
+    var commandInterest = new Interest();
+    if (isLocal) {
+      commandInterest.setName(new Name("/localhost/nfd/rib/register"));
+      // The interest is answered by the local host, so set a short timeout.
+      commandInterest.setInterestLifetimeMilliseconds(2000.0);
+    }
+    else {
+      commandInterest.setName(new Name("/localhop/nfd/rib/register"));
+      // The host is remote, so set a longer timeout.
+      commandInterest.setInterestLifetimeMilliseconds(4000.0);
+    }
+    // NFD only accepts TlvWireFormat packets.
+    commandInterest.getName().append
+      (controlParameters.wireEncode(TlvWireFormat.get()));
+    thisFace.nodeMakeCommandInterest
+      (commandInterest, commandKeyChain, commandCertificateName,
+       TlvWireFormat.get());
+
+    if (registeredPrefixId != 0) {
+      var interestFilterId = 0;
+      if (closure != null)
+        // registerPrefix was called with the "combined" form that includes the
+        // callback, so add an InterestFilterEntry.
+        interestFilterId = thisFace.setInterestFilter
+          (new InterestFilter(prefix), closure);
+
+      thisFace.registeredPrefixTable.push
+        (new Face.RegisteredPrefix(registeredPrefixId, prefix, interestFilterId));
+    }
+
+    // Send the registration interest.
+    thisFace.reconnectAndExpressInterest
+      (null, commandInterest, new Face.RegisterResponseClosure
+       (thisFace, prefix, closure, onRegisterFailed, flags,
+        TlvWireFormat.get(), true));
+  };
+
+  this.isLocal
+    (onIsLocalResult,
+     function(message) {
+       if (LOG > 0)
+         console.log("Error in Transport.isLocal: " + message);
+       if (onRegisterFailed)
+         onRegisterFailed(prefix);
+     });
+};
+
+/**
+ * Remove the registered prefix entry with the registeredPrefixId from the
+ * registered prefix table. This does not affect another registered prefix with
+ * a different registeredPrefixId, even if it has the same prefix name. If an
+ * interest filter was automatically created by registerPrefix, also remove it.
+ * If there is no entry with the registeredPrefixId, do nothing.
+ *
+ * @param {number} registeredPrefixId The ID returned from registerPrefix.
+ */
+Face.prototype.removeRegisteredPrefix = function(registeredPrefixId)
+{
+  // Go backwards through the list so we can erase entries.
+  // Remove all entries even though registeredPrefixId should be unique.
+  var count = 0;
+  for (var i = this.registeredPrefixTable.length - 1; i >= 0; --i) {
+    var entry = this.registeredPrefixTable[i];
+    if (entry.getRegisteredPrefixId() == registeredPrefixId) {
+      ++count;
+
+      if (entry.getRelatedInterestFilterId() > 0)
+        // Remove the related interest filter.
+        this.unsetInterestFilter(entry.getRelatedInterestFilterId());
+
+      this.registeredPrefixTable.splice(i, 1);
+    }
+  }
+
+  if (count == 0)
+    if (LOG > 0) console.log
+      ("removeRegisteredPrefix: Didn't find registeredPrefixId " + registeredPrefixId);
+
+  if (count == 0) {
+    // The registeredPrefixId was not found. Perhaps this has been called before
+    //   the callback in registerPrefix can add to the registeredPrefixTable. Add
+    //   this removal request which will be checked before adding to the
+    //   registeredPrefixTable.
+    if (this.registeredPrefixRemoveRequests.indexOf(registeredPrefixId) < 0)
+      // Not already requested, so add the request.
+      this.registeredPrefixRemoveRequests.push(registeredPrefixId);
+  }
+};
+
+/**
+ * Add an entry to the local interest filter table to call the onInterest
+ * callback for a matching incoming Interest. This method only modifies the
+ * library's local callback table and does not register the prefix with the
+ * forwarder. It will always succeed. To register a prefix with the forwarder,
+ * use registerPrefix. There are two forms of setInterestFilter.
+ * The first form uses the exact given InterestFilter:
+ * setInterestFilter(filter, onInterest).
+ * The second form creates an InterestFilter from the given prefix Name:
+ * setInterestFilter(prefix, onInterest).
+ * @param {InterestFilter} filter The InterestFilter with a prefix and optional
+ * regex filter used to match the name of an incoming Interest. This makes a
+ * copy of filter.
+ * @param {Name} prefix The Name prefix used to match the name of an incoming
+ * Interest.
+ * @param {function} onInterest When an Interest is received which matches the
+ * filter, this calls onInterest(prefix, interest, face, interestFilterId, filter).
+ */
+Face.prototype.setInterestFilter = function(filterOrPrefix, onInterest)
+{
+  var filter;
+  if (typeof filterOrPrefix === 'object' && filterOrPrefix instanceof InterestFilter)
+    filter = filterOrPrefix;
+  else
+    // Assume it is a prefix Name.
+    filter = new InterestFilter(filterOrPrefix);
+
+  var interestFilterId = this.getNextEntryId();
+  var closure;
+  if (onInterest.upcall && typeof onInterest.upcall == 'function')
+    // Assume it is the deprecated use with Closure.
+    closure = onInterest;
+  else
+    closure = new Face.CallbackClosure
+      (null, null, onInterest, this, interestFilterId, filter);
+
+  this.interestFilterTable.push(new Face.InterestFilterEntry
+    (interestFilterId, filter, closure));
+
+  return interestFilterId;
+};
+
+/**
+ * Remove the interest filter entry which has the interestFilterId from the
+ * interest filter table. This does not affect another interest filter with a
+ * different interestFilterId, even if it has the same prefix name. If there is
+ * no entry with the interestFilterId, do nothing.
+ * @param {number} interestFilterId The ID returned from setInterestFilter.
+ */
+Face.prototype.unsetInterestFilter = function(interestFilterId)
+{
+  // Go backwards through the list so we can erase entries.
+  // Remove all entries even though interestFilterId should be unique.
+  var count = 0;
+  for (var i = this.interestFilterTable.length - 1; i >= 0; --i) {
+    if (this.interestFilterTable[i].getInterestFilterId() == interestFilterId) {
+      ++count;
+
+      this.interestFilterTable.splice(i, 1);
+    }
+  }
+
+  if (count == 0)
+    if (LOG > 0) console.log
+      ("unsetInterestFilter: Didn't find interestFilterId " + interestFilterId);
+};
+
+/**
+ * The OnInterest callback calls this to put a Data packet which satisfies an
+ * Interest.
+ * @param {Data} data The Data packet which satisfies the interest.
+ * @param {WireFormat} wireFormat (optional) A WireFormat object used to encode
+ * the Data packet. If omitted, use WireFormat.getDefaultWireFormat().
+ * @throws Error If the encoded Data packet size exceeds getMaxNdnPacketSize().
+ */
+Face.prototype.putData = function(data, wireFormat)
+{
+  wireFormat = (wireFormat || WireFormat.getDefaultWireFormat());
+
+  var encoding = data.wireEncode(wireFormat);
+  if (encoding.size() > Face.getMaxNdnPacketSize())
+    throw new Error
+      ("The encoded Data packet size exceeds the maximum limit getMaxNdnPacketSize()");
+
+  this.transport.send(encoding.buf());
+};
+
+/**
+ * Send the encoded packet out through the transport.
+ * @param {Buffer} encoding The Buffer with the encoded packet to send.
+ * @throws Error If the encoded packet size exceeds getMaxNdnPacketSize().
+ */
+Face.prototype.send = function(encoding)
+{
+  if (encoding.length > Face.getMaxNdnPacketSize())
+    throw new Error
+      ("The encoded packet size exceeds the maximum limit getMaxNdnPacketSize()");
+
+  this.transport.send(encoding);
+};
+
+/**
+ * Check if the face is local based on the current connection through the
+ * Transport; some Transport may cause network I/O (e.g. an IP host name lookup).
+ * @param {function} onResult On success, this calls onResult(isLocal) where
+ * isLocal is true if the host is local, false if not. We use callbacks because
+ * this may need to do network I/O (e.g. an IP host name lookup).
+ * @param {function} onError On failure for DNS lookup or other error, this
+ * calls onError(message) where message is an error string.
+ */
+Face.prototype.isLocal = function(onResult, onError)
+{
+  // TODO: How to call transport.isLocal when this.connectionInfo is null? (This
+  // happens when the application does not supply a host but relies on the
+  // getConnectionInfo function to select a host.) For now return true to keep
+  // the same behavior from before we added Transport.isLocal.
+  if (this.connectionInfo == null)
+    onResult(false);
+  else
+    this.transport.isLocal(this.connectionInfo, onResult, onError);
 };
 
 /**
@@ -14795,19 +26152,24 @@ Face.prototype.onReceivedElement = function(element)
   if (interest !== null) {
     if (LOG > 3) console.log('Interest packet received.');
 
-    var entry = getEntryForRegisteredPrefix(interest.getName());
-    if (entry != null) {
-      if (LOG > 3) console.log("Found registered prefix for " + interest.getName().toUri());
-      var info = new UpcallInfo(this, interest, 0, null);
-      var ret = entry.closure.upcall(Closure.UPCALL_INTEREST, info);
-      if (ret == Closure.RESULT_INTEREST_CONSUMED && info.data != null)
-        this.transport.send(info.data.wireEncode().buf());
+    // Call all interest filter callbacks which match.
+    for (var i = 0; i < this.interestFilterTable.length; ++i) {
+      var entry = this.interestFilterTable[i];
+      if (entry.getFilter().doesMatch(interest.getName())) {
+        if (LOG > 3)
+          console.log("Found interest filter for " + interest.getName().toUri());
+        // TODO: Use a callback function instead of Closure.
+        var info = new UpcallInfo(this, interest, 0, null);
+        var ret = entry.closure.upcall(Closure.UPCALL_INTEREST, info);
+        if (ret == Closure.RESULT_INTEREST_CONSUMED && info.data != null)
+          this.transport.send(info.data.wireEncode().buf());
+      }
     }
   }
   else if (data !== null) {
     if (LOG > 3) console.log('Data packet received.');
 
-    var pendingInterests = Face.extractEntriesForExpressedInterest(data.getName());
+    var pendingInterests = this.extractEntriesForExpressedInterest(data.getName());
     // Process each matching PIT entry (if any).
     for (var i = 0; i < pendingInterests.length; ++i) {
       var pitEntry = pendingInterests[i];
@@ -14818,6 +26180,10 @@ Face.prototype.onReceivedElement = function(element)
         currentClosure.upcall(Closure.UPCALL_CONTENT_UNVERIFIED, new UpcallInfo(this, pitEntry.interest, 0, data));
         continue;
       }
+
+      if (!WireFormat.ENABLE_NDNX)
+        throw new Error
+          ("NDNx-style verification in Closure.upcall is deprecated. To enable while you upgrade your code to use KeyChain.verifyData, set WireFormat.ENABLE_NDNX = true");
 
       // Key verification
 
@@ -14846,7 +26212,7 @@ Face.prototype.onReceivedElement = function(element)
 
           // Store key in cache
           var keyEntry = new KeyStoreEntry(keylocator.keyName, rsakey, new Date().getTime());
-          Face.addKeyEntry(keyEntry);
+          this.addKeyEntry(keyEntry);
         }
         else if (kind == Closure.UPCALL_CONTENT_BAD)
           console.log("In KeyFetchClosure.upcall: signature verification failed");
@@ -14879,7 +26245,7 @@ Face.prototype.onReceivedElement = function(element)
           }
           else {
             // Check local key store
-            var keyEntry = Face.getKeyByName(keylocator.keyName);
+            var keyEntry = this.getKeyByName(keylocator.keyName);
             if (keyEntry) {
               // Key found, verify now
               if (LOG > 3) console.log("Local key cache hit");
@@ -14967,7 +26333,7 @@ Face.prototype.connectAndExecute = function(onConnected)
       thisFace.connectAndExecute(onConnected);
   }, 3000);
 
-  this.reconnectAndExpressInterest(interest, new Face.ConnectClosure(this, onConnected, timerID));
+  this.reconnectAndExpressInterest(null, interest, new Face.ConnectClosure(this, onConnected, timerID));
 };
 
 /**
