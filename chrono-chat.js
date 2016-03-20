@@ -88,13 +88,14 @@ ChronoChat.prototype.onInterest = function
     var str = new Uint8Array(content.toArrayBuffer());
     var co = new Data(interest.getName());
     co.setContent(str);
-    this.keyChain.sign(co, this.certificateName);
-    try {
-      face.putData(co);
-    }
-    catch (e) {
-      console.log(e.toString());
-    }
+    this.keyChain.sign(co, this.certificateName, function() {
+      try {
+        face.putData(co);
+      }
+      catch (e) {
+        console.log(e.toString());
+      }
+    });
   }
 };
 
