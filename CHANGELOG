@@ -1,3 +1,9 @@
+Interim changes since ChronoChat-js v0.3 (2016-03-20)
+-----------------------------------------------------
+
+Changes
+* Update to use crypto.subtle Data packet signing.
+
 ChronoChat-js v0.3 (2015-08-08)
 -----------------------------------------------------
 
