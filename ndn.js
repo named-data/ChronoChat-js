@@ -9626,8 +9626,8 @@ SyncPromise.reject = function(err)
  * you expect to always return a SyncPromise to operate in synchronous mode.
  * @param {SyncPromise} promise The SyncPromise with the value to get.
  * @return {any} The value of the promise.
- * @throws {Error} If promise is not a SyncPromise.
- * @throws {any} If promise is a SyncPromise in the rejected state, this throws
+ * @throws Error If promise is not a SyncPromise.
+ * @throws any If promise is a SyncPromise in the rejected state, this throws
  * the error.
  */
 SyncPromise.getValue = function(promise)
@@ -9670,8 +9670,8 @@ SyncPromise.getValue = function(promise)
  * @return {any} If onComplete is undefined, return SyncPromise.getValue(promise).
  * Otherwise, if onComplete is supplied then return undefined and use
  * onComplete as described above.
- * @throws {Error} If onComplete is undefined and promise is not a SyncPromise.
- * @throws {any} If onComplete is undefined and promise is a SyncPromise in the
+ * @throws Error If onComplete is undefined and promise is not a SyncPromise.
+ * @throws any If onComplete is undefined and promise is a SyncPromise in the
  * rejected state.
  */
 SyncPromise.complete = function(onComplete, onErrorOrPromise, promise)
@@ -14020,6 +14020,157 @@ Transport.prototype.isLocal = function(connectionInfo, onResult, onError)
   onError("Transport.isLocal is not implemented");
 };
 /**
+ * Copyright (C) 2016 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ * @author: Wentao Shang
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+/**
+ * A MicroForwarderTransport extends Transport to connect to the browser's
+ * micro forwarder service. This assumes that the MicroForwarder extensions has
+ * been installed.
+ * @param {function} onReceivedObject (optional) If supplied and the received
+ * object type field is not "Buffer" then just call this.onReceivedObject(obj).
+ * @constructor
+ */
+var MicroForwarderTransport = function MicroForwarderTransport(onReceivedObject)
+{
+  // Call the base constructor.
+  Transport.call(this);
+
+  this.elementReader = null;
+  this.connectionInfo = null; // Read by Face.
+  this.onReceivedObject = onReceivedObject;
+
+  var thisTransport = this;
+  window.addEventListener("message", function(event) {
+    // We only accept messages from ourselves
+    if (event.source != window)
+      return;
+
+    if (event.data.type && (event.data.type == "FromMicroForwarderStub")) {
+      var obj = event.data.object;
+      if (obj.type && obj.type == "Buffer") {
+        if (thisTransport.elementReader != null)
+          thisTransport.elementReader.onReceivedData(new Buffer(obj.data));
+      }
+      else {
+        if (thisTransport.onReceivedObject)
+          thisTransport.onReceivedObject(obj);
+      }
+    }
+  }, false);
+};
+
+MicroForwarderTransport.prototype = new Transport();
+MicroForwarderTransport.prototype.name = "MicroForwarderTransport";
+
+/**
+ * Create a new MicroForwarderTransport.ConnectionInfo which extends
+ * Transport.ConnectionInfo to hold info for the micro forwarer connection.
+ */
+MicroForwarderTransport.ConnectionInfo = function MicroForwarderTransportConnectionInfo()
+{
+  // Call the base constructor.
+  Transport.ConnectionInfo .call(this);
+};
+
+MicroForwarderTransport.ConnectionInfo.prototype = new Transport.ConnectionInfo();
+MicroForwarderTransport.ConnectionInfo.prototype.name = "MicroForwarderTransport.ConnectionInfo";
+
+/**
+ * Check if the fields of this MicroForwarderTransport.ConnectionInfo equal the other
+ * MicroForwarderTransport.ConnectionInfo.
+ * @param {MicroForwarderTransport.ConnectionInfo} The other object to check.
+ * @returns {boolean} True if the objects have equal fields, false if not.
+ */
+MicroForwarderTransport.ConnectionInfo.prototype.equals = function(other)
+{
+  if (other == null)
+    return false;
+  return true;
+};
+
+MicroForwarderTransport.ConnectionInfo.prototype.toString = function()
+{
+  return "{}";
+};
+
+/**
+ * Determine whether this transport connecting according to connectionInfo is to
+ * a node on the current machine. Unix transports are always local.
+ * @param {MicroForwarderTransport.ConnectionInfo} connectionInfo This is ignored.
+ * @param {function} onResult This calls onResult(true) because micro forwarder
+ * transports are always local.
+ * @param {function} onError This is ignored.
+ */
+MicroForwarderTransport.prototype.isLocal = function(connectionInfo, onResult, onError)
+{
+  onResult(true);
+};
+
+/**
+ * Connect to the micro forwarder according to the info in connectionInfo.
+ * Listen on the connection to read an entire packet element and call
+ * elementListener.onReceivedElement(element). However, if the received object
+ * type field is not "Buffer" then just call this.onReceivedObject(obj).
+ * @param {MicroForwarderTransport.ConnectionInfo} connectionInfo
+ * @param {object} elementListener The elementListener with function
+ * onReceivedElement which must remain valid during the life of this object.
+ * @param {function} onopenCallback Once connected, call onopenCallback().
+ * @param {type} onclosedCallback If the connection is closed by the remote host,
+ * call onclosedCallback().
+ */
+MicroForwarderTransport.prototype.connect = function
+  (connectionInfo, elementListener, onopenCallback, onclosedCallback)
+{
+  // The window listener is already set up.
+  this.elementReader = new ElementReader(elementListener);
+  this.connectionInfo = connectionInfo;
+  onopenCallback();
+};
+
+/**
+ * Send the JavaScript over the connection created by connect.
+ * @param {object} obj The object to send. It should have a field "type". If
+ * "type" is "Buffer" then it is processed like an NDN packet.
+ */
+MicroForwarderTransport.prototype.sendObject = function(obj)
+{
+  window.postMessage({
+    type: "FromMicroForwarderTransport",
+    object: obj
+  }, "*");
+};
+
+/**
+ * Send the buffer over the connection created by connect.
+ * @param {Buffer} buffer The bytes to send.
+ */
+MicroForwarderTransport.prototype.send = function(buffer)
+{
+  if (this.connectionInfo == null) {
+    console.log("MicroForwarderTransport connection is not established.");
+    return;
+  }
+
+  this.sendObject(buffer.toJSON());
+};
+/**
  * Copyright (C) 2013-2016 Regents of the University of California.
  * @author: Wentao Shang
  *
@@ -14344,31 +14495,21 @@ exports.Name = Name;
  */
 Name.Component = function NameComponent(value)
 {
-  if (typeof value === 'string')
-    this.value = DataUtils.stringToUtf8Array(value);
-  else if (typeof value === 'object' && value instanceof Name.Component)
-    this.value = new Buffer(value.value);
-  else if (typeof value === 'object' && value instanceof Blob) {
-    if (value.isNull())
-      this.value = new Buffer(0);
-    else
-      this.value = new Buffer(value.buf());
-  }
-  else if (Buffer.isBuffer(value))
-    this.value = new Buffer(value);
-  else if (typeof value === 'object' && typeof ArrayBuffer !== 'undefined' &&  value instanceof ArrayBuffer)
+  if (typeof value === 'object' && value instanceof Name.Component)
+    this.value_ = value.value_;
+  else if (!value)
+    this.value_ = new Blob([]);
+  else if (typeof value === 'object' && typeof ArrayBuffer !== 'undefined' &&
+           value instanceof ArrayBuffer)
     // Make a copy.  Turn the value into a Uint8Array since the Buffer
     //   constructor doesn't take an ArrayBuffer.
-    this.value = new Buffer(new Uint8Array(value));
-  else if (!value)
-    this.value = new Buffer(0);
-  else if (typeof value === 'object')
-    // Assume value is a byte array.  We can't check instanceof Array because
-    //   this doesn't work in JavaScript if the array comes from a different module.
-    this.value = new Buffer(value);
+    this.value_ = new Blob(new Buffer(new Uint8Array(value)), false);
+  else if (typeof value === 'object' && value instanceof Blob)
+    this.value_ = value;
   else
-    throw new Error("Name.Component constructor: Invalid type");
-}
+    // Blob will make a copy if needed.
+    this.value_ = new Blob(value);
+};
 
 /**
  * Get the component value.
@@ -14376,9 +14517,8 @@ Name.Component = function NameComponent(value)
  */
 Name.Component.prototype.getValue = function()
 {
-  // For temporary backwards compatibility, leave this.value as a Buffer but return a Blob.
-  return new Blob(this.value, false);
-}
+  return this.value_;
+};
 
 /**
  * @deprecated Use getValue. This method returns a Buffer which is the former
@@ -14386,8 +14526,15 @@ Name.Component.prototype.getValue = function()
  */
 Name.Component.prototype.getValueAsBuffer = function()
 {
-  return this.value;
+  // Assume the caller won't modify it.
+  return this.value_.buf();
 };
+
+/**
+ * @deprecated Use getValue which returns a Blob.
+ */
+Object.defineProperty(Name.Component.prototype, "value",
+  { get: function() { return this.getValueAsBuffer(); } });
 
 /**
  * Convert this component value to a string by escaping characters according to the NDN URI Scheme.
@@ -14396,7 +14543,7 @@ Name.Component.prototype.getValueAsBuffer = function()
  */
 Name.Component.prototype.toEscapedString = function()
 {
-  return Name.toEscapedString(this.value);
+  return Name.toEscapedString(this.value_.buf());
 };
 
 /**
@@ -14407,7 +14554,7 @@ Name.Component.prototype.toEscapedString = function()
  */
 Name.Component.prototype.isSegment = function()
 {
-  return this.value.length >= 1 && this.value[0] == 0x00;
+  return this.value_.size() >= 1 && this.value_.buf()[0] == 0x00;
 };
 
 /**
@@ -14418,7 +14565,7 @@ Name.Component.prototype.isSegment = function()
  */
 Name.Component.prototype.isSegmentOffset = function()
 {
-  return this.value.length >= 1 && this.value[0] == 0xFB;
+  return this.value_.size() >= 1 && this.value_.buf()[0] == 0xFB;
 };
 
 /**
@@ -14429,7 +14576,7 @@ Name.Component.prototype.isSegmentOffset = function()
  */
 Name.Component.prototype.isVersion = function()
 {
-  return this.value.length >= 1 && this.value[0] == 0xFD;
+  return this.value_.size() >= 1 && this.value_.buf()[0] == 0xFD;
 };
 
 /**
@@ -14440,7 +14587,7 @@ Name.Component.prototype.isVersion = function()
  */
 Name.Component.prototype.isTimestamp = function()
 {
-  return this.value.length >= 1 && this.value[0] == 0xFC;
+  return this.value_.size() >= 1 && this.value_.buf()[0] == 0xFC;
 };
 
 /**
@@ -14451,7 +14598,7 @@ Name.Component.prototype.isTimestamp = function()
  */
 Name.Component.prototype.isSequenceNumber = function()
 {
-  return this.value.length >= 1 && this.value[0] == 0xFE;
+  return this.value_.size() >= 1 && this.value_.buf()[0] == 0xFE;
 };
 
 /**
@@ -14460,7 +14607,7 @@ Name.Component.prototype.isSequenceNumber = function()
  */
 Name.Component.prototype.toNumber = function()
 {
-  return DataUtils.bigEndianToUnsignedInt(this.value);
+  return DataUtils.bigEndianToUnsignedInt(this.value_.buf());
 };
 
 /**
@@ -14472,10 +14619,10 @@ Name.Component.prototype.toNumber = function()
  */
 Name.Component.prototype.toNumberWithMarker = function(marker)
 {
-  if (this.value.length == 0 || this.value[0] != marker)
+  if (this.value_.size() == 0 || this.value_.buf()[0] != marker)
     throw new Error("Name component does not begin with the expected marker");
 
-  return DataUtils.bigEndianToUnsignedInt(this.value.slice(1));
+  return DataUtils.bigEndianToUnsignedInt(this.value_.buf().slice(1));
 };
 
 /**
@@ -14639,16 +14786,16 @@ Name.Component.fromSequenceNumber = function(sequenceNumber)
 Name.Component.prototype.getSuccessor = function()
 {
   // Allocate an extra byte in case the result is larger.
-  var result = new Buffer(this.value.length + 1);
+  var result = new Buffer(this.value_.size() + 1);
 
   var carry = true;
-  for (var i = this.value.length - 1; i >= 0; --i) {
+  for (var i = this.value_.size() - 1; i >= 0; --i) {
     if (carry) {
-      result[i] = (this.value[i] + 1) & 0xff;
+      result[i] = (this.value_.buf()[i] + 1) & 0xff;
       carry = (result[i] === 0);
     }
     else
-      result[i] = this.value[i];
+      result[i] = this.value_.buf()[i];
   }
 
   if (carry)
@@ -14658,7 +14805,7 @@ Name.Component.prototype.getSuccessor = function()
     result[result.length - 1] = 0;
   else
     // We didn't need the extra byte.
-    result = result.slice(0, this.value.length);
+    result = result.slice(0, this.value_.size());
 
   return new Name.Component(new Blob(result, false));
 };
@@ -14670,7 +14817,8 @@ Name.Component.prototype.getSuccessor = function()
  */
 Name.Component.prototype.equals = function(other)
 {
-  return DataUtils.arraysEqual(this.value, other.value);
+  return typeof other === 'object' && other instanceof Name.Component &&
+    this.value_.equals(other.value_);
 };
 
 /**
@@ -14684,7 +14832,7 @@ Name.Component.prototype.equals = function(other)
  */
 Name.Component.prototype.compare = function(other)
 {
-  return Name.Component.compareBuffers(this.value, other.value);
+  return Name.Component.compareBuffers(this.value_.buf(), other.value_.buf());
 };
 
 /**
@@ -16883,7 +17031,7 @@ var DigestAlgorithm = require('../security-types.js').DigestAlgorithm;
  * Create a new PublicKey by decoding the keyDer. Set the key type from the
  * decoding.
  * @param {Blob} keyDer The blob of the SubjectPublicKeyInfo DER.
- * @throws {UnrecognizedKeyFormatException} if can't decode the key DER.
+ * @throws UnrecognizedKeyFormatException if can't decode the key DER.
  * @constructor
  */
 var PublicKey = function PublicKey(keyDer)
@@ -17671,7 +17819,7 @@ IdentityStorage.prototype.doesIdentityExistPromise = function
  * Check if the specified identity already exists.
  * @param {Name} identityName The identity name.
  * @returns {boolean} true if the identity exists, otherwise false.
- * @throws {Error} If doesIdentityExistPromise doesn't return a SyncPromise which
+ * @throws Error If doesIdentityExistPromise doesn't return a SyncPromise which
  * is already fulfilled.
  */
 IdentityStorage.prototype.doesIdentityExist = function(identityName)
@@ -17697,7 +17845,7 @@ IdentityStorage.prototype.addIdentityPromise = function(identityName, useSync)
 /**
  * Add a new identity. Do nothing if the identity already exists.
  * @param {Name} identityName The identity name to be added.
- * @throws {Error} If addIdentityPromise doesn't return a SyncPromise which
+ * @throws Error If addIdentityPromise doesn't return a SyncPromise which
  * is already fulfilled.
  */
 IdentityStorage.prototype.addIdentity = function(identityName)
@@ -17758,7 +17906,7 @@ IdentityStorage.prototype.getNewKeyNamePromise = function
  * @param {Name} identityName The identity name.
  * @param {boolean} useKsk If true, generate a KSK name, otherwise a DSK name.
  * @returns {Name} The generated key name.
- * @throws {Error} If getNewKeyNamePromise doesn't return a SyncPromise which
+ * @throws Error If getNewKeyNamePromise doesn't return a SyncPromise which
  * is already fulfilled.
  */
 IdentityStorage.prototype.getNewKeyName = function(identityName, useKsk)
@@ -17785,7 +17933,7 @@ IdentityStorage.prototype.doesKeyExistPromise = function(keyName, useSync)
  * Check if the specified key already exists.
  * @param {Name} keyName The name of the key.
  * @returns {boolean} true if the key exists, otherwise false.
- * @throws {Error} If doesKeyExistPromise doesn't return a SyncPromise which
+ * @throws Error If doesKeyExistPromise doesn't return a SyncPromise which
  * is already fulfilled.
  */
 IdentityStorage.prototype.doesKeyExist = function(keyName)
@@ -17795,7 +17943,8 @@ IdentityStorage.prototype.doesKeyExist = function(keyName)
 
 /**
  * Add a public key to the identity storage. Also call addIdentity to ensure
- * that the identityName for the key exists.
+ * that the identityName for the key exists. However, if the key already
+ * exists, do nothing.
  * @param {Name} keyName The name of the public key to be added.
  * @param {number} keyType Type of the public key to be added from KeyType, such
  * as KeyType.RSA..
@@ -17803,9 +17952,7 @@ IdentityStorage.prototype.doesKeyExist = function(keyName)
  * @param {boolean} useSync (optional) If true then return a SyncPromise which
  * is already fulfilled. If omitted or false, this may return a SyncPromise or
  * an async Promise.
- * @return {Promise|SyncPromise} A promise which fulfills when the key is added,
- * or a promise rejected with SecurityException if a key with the keyName already
- * exists.
+ * @return {Promise|SyncPromise} A promise which fulfills when complete.
  */
 IdentityStorage.prototype.addKeyPromise = function
   (keyName, keyType, publicKeyDer, useSync)
@@ -17821,8 +17968,8 @@ IdentityStorage.prototype.addKeyPromise = function
  * @param {number} keyType Type of the public key to be added from KeyType, such
  * as KeyType.RSA..
  * @param {Blob} publicKeyDer A blob of the public key DER to be added.
- * @throws {SecurityException} if a key with the keyName already exists.
- * @throws {Error} If addKeyPromise doesn't return a SyncPromise which
+ * @throws SecurityException if a key with the keyName already exists.
+ * @throws Error If addKeyPromise doesn't return a SyncPromise which
  * is already fulfilled.
  */
 IdentityStorage.prototype.addKey = function(keyName, keyType, publicKeyDer)
@@ -17837,8 +17984,8 @@ IdentityStorage.prototype.addKey = function(keyName, keyType, publicKeyDer)
  * @param {boolean} useSync (optional) If true then return a SyncPromise which
  * is already fulfilled. If omitted or false, this may return a SyncPromise or
  * an async Promise.
- * @return {Promise|SyncPromise} A promise which returns the DER Blob, or a Blob
- * with a null pointer if not found.
+ * @return {Promise|SyncPromise} A promise which returns the DER Blob, or a
+ * promise rejected with SecurityException if the key doesn't exist.
  */
 IdentityStorage.prototype.getKeyPromise = function(keyName, useSync)
 {
@@ -17849,8 +17996,9 @@ IdentityStorage.prototype.getKeyPromise = function(keyName, useSync)
 /**
  * Get the public key DER blob from the identity storage.
  * @param {Name} keyName The name of the requested public key.
- * @returns {Blob} The DER Blob.  If not found, return a Blob with a null pointer.
- * @throws {Error} If getKeyPromise doesn't return a SyncPromise which
+ * @returns {Blob} The DER Blob.
+ * @throws SecurityException if the key doesn't exist.
+ * @throws Error If getKeyPromise doesn't return a SyncPromise which
  * is already fulfilled.
  */
 IdentityStorage.prototype.getKey = function(keyName)
@@ -17898,7 +18046,7 @@ IdentityStorage.prototype.doesCertificateExistPromise = function
  * Check if the specified certificate already exists.
  * @param {Name} certificateName The name of the certificate.
  * @returns {boolean} true if the certificate exists, otherwise false.
- * @throws {Error} If doesCertificateExistPromise doesn't return a SyncPromise
+ * @throws Error If doesCertificateExistPromise doesn't return a SyncPromise
  * which is already fulfilled.
  */
 IdentityStorage.prototype.doesCertificateExist = function(certificateName)
@@ -17908,15 +18056,15 @@ IdentityStorage.prototype.doesCertificateExist = function(certificateName)
 };
 
 /**
- * Add a certificate to the identity storage.
+ * Add a certificate to the identity storage. Also call addKey to ensure that
+ * the certificate key exists. If the certificate is already installed, don't
+ * replace it.
  * @param {IdentityCertificate} certificate The certificate to be added.  This
  * makes a copy of the certificate.
  * @param {boolean} useSync (optional) If true then return a SyncPromise which
  * is already fulfilled. If omitted or false, this may return a SyncPromise or
  * an async Promise.
- * @return {Promise|SyncPromise} A promise which fulfills when the certificate
- * is added, or a promise rejected with SecurityException if the certificate is
- * already installed.
+ * @return {Promise|SyncPromise} A promise which fulfills when finished.
  */
 IdentityStorage.prototype.addCertificatePromise = function(certificate, useSync)
 {
@@ -17928,8 +18076,8 @@ IdentityStorage.prototype.addCertificatePromise = function(certificate, useSync)
  * Add a certificate to the identity storage.
  * @param {IdentityCertificate} certificate The certificate to be added.  This
  * makes a copy of the certificate.
- * @throws {SecurityException} if the certificate is already installed.
- * @throws {Error} If addCertificatePromise doesn't return a SyncPromise which
+ * @throws SecurityException if the certificate is already installed.
+ * @throws Error If addCertificatePromise doesn't return a SyncPromise which
  * is already fulfilled.
  */
 IdentityStorage.prototype.addCertificate = function(certificate)
@@ -17940,16 +18088,15 @@ IdentityStorage.prototype.addCertificate = function(certificate)
 /**
  * Get a certificate from the identity storage.
  * @param {Name} certificateName The name of the requested certificate.
- * @param {boolean} allowAny If false, only a valid certificate will be returned,
- * otherwise validity is disregarded.
  * @param {boolean} useSync (optional) If true then return a SyncPromise which
  * is already fulfilled. If omitted or false, this may return a SyncPromise or
  * an async Promise.
  * @return {Promise|SyncPromise} A promise which returns the requested
- * IdentityCertificate or null if not found.
+ * IdentityCertificate, or a promise rejected with SecurityException if the
+ * certificate doesn't exist.
  */
 IdentityStorage.prototype.getCertificatePromise = function
-  (certificateName, allowAny, useSync)
+  (certificateName, useSync)
 {
   return SyncPromise.reject(new Error
     ("IdentityStorage.getCertificatePromise is not implemented"));
@@ -17958,17 +18105,14 @@ IdentityStorage.prototype.getCertificatePromise = function
 /**
  * Get a certificate from the identity storage.
  * @param {Name} certificateName The name of the requested certificate.
- * @param {boolean} allowAny If false, only a valid certificate will be returned,
- * otherwise validity is disregarded.
- * @returns {IdentityCertificate} The requested certificate.  If not found,
- * return null.
- * @throws {Error} If getCertificatePromise doesn't return a SyncPromise which
+ * @returns {IdentityCertificate} The requested certificate.
+ * @throws SecurityException if the certificate doesn't exist.
+ * @throws Error If getCertificatePromise doesn't return a SyncPromise which
  * is already fulfilled.
  */
-IdentityStorage.prototype.getCertificate = function(certificateName, allowAny)
+IdentityStorage.prototype.getCertificate = function(certificateName)
 {
-  return SyncPromise.getValue
-    (this.getValuePromise(certificateName, allowAny, true));
+  return SyncPromise.getValue(this.getValuePromise(certificateName, true));
 };
 
 /*****************************************
@@ -17994,7 +18138,7 @@ IdentityStorage.prototype.getDefaultIdentityPromise = function(useSync)
  * Get the default identity.
  * @returns {Name} The name of default identity.
  * @throws SecurityException if the default identity is not set.
- * @throws {Error} If getDefaultIdentityPromise doesn't return a SyncPromise
+ * @throws Error If getDefaultIdentityPromise doesn't return a SyncPromise
  * which is already fulfilled.
  */
 IdentityStorage.prototype.getDefaultIdentity = function()
@@ -18025,7 +18169,7 @@ IdentityStorage.prototype.getDefaultKeyNameForIdentityPromise = function
  * @param {Name} identityName The identity name.
  * @returns {Name} The default key name.
  * @throws SecurityException if the default key name for the identity is not set.
- * @throws {Error} If getDefaultKeyNameForIdentityPromise doesn't return a
+ * @throws Error If getDefaultKeyNameForIdentityPromise doesn't return a
  * SyncPromise which is already fulfilled.
  */
 IdentityStorage.prototype.getDefaultKeyNameForIdentity = function(identityName)
@@ -18061,7 +18205,7 @@ IdentityStorage.prototype.getDefaultCertificateNameForIdentityPromise = function
  * @returns {Name} The default certificate name.
  * @throws SecurityException if the default key name for the identity is not
  * set or the default certificate name for the key name is not set.
- * @throws {Error} If getDefaultCertificateNameForIdentityPromise doesn't return
+ * @throws Error If getDefaultCertificateNameForIdentityPromise doesn't return
  * a SyncPromise which is already fulfilled.
  */
 IdentityStorage.prototype.getDefaultCertificateNameForIdentity = function
@@ -18094,13 +18238,30 @@ IdentityStorage.prototype.getDefaultCertificateNameForKeyPromise = function
  * @returns {Name} The default certificate name.
  * @throws SecurityException if the default certificate name for the key name
  * is not set.
- * @throws {Error} If getDefaultCertificateNameForKeyPromise doesn't return a
+ * @throws Error If getDefaultCertificateNameForKeyPromise doesn't return a
  * SyncPromise which is already fulfilled.
  */
 IdentityStorage.prototype.getDefaultCertificateNameForKey = function(keyName)
 {
   return SyncPromise.getValue
     (this.getDefaultCertificateNameForKeyPromise(keyName, true));
+};
+
+/**
+ * Append all the identity names to the nameList.
+ * @param {Array<Name>} nameList Append result names to nameList.
+ * @param {boolean} isDefault If true, add only the default identity name. If
+ * false, add only the non-default identity names.
+ * @param {boolean} useSync (optional) If true then return a rejected promise
+ * since this only supports async code.
+ * @return {Promise} A promise which fulfills when the names are added to
+ * nameList.
+ */
+IdentityStorage.prototype.getAllIdentitiesPromise = function
+  (nameList, isDefault, useSync)
+{
+  return SyncPromise.reject(new Error
+    ("IdentityStorage.getAllIdentitiesPromise is not implemented"));
 };
 
 /**
@@ -18123,12 +18284,30 @@ IdentityStorage.prototype.getAllKeyNamesOfIdentityPromise = function
 };
 
 /**
+ * Append all the certificate names of a particular key name to the nameList.
+ * @param {Name} keyName The key name to search for.
+ * @param {Array<Name>} nameList Append result names to nameList.
+ * @param {boolean} isDefault If true, add only the default certificate name.
+ * If false, add only the non-default certificate names.
+ * @param {boolean} useSync (optional) If true then return a rejected promise
+ * since this only supports async code.
+ * @return {Promise} A promise which fulfills when the names are added to
+ * nameList.
+ */
+IdentityStorage.prototype.getAllCertificateNamesOfKeyPromise = function
+  (keyName, nameList, isDefault, useSync)
+{
+  return SyncPromise.reject(new Error
+    ("IdentityStorage.getAllCertificateNamesOfKeyPromise is not implemented"));
+};
+
+/**
  * Append all the key names of a particular identity to the nameList.
  * @param {Name} identityName The identity name to search for.
  * @param {Array<Name>} nameList Append result names to nameList.
  * @param {boolean} isDefault If true, add only the default key name. If false,
  * add only the non-default key names.
- * @throws {Error} If getAllKeyNamesOfIdentityPromise doesn't return a
+ * @throws Error If getAllKeyNamesOfIdentityPromise doesn't return a
  * SyncPromise which is already fulfilled.
  */
 IdentityStorage.prototype.getAllKeyNamesOfIdentity = function
@@ -18159,7 +18338,7 @@ IdentityStorage.prototype.setDefaultIdentityPromise = function
  * Set the default identity.  If the identityName does not exist, then clear the
  * default identity so that getDefaultIdentity() throws an exception.
  * @param {Name} identityName The default identity name.
- * @throws {Error} If setDefaultIdentityPromise doesn't return a SyncPromise which
+ * @throws Error If setDefaultIdentityPromise doesn't return a SyncPromise which
  * is already fulfilled.
  */
 IdentityStorage.prototype.setDefaultIdentity = function(identityName)
@@ -18193,7 +18372,7 @@ IdentityStorage.prototype.setDefaultKeyNameForIdentityPromise = function
  * @param {Name} keyName The name of the key.
  * @param {Name} identityNameCheck (optional) The identity name to check that the
  * keyName contains the same identity name. If an empty name, it is ignored.
- * @throws {Error} If setDefaultKeyNameForIdentityPromise doesn't return a
+ * @throws Error If setDefaultKeyNameForIdentityPromise doesn't return a
  * SyncPromise which is already fulfilled.
  */
 IdentityStorage.prototype.setDefaultKeyNameForIdentity = function
@@ -18224,7 +18403,7 @@ IdentityStorage.prototype.setDefaultCertificateNameForKeyPromise = function
  * Set the default key name for the specified identity.
  * @param {Name} keyName The key name.
  * @param {Name} certificateName The certificate name.
- * @throws {Error} If setDefaultCertificateNameForKeyPromise doesn't return a
+ * @throws Error If setDefaultCertificateNameForKeyPromise doesn't return a
  * SyncPromise which is already fulfilled.
  */
 IdentityStorage.prototype.setDefaultCertificateNameForKey = function
@@ -18257,7 +18436,7 @@ IdentityStorage.prototype.getDefaultCertificatePromise = function(useSync)
     if (certName == null)
       return SyncPromise.resolve(null);
 
-    return thisStorage.getCertificatePromise(certName, true, useSync);
+    return thisStorage.getCertificatePromise(certName, useSync);
   });
 };
 
@@ -18265,7 +18444,7 @@ IdentityStorage.prototype.getDefaultCertificatePromise = function(useSync)
  * Get the certificate of the default identity.
  * @returns {IdentityCertificate} The requested certificate.  If not found,
  * return null.
- * @throws {Error} If getDefaultCertificatePromise doesn't return a SyncPromise
+ * @throws Error If getDefaultCertificatePromise doesn't return a SyncPromise
  * which is already fulfilled.
  */
 IdentityStorage.prototype.getDefaultCertificate = function()
@@ -18297,7 +18476,7 @@ IdentityStorage.prototype.deleteCertificateInfoPromise = function
 /**
  * Delete a certificate.
  * @param {Name} certificateName The certificate name.
- * @throws {Error} If deleteCertificateInfoPromise doesn't return a SyncPromise
+ * @throws Error If deleteCertificateInfoPromise doesn't return a SyncPromise
  * which is already fulfilled.
  */
 IdentityStorage.prototype.deleteCertificateInfo = function(certificateName)
@@ -18324,7 +18503,7 @@ IdentityStorage.prototype.deletePublicKeyInfoPromise = function(keyName, useSync
 /**
  * Delete a public key and related certificates.
  * @param {Name} keyName The key name.
- * @throws {Error} If deletePublicKeyInfoPromise doesn't return a SyncPromise
+ * @throws Error If deletePublicKeyInfoPromise doesn't return a SyncPromise
  * which is already fulfilled.
  */
 IdentityStorage.prototype.deletePublicKeyInfo = function(keyName)
@@ -18352,7 +18531,7 @@ IdentityStorage.prototype.deleteIdentityInfoPromise = function
 /**
  * Delete an identity and related public keys and certificates.
  * @param {Name} identityName The identity name.
- * @throws {Error} If deleteIdentityInfoPromise doesn't return a SyncPromise
+ * @throws Error If deleteIdentityInfoPromise doesn't return a SyncPromise
  * which is already fulfilled.
  */
 IdentityStorage.prototype.deleteIdentityInfo = function(identityName)
@@ -18494,16 +18673,15 @@ IndexedDbIdentityStorage.prototype.doesKeyExistPromise = function
 
 /**
  * Add a public key to the identity storage. Also call addIdentity to ensure
- * that the identityName for the key exists.
+ * that the identityName for the key exists. However, if the key already
+   * exists, do nothing.
  * @param {Name} keyName The name of the public key to be added.
  * @param {number} keyType Type of the public key to be added from KeyType, such
  * as KeyType.RSA..
  * @param {Blob} publicKeyDer A blob of the public key DER to be added.
  * @param {boolean} useSync (optional) If true then return a rejected promise
  * since this only supports async code.
- * @return {Promise} A promise which fulfills when the key is added, or a
- * promise rejected with SecurityException if a key with the keyName already
- * exists.
+ * @return {Promise} A promise which fulfills when complete.
  */
 IndexedDbIdentityStorage.prototype.addKeyPromise = function
   (keyName, keyType, publicKeyDer, useSync)
@@ -18512,22 +18690,23 @@ IndexedDbIdentityStorage.prototype.addKeyPromise = function
     return Promise.reject(new SecurityException(new Error
       ("IndexedDbIdentityStorage.addKeyPromise is only supported for async")));
 
-  var identityName = keyName.getSubName(0, keyName.size() - 1);
+  if (keyName.size() === 0)
+    return Promise.resolve();
 
   var thisStorage = this;
-  return this.addIdentityPromise(identityName)
-  .then(function() {
-    return thisStorage.doesKeyExistPromise(keyName);
-  })
+  return this.doesKeyExistPromise(keyName)
   .then(function(exists) {
     if (exists)
-      throw new SecurityException(new Error
-        ("A key with the same name already exists!"));
+      return Promise.resolve();
 
-    return thisStorage.database.publicKey.put
-      ({ keyNameUri: keyName.toUri(), keyType: keyType,
-         keyDer: new Blob(publicKeyDer, true).buf(),
-         defaultCertificate: null });
+    var identityName = keyName.getPrefix(-1);
+    return thisStorage.addIdentityPromise(identityName)
+    .then(function() {
+      return thisStorage.database.publicKey.put
+        ({ keyNameUri: keyName.toUri(), keyType: keyType,
+           keyDer: new Blob(publicKeyDer, true).buf(),
+           defaultCertificate: null });
+    });
   });
 };
 
@@ -18536,8 +18715,8 @@ IndexedDbIdentityStorage.prototype.addKeyPromise = function
  * @param {Name} keyName The name of the requested public key.
  * @param {boolean} useSync (optional) If true then return a rejected promise
  * since this only supports async code.
- * @return {Promise} A promise which returns the DER Blob, or a Blob with a
- * null pointer if not found.
+ * @return {Promise} A promise which returns the DER Blob, or a promise rejected
+ * with SecurityException if the key doesn't exist.
  */
 IndexedDbIdentityStorage.prototype.getKeyPromise = function(keyName, useSync)
 {
@@ -18545,13 +18724,17 @@ IndexedDbIdentityStorage.prototype.getKeyPromise = function(keyName, useSync)
     return Promise.reject(new SecurityException(new Error
       ("IndexedDbIdentityStorage.getKeyPromise is only supported for async")));
 
+  if (keyName.size() === 0)
+    return Promise.reject(new SecurityException(new Error
+      ("IndexedDbIdentityStorage::getKeyPromise: Empty keyName")));
+
   return this.database.publicKey.get(keyName.toUri())
   .then(function(publicKeyEntry) {
     if (publicKeyEntry)
       return Promise.resolve(new Blob(publicKeyEntry.keyDer));
     else
-      // Not found.  Silently return a null Blob.
-      return Promise.resolve(new Blob());
+      return Promise.reject(new SecurityException(new Error
+        ("IndexedDbIdentityStorage::getKeyPromise: The key does not exist")));
   });
 };
 
@@ -18578,14 +18761,14 @@ IndexedDbIdentityStorage.prototype.doesCertificateExistPromise = function
 };
 
 /**
- * Add a certificate to the identity storage.
+ * Add a certificate to the identity storage. Also call addKey to ensure that
+ * the certificate key exists. If the certificate is already installed, don't
+ * replace it.
  * @param {IdentityCertificate} certificate The certificate to be added.  This
  * makes a copy of the certificate.
  * @param {boolean} useSync (optional) If true then return a rejected promise
  * since this only supports async code.
- * @return {Promise} A promise which fulfills when the certificate is added,
- * or a promise rejected with SecurityException if the certificate is already
- * installed.
+ * @return {Promise} A promise which fulfills when finished.
  */
 IndexedDbIdentityStorage.prototype.addCertificatePromise = function
   (certificate, useSync)
@@ -18598,30 +18781,15 @@ IndexedDbIdentityStorage.prototype.addCertificatePromise = function
   var keyName = certificate.getPublicKeyName();
 
   var thisStorage = this;
-  return this.doesKeyExistPromise(keyName)
-  .then(function(exists) {
-    if (!exists)
-      throw new SecurityException(new Error
-        ("No corresponding Key record for certificate! " +
-         keyName.toUri() + " " + certificateName.toUri()));
-
-    // Check if the certificate already exists.
+  return this.addKeyPromise
+    (keyName, certificate.getPublicKeyInfo().getKeyType(),
+     certificate.getPublicKeyInfo().getKeyDer(), useSync)
+  .then(function() {
     return thisStorage.doesCertificateExistPromise(certificateName);
   })
   .then(function(exists) {
     if (exists)
-      throw new SecurityException(new Error
-        ("Certificate has already been installed!"));
-
-    // Check if the public key of the certificate is the same as the key record.
-    return thisStorage.getKeyPromise(keyName);
-  })
-  .then(function(keyBlob) {
-    if (keyBlob.isNull() ||
-        !DataUtils.arraysEqual(keyBlob.buf(),
-          certificate.getPublicKeyInfo().getKeyDer().buf()))
-      throw new SecurityException(new Error
-        ("The certificate does not match the public key!"));
+      return Promise.resolve();
 
     // Insert the certificate.
     // wireEncode returns the cached encoding if available.
@@ -18634,34 +18802,34 @@ IndexedDbIdentityStorage.prototype.addCertificatePromise = function
 /**
  * Get a certificate from the identity storage.
  * @param {Name} certificateName The name of the requested certificate.
- * @param {boolean} allowAny If false, only a valid certificate will
- * be returned, otherwise validity is disregarded.
  * @param {boolean} useSync (optional) If true then return a rejected promise
  * since this only supports async code.
  * @return {Promise} A promise which returns the requested
- * IdentityCertificate or null if not found.
+ * IdentityCertificate, or a promise rejected with SecurityException if the
+ * certificate doesn't exist.
  */
 IndexedDbIdentityStorage.prototype.getCertificatePromise = function
-  (certificateName, allowAny, useSync)
+  (certificateName, useSync)
 {
   if (useSync)
     return Promise.reject(new SecurityException(new Error
       ("IndexedDbIdentityStorage.getCertificatePromise is only supported for async")));
 
-  if (!allowAny)
-    return Promise.reject(new Error
-      ("IndexedDbIdentityStorage.getCertificate for !allowAny is not implemented"));
-
   return this.database.certificate.get(certificateName.toUri())
   .then(function(certificateEntry) {
     if (certificateEntry) {
       var certificate = new IdentityCertificate();
-      certificate.wireDecode(certificateEntry.encoding);
+      try {
+        certificate.wireDecode(certificateEntry.encoding);
+      } catch (ex) {
+        return Promise.reject(new SecurityException(new Error
+          ("IndexedDbIdentityStorage::getCertificatePromise: The certificate cannot be decoded")));
+      }
       return Promise.resolve(certificate);
     }
     else
-      // Not found.  Silently return null.
-      return Promise.resolve(null);
+      return Promise.reject(new SecurityException(new Error
+        ("IndexedDbIdentityStorage::getCertificatePromise: The certificate does not exist")));
   });
 };
 
@@ -18748,6 +18916,46 @@ IndexedDbIdentityStorage.prototype.getDefaultCertificateNameForKeyPromise = func
 };
 
 /**
+ * Append all the identity names to the nameList.
+ * @param {Array<Name>} nameList Append result names to nameList.
+ * @param {boolean} isDefault If true, add only the default identity name. If
+ * false, add only the non-default identity names.
+ * @param {boolean} useSync (optional) If true then return a rejected promise
+ * since this only supports async code.
+ * @return {Promise} A promise which fulfills when the names are added to
+ * nameList.
+ */
+IndexedDbIdentityStorage.prototype.getAllIdentitiesPromise = function
+  (nameList, isDefault, useSync)
+{
+  if (useSync)
+    return Promise.reject(new SecurityException(new Error
+      ("IndexedDbIdentityStorage.getAllIdentitiesPromise is only supported for async")));
+
+  var defaultIdentityName = null;
+  var thisStorage = this;
+  return this.getDefaultIdentityPromise()
+  .then(function(localDefaultIdentityName) {
+    defaultIdentityName = localDefaultIdentityName;
+    return SyncPromise.resolve();
+  }, function(err) {
+    // The default identity name was not found.
+    return SyncPromise.resolve();
+  })
+  .then(function() {
+    return thisStorage.database.identity.each(function(identityEntry) {
+      var identityName = new Name(identityEntry.identityNameUri);
+      var identityNameIsDefault =
+        (defaultIdentityName !== null && identityName.equals(defaultIdentityName));
+      if (isDefault && identityNameIsDefault)
+        nameList.push(identityName);
+      else if (!isDefault && !identityNameIsDefault)
+        nameList.push(identityName);
+    });
+  });
+};
+
+/**
  * Append all the key names of a particular identity to the nameList.
  * @param {Name} identityName The identity name to search for.
  * @param {Array<Name>} nameList Append result names to nameList.
@@ -18777,7 +18985,7 @@ IndexedDbIdentityStorage.prototype.getAllKeyNamesOfIdentityPromise = function
   })
   .then(function() {
     // Iterate through each publicKey a to find ones that match identityName.
-    // This is a little inefficient, but we don't expect the in-browswer
+    // This is a little inefficient, but we don't expect the in-browser
     // database to be very big, we don't expect to use this function often (for
     // deleting an identity), and this is simpler than complicating the database
     // schema to store the identityName with each publicKey.
@@ -18787,11 +18995,63 @@ IndexedDbIdentityStorage.prototype.getAllKeyNamesOfIdentityPromise = function
 
       if (keyIdentityName.equals(identityName)) {
         var keyNameIsDefault =
-          (defaultKeyName != null && keyName.equals(defaultKeyName));
+          (defaultKeyName !== null && keyName.equals(defaultKeyName));
         if (isDefault && keyNameIsDefault)
           nameList.push(keyName);
         else if (!isDefault && !keyNameIsDefault)
           nameList.push(keyName);
+      }
+    });
+  });
+};
+
+/**
+ * Append all the certificate names of a particular key name to the nameList.
+ * @param {Name} keyName The key name to search for.
+ * @param {Array<Name>} nameList Append result names to nameList.
+ * @param {boolean} isDefault If true, add only the default certificate name.
+ * If false, add only the non-default certificate names.
+ * @param {boolean} useSync (optional) If true then return a rejected promise
+ * since this only supports async code.
+ * @return {Promise} A promise which fulfills when the names are added to
+ * nameList.
+ */
+IndexedDbIdentityStorage.prototype.getAllCertificateNamesOfKeyPromise = function
+  (keyName, nameList, isDefault, useSync)
+{
+  if (useSync)
+    return Promise.reject(new SecurityException(new Error
+      ("IndexedDbIdentityStorage.getAllCertificateNamesOfKeyPromise is only supported for async")));
+
+  var defaultCertificateName = null;
+  var thisStorage = this;
+  return this.getDefaultCertificateNameForKeyPromise(keyName)
+  .then(function(localDefaultCertificateName) {
+    defaultCertificateName = localDefaultCertificateName;
+    return SyncPromise.resolve();
+  }, function(err) {
+    // The default certificate name was not found.
+    return SyncPromise.resolve();
+  })
+  .then(function() {
+    // Iterate through each certificate record a to find ones that match keyName.
+    // This is a little inefficient, but we don't expect the in-browser
+    // database to be very big, we don't expect to use this function often (for
+    // deleting an identity), and this is simpler than complicating the database
+    // schema to store the keyName with each certificate record.
+    return thisStorage.database.certificate.each(function(certificateEntry) {
+      var certificateName = new Name(certificateEntry.certificateNameUri);
+      var certificateKeyName = IdentityCertificate.certificateNameToPublicKeyName
+        (certificateName);
+
+      if (certificateKeyName.equals(keyName)) {
+        var certificateNameIsDefault =
+          (defaultCertificateName !== null &&
+           certificateName.equals(defaultCertificateName));
+        if (isDefault && certificateNameIsDefault)
+          nameList.push(certificateName);
+        else if (!isDefault && !certificateNameIsDefault)
+          nameList.push(certificateName);
       }
     });
   });
@@ -18897,7 +19157,7 @@ IndexedDbIdentityStorage.prototype.deleteCertificateInfoPromise = function
     return Promise.reject(new SecurityException(new Error
       ("IndexedDbIdentityStorage.deleteCertificateInfoPromise is only supported for async")));
 
-  if (certificateName.size() == 0)
+  if (certificateName.size() === 0)
     return Promise.resolve();
 
   return this.database.certificate.delete(certificateName.toUri());
@@ -18918,7 +19178,7 @@ IndexedDbIdentityStorage.prototype.deletePublicKeyInfoPromise = function
     return Promise.reject(new SecurityException(new Error
       ("IndexedDbIdentityStorage.deletePublicKeyInfoPromise is only supported for async")));
 
-  if (keyName.size() == 0)
+  if (keyName.size() === 0)
     return Promise.resolve();
 
   var thisStorage = this;
@@ -19078,25 +19338,26 @@ MemoryIdentityStorage.prototype.doesKeyExistPromise = function(keyName)
 
 /**
  * Add a public key to the identity storage. Also call addIdentity to ensure
- * that the identityName for the key exists.
+ * that the identityName for the key exists. However, if the key already
+ * exists, do nothing.
  * @param {Name} keyName The name of the public key to be added.
  * @param {number} keyType Type of the public key to be added from KeyType, such
  * as KeyType.RSA..
  * @param {Blob} publicKeyDer A blob of the public key DER to be added.
- * @return {SyncPromise} A promise which fulfills when the key is added, or a
- * promise rejected with SecurityException if a key with the keyName already
- * exists.
+ * @return {SyncPromise} A promise which fulfills when complete.
  */
 MemoryIdentityStorage.prototype.addKeyPromise = function
   (keyName, keyType, publicKeyDer)
 {
+  if (keyName.size() === 0)
+    return SyncPromise.resolve();
+
+  if (this.doesKeyExist(keyName))
+    return SyncPromise.resolve();
+
   var identityName = keyName.getSubName(0, keyName.size() - 1);
 
   this.addIdentity(identityName);
-
-  if (this.doesKeyExist(keyName))
-    return SyncPromise.reject(new SecurityException(new Error
-      ("A key with the same name already exists!")));
 
   this.keyStore[keyName.toUri()] =
     { keyType: keyType, keyDer: new Blob(publicKeyDer), defaultCertificate: null };
@@ -19107,16 +19368,20 @@ MemoryIdentityStorage.prototype.addKeyPromise = function
 /**
  * Get the public key DER blob from the identity storage.
  * @param {Name} keyName The name of the requested public key.
- * @return {SyncPromise} A promise which returns the DER Blob, or a Blob with a
- * null pointer if not found.
+ * @return {SyncPromise} A promise which returns the DER Blob, or a promise
+ * rejected with SecurityException if the key doesn't exist.
  */
 MemoryIdentityStorage.prototype.getKeyPromise = function(keyName)
 {
+  if (keyName.size() === 0)
+    return SyncPromise.reject(new SecurityException(new Error
+      ("MemoryIdentityStorage::getKeyPromise: Empty keyName")));
+
   var keyNameUri = keyName.toUri();
   var entry = this.keyStore[keyNameUri];
   if (entry === undefined)
-    // Not found.  Silently return a null Blob.
-    return SyncPromise.resolve(new Blob());
+    return SyncPromise.reject(new SecurityException(new Error
+      ("MemoryIdentityStorage::getKeyPromise: The key does not exist")));
 
   return SyncPromise.resolve(entry.keyDer);
 };
@@ -19134,35 +19399,23 @@ MemoryIdentityStorage.prototype.doesCertificateExistPromise = function
 };
 
 /**
- * Add a certificate to the identity storage.
+ * Add a certificate to the identity storage. Also call addKey to ensure that
+ * the certificate key exists. If the certificate is already installed, don't
+ * replace it.
  * @param {IdentityCertificate} certificate The certificate to be added.  This
  * makes a copy of the certificate.
- * @return {SyncPromise} A promise which fulfills when the certificate is added,
- * or a promise rejected with SecurityException if the certificate is already
- * installed.
+ * @return {SyncPromise} A promise which fulfills when finished.
  */
 MemoryIdentityStorage.prototype.addCertificatePromise = function(certificate)
 {
   var certificateName = certificate.getName();
   var keyName = certificate.getPublicKeyName();
 
-  if (!this.doesKeyExist(keyName))
-    return SyncPromise.reject(new SecurityException(new Error
-      ("No corresponding Key record for certificate! " +
-       keyName.toUri() + " " + certificateName.toUri())));
+  this.addKey(keyName, certificate.getPublicKeyInfo().getKeyType(),
+         certificate.getPublicKeyInfo().getKeyDer());
 
-  // Check if the certificate already exists.
   if (this.doesCertificateExist(certificateName))
-    return SyncPromise.reject(new SecurityException(new Error
-      ("Certificate has already been installed!")));
-
-  // Check if the public key of the certificate is the same as the key record.
-  var keyBlob = this.getKey(keyName);
-  if (keyBlob.isNull() ||
-      !DataUtils.arraysEqual(keyBlob.buf(),
-        certificate.getPublicKeyInfo().getKeyDer().buf()))
-    return SyncPromise.reject(new SecurityException(new Error
-      ("The certificate does not match the public key!")));
+    return SyncPromise.resolve();
 
   // Insert the certificate.
   // wireEncode returns the cached encoding if available.
@@ -19174,26 +19427,26 @@ MemoryIdentityStorage.prototype.addCertificatePromise = function(certificate)
 /**
  * Get a certificate from the identity storage.
  * @param {Name} certificateName The name of the requested certificate.
- * @param {boolean} allowAny If false, only a valid certificate will
- * be returned, otherwise validity is disregarded.
  * @return {SyncPromise} A promise which returns the requested
- * IdentityCertificate or null if not found.
+ * IdentityCertificate, or a promise rejected with SecurityException if the
+ * certificate doesn't exist.
  */
 MemoryIdentityStorage.prototype.getCertificatePromise = function
-  (certificateName, allowAny)
+  (certificateName)
 {
-  if (!allowAny)
-    return SyncPromise.reject(new Error
-      ("MemoryIdentityStorage.getCertificate for !allowAny is not implemented"));
-
   var certificateNameUri = certificateName.toUri();
   if (this.certificateStore[certificateNameUri] === undefined)
-    // Not found.  Silently return null.
-    return SyncPromise.resolve(null);
+    return SyncPromise.reject(new SecurityException(new Error
+      ("MemoryIdentityStorage::getCertificatePromise: The certificate does not exist")));
 
-  var certificiate = new IdentityCertificate();
-  certificiate.wireDecode(this.certificateStore[certificateNameUri]);
-  return SyncPromise.resolve(certificiate);
+  var certificate = new IdentityCertificate();
+  try {
+    certificate.wireDecode(this.certificateStore[certificateNameUri]);
+  } catch (ex) {
+    return SyncPromise.reject(new SecurityException(new Error
+      ("MemoryIdentityStorage::getCertificatePromise: The certificate cannot be decoded")));
+  }
+  return SyncPromise.resolve(certificate);
 };
 
 /*****************************************
@@ -19418,7 +19671,7 @@ PrivateKeyStorage.prototype.generateKeyPairPromise = function
  * Generate a pair of asymmetric keys.
  * @param {Name} keyName The name of the key pair.
  * @param {KeyParams} params The parameters of the key.
- * @throws {Error} If generateKeyPairPromise doesn't return a SyncPromise which
+ * @throws Error If generateKeyPairPromise doesn't return a SyncPromise which
  * is already fulfilled.
  */
 PrivateKeyStorage.prototype.generateKeyPair = function(keyName, params)
@@ -19444,7 +19697,7 @@ PrivateKeyStorage.prototype.deleteKeyPairPromise = function(keyName, useSync)
 /**
  * Delete a pair of asymmetric keys. If the key doesn't exist, do nothing.
  * @param {Name} keyName The name of the key pair.
- * @throws {Error} If deleteKeyPairPromise doesn't return a SyncPromise which
+ * @throws Error If deleteKeyPairPromise doesn't return a SyncPromise which
  * is already fulfilled.
  */
 PrivateKeyStorage.prototype.deleteKeyPair = function(keyName)
@@ -19470,7 +19723,7 @@ PrivateKeyStorage.prototype.getPublicKeyPromise = function(keyName, useSync)
  * Get the public key
  * @param {Name} keyName The name of public key.
  * @return {PublicKey} The public key.
- * @throws {Error} If getPublicKeyPromise doesn't return a SyncPromise which
+ * @throws Error If getPublicKeyPromise doesn't return a SyncPromise which
  * is already fulfilled.
  */
 PrivateKeyStorage.prototype.getPublicKey = function(keyName)
@@ -19504,7 +19757,7 @@ PrivateKeyStorage.prototype.signPromise = function
  * DigestAlgorithm, such as DigestAlgorithm.SHA256. If omitted, use
  * DigestAlgorithm.SHA256.
  * @return {Blob} The signature Blob.
- * @throws {Error} If signPromise doesn't return a SyncPromise which is already
+ * @throws Error If signPromise doesn't return a SyncPromise which is already
  * fulfilled.
  */
 PrivateKeyStorage.prototype.sign = function(data, keyName, digestAlgorithm)
@@ -19574,7 +19827,7 @@ PrivateKeyStorage.prototype.doesKeyExistPromise = function
  * @param {number} keyClass The class of the key, e.g. KeyClass.PUBLIC,
  * KeyClass.PRIVATE, or KeyClass.SYMMETRIC.
  * @return {boolean} True if the key exists.
- * @throws {Error} If doesKeyExistPromise doesn't return a SyncPromise which
+ * @throws Error If doesKeyExistPromise doesn't return a SyncPromise which
  * is already fulfilled.
  */
 PrivateKeyStorage.prototype.doesKeyExist = function(keyName, keyClass)
@@ -20790,6 +21043,230 @@ IdentityManager.prototype.getPublicKey = function(keyName, onComplete, onError)
 // TODO: Add two versions of createIdentityCertificate.
 
 /**
+ * Prepare an unsigned identity certificate.
+ * @param {Name} keyName The key name, e.g., `/{identity_name}/ksk-123456`.
+ * @param {PublicKey} publicKey (optional) The public key to sign. If ommited,
+ * use the keyName to get the public key from the identity storage.
+ * @param {Name} signingIdentity The signing identity.
+ * @param {number} notBefore See IdentityCertificate.
+ * @param {number} notAfter See IdentityCertificate.
+ * @param {Array<CertificateSubjectDescription>} subjectDescription A list of
+ * CertificateSubjectDescription. See IdentityCertificate. If null or empty,
+ * this adds a an ATTRIBUTE_NAME based on the keyName.
+ * @param {Name} certPrefix (optional) The prefix before the `KEY` component. If
+ * null or omitted, this infers the certificate name according to the relation
+ * between the signingIdentity and the subject identity. If the signingIdentity
+ * is a prefix of the subject identity, `KEY` will be inserted after the
+ * signingIdentity, otherwise `KEY` is inserted after subject identity (i.e.,
+ * before `ksk-...`).
+ * @param {function} onComplete (optional) This calls onComplete(certificate)
+ * with the unsigned IdentityCertificate, or null if the inputs are invalid. If
+ * omitted, the return value is described below. (Some database libraries only
+ * use a callback, so onComplete is required to use these.)
+ * @param {function} onError (optional) If defined, then onComplete must be
+ * defined and if there is an exception, then this calls onError(exception)
+ * with the exception. If onComplete is defined but onError is undefined, then
+ * this will log any thrown exception. (Some database libraries only use a
+ * callback, so onError is required to be notified of an exception.)
+ * @return {IdentityCertificate} If onComplete is omitted, return the the
+ * unsigned IdentityCertificate, or null if the inputs are invalid. Otherwise,
+ * if onComplete is supplied then return undefined and use onComplete as
+ * described above.
+ */
+IdentityManager.prototype.prepareUnsignedIdentityCertificate = function
+  (keyName, publicKey, signingIdentity, notBefore, notAfter, subjectDescription,
+   certPrefix, onComplete, onError)
+{
+  if (!(publicKey instanceof PublicKey)) {
+    // The publicKey was omitted. Shift arguments.
+    onError = onComplete;
+    onComplete = certPrefix;
+    certPrefix = subjectDescription;
+    subjectDescription = notAfter;
+    notAfter = notBefore;
+    notBefore = signingIdentity;
+    signingIdentity = publicKey;
+    publicKey = null;
+  }
+
+  // certPrefix may be omitted or null, so check for it and the following args.
+  var arg7 = certPrefix;
+  var arg8 = onComplete;
+  var arg9 = onError;
+  if (arg7 instanceof Name)
+    certPrefix = arg7;
+  else
+    certPrefix = null;
+
+  if (typeof arg7 === 'function') {
+    onComplete = arg7;
+    onError = arg8;
+  }
+  else if (typeof arg8 === 'function') {
+    onComplete = arg8;
+    onError = arg9;
+  }
+  else {
+    onComplete = null;
+    onError = null;
+  }
+
+  var promise;
+  if (publicKey == null)
+    promise =  this.prepareUnsignedIdentityCertificatePromise
+      (keyName, signingIdentity, notBefore, notAfter, subjectDescription,
+       certPrefix, !onComplete);
+  else
+    promise =  this.prepareUnsignedIdentityCertificatePromise
+      (keyName, publicKey, signingIdentity, notBefore, notAfter,
+       subjectDescription, certPrefix, !onComplete);
+  return SyncPromise.complete(onComplete, onError, promise);
+};
+
+/**
+ * Prepare an unsigned identity certificate.
+ * @param {Name} keyName The key name, e.g., `/{identity_name}/ksk-123456`.
+ * @param {PublicKey} publicKey (optional) The public key to sign. If ommited,
+ * use the keyName to get the public key from the identity storage.
+ * @param {Name} signingIdentity The signing identity.
+ * @param {number} notBefore See IdentityCertificate.
+ * @param {number} notAfter See IdentityCertificate.
+ * @param {Array<CertificateSubjectDescription>} subjectDescription A list of
+ * CertificateSubjectDescription. See IdentityCertificate. If null or empty,
+ * this adds a an ATTRIBUTE_NAME based on the keyName.
+ * @param {Name} certPrefix (optional) The prefix before the `KEY` component. If
+ * null or omitted, this infers the certificate name according to the relation
+ * between the signingIdentity and the subject identity. If the signingIdentity
+ * is a prefix of the subject identity, `KEY` will be inserted after the
+ * signingIdentity, otherwise `KEY` is inserted after subject identity (i.e.,
+ * before `ksk-...`).
+ * @param {boolean} useSync (optional) If true then return a SyncPromise which
+ * is already fulfilled. If omitted or false, this may return a SyncPromise or
+ * an async Promise.
+ * @return {Promise|SyncPromise} A promise that returns the unsigned
+ * IdentityCertificate, or that returns null if the inputs are invalid.
+ */
+IdentityManager.prototype.prepareUnsignedIdentityCertificatePromise = function
+  (keyName, publicKey, signingIdentity, notBefore, notAfter, subjectDescription,
+   certPrefix, useSync)
+{
+  if (!(publicKey instanceof PublicKey)) {
+    // The publicKey was omitted. Shift arguments.
+    useSync = certPrefix;
+    certPrefix = subjectDescription;
+    subjectDescription = notAfter;
+    notAfter = notBefore;
+    notBefore = signingIdentity;
+    signingIdentity = publicKey;
+    publicKey = null;
+  }
+
+  // certPrefix may be omitted or null, so check for it and the following arg.
+  var arg7 = certPrefix;
+  var arg8 = useSync;
+  if (arg7 instanceof Name)
+    certPrefix = arg7;
+  else
+    certPrefix = null;
+
+  if (typeof arg7 === 'boolean')
+    useSync = arg7;
+  else if (typeof arg8 === 'boolean')
+    useSync = arg8;
+  else
+    useSync = false;
+
+  var promise;
+  if (publicKey == null) {
+    promise = this.identityStorage.getKeyPromise(keyName, useSync)
+    .then(function(keyDer) {
+      publicKey = new PublicKey(keyDer);
+      return SyncPromise.resolve();
+    });
+  }
+  else
+    promise = SyncPromise.resolve();
+
+  return promise
+  .then(function() {
+    return SyncPromise.resolve
+      (IdentityManager.prepareUnsignedIdentityCertificateHelper_
+       (keyName, publicKey, signingIdentity, notBefore, notAfter,
+        subjectDescription, certPrefix));
+  });
+};
+
+/**
+ * A helper for prepareUnsignedIdentityCertificatePromise where the publicKey
+ * is known.
+ */
+IdentityManager.prepareUnsignedIdentityCertificateHelper_ = function
+  (keyName, publicKey, signingIdentity, notBefore, notAfter, subjectDescription,
+   certPrefix)
+{
+  if (keyName.size() < 1)
+    return null;
+
+  var tempKeyIdPrefix = keyName.get(-1).toEscapedString();
+  if (tempKeyIdPrefix.length < 4)
+    return null;
+  keyIdPrefix = tempKeyIdPrefix.substr(0, 4);
+  if (keyIdPrefix != "ksk-" && keyIdPrefix != "dsk-")
+    return null;
+
+  var certificate = new IdentityCertificate();
+  var certName = new Name();
+
+  if (certPrefix == null) {
+    // No certificate prefix hint, so infer the prefix.
+    if (signingIdentity.match(keyName))
+      certName.append(signingIdentity)
+        .append("KEY")
+        .append(keyName.getSubName(signingIdentity.size()))
+        .append("ID-CERT")
+        .appendVersion(new Date().getTime());
+    else
+      certName.append(keyName.getPrefix(-1))
+        .append("KEY")
+        .append(keyName.get(-1))
+        .append("ID-CERT")
+        .appendVersion(new Date().getTime());
+  }
+  else {
+    // A cert prefix hint is supplied, so determine the cert name.
+    if (certPrefix.match(keyName) && !certPrefix.equals(keyName))
+      certName.append(certPrefix)
+        .append("KEY")
+        .append(keyName.getSubName(certPrefix.size()))
+        .append("ID-CERT")
+        .appendVersion(new Date().getTime());
+    else
+      return null;
+  }
+
+  certificate.setName(certName);
+  certificate.setNotBefore(notBefore);
+  certificate.setNotAfter(notAfter);
+  certificate.setPublicKeyInfo(publicKey);
+
+  if (subjectDescription == null || subjectDescription.length === 0)
+    certificate.addSubjectDescription(new CertificateSubjectDescription
+      ("2.5.4.41", keyName.getPrefix(-1).toUri()));
+  else {
+    for (var i = 0; i < subjectDescription.length; ++i)
+      certificate.addSubjectDescription(subjectDescription[i]);
+  }
+
+  try {
+    certificate.encode();
+  } catch (ex) {
+    throw SecurityException(new Error("DerEncodingException: " + ex));
+  }
+
+  return certificate;
+};
+
+/**
  * Add a certificate into the public key identity storage.
  * @param {IdentityCertificate} certificate The certificate to to added. This
  * makes a copy of the certificate.
@@ -20911,33 +21388,9 @@ IdentityManager.prototype.addCertificateAsDefault = function
  * Get a certificate which is still valid with the specified name.
  * @param {Name} certificateName The name of the requested certificate.
  * @param {function} onComplete (optional) This calls onComplete(certificate)
- * with the requested IdentityCertificate which is valid. If omitted, the return
- * value is described below. (Some database libraries only use a callback, so
- * onComplete is required to use these.)
- * @param {function} onError (optional) If defined, then onComplete must be
- * defined and if there is an exception, then this calls onError(exception)
- * with the exception. If onComplete is defined but onError is undefined, then
- * this will log any thrown exception. (Some database libraries only use a
- * callback, so onError is required to be notified of an exception.)
- * @return {IdentityCertificate} If onComplete is omitted, return the requested
- * certificate which is valid. Otherwise, if onComplete is supplied then return
- * undefined and use onComplete as described above.
- */
-IdentityManager.prototype.getCertificate = function
-  (certificateName, onComplete, onError)
-{
-  return SyncPromise.complete(onComplete, onError,
-    this.identityStorage.getCertificatePromise
-      (certificateName, false, !onComplete));
-};
-
-/**
- * Get a certificate even if the certificate is not valid anymore.
- * @param {Name} certificateName The name of the requested certificate.
- * @param {function} onComplete (optional) This calls onComplete(certificate)
- * with the requested IdentityCertificate. If omitted, the return value is
- * described below. (Some database libraries only use a callback, so onComplete is
- * required to use these.)
+ * with the requested IdentityCertificate. If omitted, the return value is 
+ * described below. (Some database libraries only use a callback, so onComplete
+ * is required to use these.)
  * @param {function} onError (optional) If defined, then onComplete must be
  * defined and if there is an exception, then this calls onError(exception)
  * with the exception. If onComplete is defined but onError is undefined, then
@@ -20947,12 +21400,12 @@ IdentityManager.prototype.getCertificate = function
  * certificate. Otherwise, if onComplete is supplied then return undefined and
  * use onComplete as described above.
  */
-IdentityManager.prototype.getAnyCertificate = function
+IdentityManager.prototype.getCertificate = function
   (certificateName, onComplete, onError)
 {
   return SyncPromise.complete(onComplete, onError,
     this.identityStorage.getCertificatePromise
-      (certificateName, true, !onComplete));
+      (certificateName, false, !onComplete));
 };
 
 /**
@@ -21037,6 +21490,31 @@ IdentityManager.prototype.getDefaultCertificateName = function
 };
 
 /**
+ * Append all the identity names to the nameList.
+ * @param {Array<Name>} nameList Append result names to nameList.
+ * @param {boolean} isDefault If true, add only the default identity name. If
+ * false, add only the non-default identity names.
+ * @param {function} onComplete (optional) This calls onComplete() when finished
+ * adding to nameList. If omitted, this returns when complete. (Some database
+ * libraries only use a callback, so onComplete is required to use these.)
+ * @param {function} onError (optional) If defined, then onComplete must be
+ * defined and if there is an exception, then this calls onError(exception)
+ * with the exception. If onComplete is defined but onError is undefined, then
+ * this will log any thrown exception. (Some database libraries only use a
+ * callback, so onError is required to be notified of an exception.)
+ * @return {void} If onComplete is omitted, return when complete. Otherwise, if
+ * onComplete is supplied then return undefined and use onComplete as described
+ * above.
+ */
+IdentityManager.prototype.getAllIdentities = function
+  (nameList, isDefault, onComplete, onError)
+{
+  return SyncPromise.complete(onComplete, onError,
+    this.identityStorage.getAllIdentitiesPromise
+      (nameList, isDefault, !onComplete));
+};
+
+/**
  * Append all the key names of a particular identity to the nameList.
  * @param {Name} identityName The identity name to search for.
  * @param {Array<Name>} nameList Append result names to nameList.
@@ -21060,6 +21538,32 @@ IdentityManager.prototype.getAllKeyNamesOfIdentity = function
   return SyncPromise.complete(onComplete, onError,
     this.identityStorage.getAllKeyNamesOfIdentityPromise
       (identityName, nameList, isDefault, !onComplete));
+};
+
+/**
+ * Append all the certificate names of a particular key name to the nameList.
+ * @param {Name} keyName The key name to search for.
+ * @param {Array<Name>} nameList Append result names to nameList.
+ * @param {boolean} isDefault If true, add only the default certificate name. If
+ * false, add only the non-default certificate names.
+ * @param {function} onComplete (optional) This calls onComplete() when finished
+ * adding to nameList. If omitted, this returns when complete. (Some database
+ * libraries only use a callback, so onComplete is required to use these.)
+ * @param {function} onError (optional) If defined, then onComplete must be
+ * defined and if there is an exception, then this calls onError(exception)
+ * with the exception. If onComplete is defined but onError is undefined, then
+ * this will log any thrown exception. (Some database libraries only use a
+ * callback, so onError is required to be notified of an exception.)
+ * @return {void} If onComplete is omitted, return when complete. Otherwise, if
+ * onComplete is supplied then return undefined and use onComplete as described
+ * above.
+ */
+IdentityManager.prototype.getAllCertificateNamesOfKey = function
+  (keyName, nameList, isDefault, onComplete, onError)
+{
+  return SyncPromise.complete(onComplete, onError,
+    this.identityStorage.getAllCertificateNamesOfKeyPromise
+      (keyName, nameList, isDefault, !onComplete));
 };
 
 /**
@@ -21648,7 +22152,7 @@ PolicyManager.verifyUsesString = null;
  * signature.
  * @param {function} onComplete This calls onComplete(true) if the signature
  * verifies, otherwise onComplete(false).
- * @throws {SecurityException} if the signature type is not recognized or if
+ * @throws SecurityException if the signature type is not recognized or if
  * publicKeyDer can't be decoded.
  */
 PolicyManager.verifySignature = function
@@ -23050,9 +23554,14 @@ SelfVerifyPolicyManager.prototype.getPublicKeyDer = function
            this.identityStorage != null)
     // Assume the key name is a certificate name.
     SyncPromise.complete
-      (onComplete, this.identityStorage.getKeyPromise
-       (IdentityCertificate.certificateNameToPublicKeyName
-        (keyLocator.getKeyName())));
+      (onComplete,
+       function(err) {
+         // The storage doesn't have the key.
+         onComplete(new Blob());
+       },
+       this.identityStorage.getKeyPromise
+         (IdentityCertificate.certificateNameToPublicKeyName
+          (keyLocator.getKeyName())));
   else
     // Can't find a key to verify.
     onComplete(new Blob());
@@ -23396,9 +23905,9 @@ KeyChain.prototype.setDefaultCertificateForKey = function
  * Get a certificate which is still valid with the specified name.
  * @param {Name} certificateName The name of the requested certificate.
  * @param {function} onComplete (optional) This calls onComplete(certificate)
- * with the requested IdentityCertificate which is valid. If omitted, the return
- * value is described below. (Some crypto libraries only use a callback, so
- * onComplete is required to use these.)
+ * with the requested IdentityCertificate. If omitted, the return value is 
+ * described below. (Some crypto libraries only use a callback, so onComplete is
+ * required to use these.)
  * NOTE: The library will log any exceptions thrown by this callback, but for
  * better error handling the callback should catch and properly handle any
  * exceptions.
@@ -23411,8 +23920,8 @@ KeyChain.prototype.setDefaultCertificateForKey = function
  * better error handling the callback should catch and properly handle any
  * exceptions.
  * @return {IdentityCertificate} If onComplete is omitted, return the requested
- * certificate which is valid. Otherwise, if onComplete is supplied then return
- * undefined and use onComplete as described above.
+ * certificate. Otherwise, if onComplete is supplied then return undefined and
+ * use onComplete as described above.
  */
 KeyChain.prototype.getCertificate = function
   (certificateName, onComplete, onError)
@@ -23422,89 +23931,12 @@ KeyChain.prototype.getCertificate = function
 };
 
 /**
- * Get a certificate even if the certificate is not valid anymore.
- * @param {Name} certificateName The name of the requested certificate.
- * @param {function} onComplete (optional) This calls onComplete(certificate)
- * with the requested IdentityCertificate. If omitted, the return value is
- * described below. (Some crypto libraries only use a callback, so onComplete is
- * required to use these.)
- * NOTE: The library will log any exceptions thrown by this callback, but for
- * better error handling the callback should catch and properly handle any
- * exceptions.
- * @param {function} onError (optional) If defined, then onComplete must be
- * defined and if there is an exception, then this calls onError(exception)
- * with the exception. If onComplete is defined but onError is undefined, then
- * this will log any thrown exception. (Some database libraries only use a
- * callback, so onError is required to be notified of an exception.)
- * NOTE: The library will log any exceptions thrown by this callback, but for
- * better error handling the callback should catch and properly handle any
- * exceptions.
- * @return {IdentityCertificate} If onComplete is omitted, return the requested
- * certificate. Otherwise, if onComplete is supplied then return undefined and
- * use onComplete as described above.
- */
-KeyChain.prototype.getAnyCertificate = function
-  (certificateName, onComplete, onError)
-{
-  return this.identityManager.getAnyCertificate
-    (certificateName, onComplete, onError);
-};
-
-/**
- * Get an identity certificate which is still valid with the specified name.
- * @param {Name} certificateName The name of the requested certificate.
- * @param {function} onComplete (optional) This calls onComplete(certificate)
- * with the requested IdentityCertificate which is valid. If omitted, the return
- * value is described below. (Some crypto libraries only use a callback, so
- * onComplete is required to use these.)
- * NOTE: The library will log any exceptions thrown by this callback, but for
- * better error handling the callback should catch and properly handle any
- * exceptions.
- * @param {function} onError (optional) If defined, then onComplete must be
- * defined and if there is an exception, then this calls onError(exception)
- * with the exception. If onComplete is defined but onError is undefined, then
- * this will log any thrown exception. (Some database libraries only use a
- * callback, so onError is required to be notified of an exception.)
- * NOTE: The library will log any exceptions thrown by this callback, but for
- * better error handling the callback should catch and properly handle any
- * exceptions.
- * @return {IdentityCertificate} If onComplete is omitted, return the requested
- * certificate which is valid. Otherwise, if onComplete is supplied then return
- * undefined and use onComplete as described above.
+ * @deprecated Use getCertificate.
  */
 KeyChain.prototype.getIdentityCertificate = function
   (certificateName, onComplete, onError)
 {
   return this.identityManager.getCertificate
-    (certificateName, onComplete, onError);
-};
-
-/**
- * Get an identity certificate even if the certificate is not valid anymore.
- * @param {Name} certificateName The name of the requested certificate.
- * @param {function} onComplete (optional) This calls onComplete(certificate)
- * with the requested IdentityCertificate. If omitted, the return value is
- * described below. (Some crypto libraries only use a callback, so onComplete is
- * required to use these.)
- * NOTE: The library will log any exceptions thrown by this callback, but for
- * better error handling the callback should catch and properly handle any
- * exceptions.
- * @param {function} onError (optional) If defined, then onComplete must be
- * defined and if there is an exception, then this calls onError(exception)
- * with the exception. If onComplete is defined but onError is undefined, then
- * this will log any thrown exception. (Some database libraries only use a
- * callback, so onError is required to be notified of an exception.)
- * NOTE: The library will log any exceptions thrown by this callback, but for
- * better error handling the callback should catch and properly handle any
- * exceptions.
- * @return {IdentityCertificate} If onComplete is omitted, return the requested
- * certificate. Otherwise, if onComplete is supplied then return undefined and
- * use onComplete as described above.
- */
-KeyChain.prototype.getAnyIdentityCertificate = function
-  (certificateName, onComplete, onError)
-{
-  return this.identityManager.getAnyCertificate
     (certificateName, onComplete, onError);
 };
 
@@ -23663,28 +24095,40 @@ KeyChain.prototype.sign = function
  * object (if target is a Buffer) or the target (if target is Data or Interest).
  */
 KeyChain.prototype.signPromise = function
-  (target, certificateNameOrWireFormat, wireFormat, useSync)
+  (target, certificateName, wireFormat, useSync)
 {
-  var certificateName;
-  if (certificateNameOrWireFormat instanceof Name)
-    // sign(target, certificateName [, wireFormat] [, useSync]).
-    // sign(target, certificateName [, useSync]).
-    certificateName = certificateNameOrWireFormat;
-    // If wireFormat is omitted, we'll shift below.
-  else {
-    // sign(target [, wireFormat] [, useSync]).
-    // sign(target [, useSync]).
-    // Shift the parameters. If wireFormat is omitted, we'll shift again below.
-    useSync = wireFormat;
-    wireFormat = certificateNameOrWireFormat;
+  var arg2 = certificateName;
+  var arg3 = wireFormat;
+  var arg4 = useSync;
+  // arg2,            arg3,       arg4
+  // certificateName, wireFormat, useSync
+  // certificateName, wireFormat, null
+  // certificateName, useSync,    null
+  // certificateName, null,       null
+  // wireFormat,      useSync,    null
+  // wireFormat,      null,       null
+  // useSync,         null,       null
+  // null,            null,       null
+  if (arg2 instanceof Name)
+    certificateName = arg2;
+  else
     certificateName = null;
-  }
 
-  if (!(wireFormat instanceof WireFormat)) {
-    // wireFormat is omitted. Shift the parameters.
-    useSync = wireFormat;
-    wireFormat = undefined;
-  }
+  if (arg2 instanceof WireFormat)
+    wireFormat = arg2;
+  else if (arg3 instanceof WireFormat)
+    wireFormat = arg3;
+  else
+    wireFormat = null;
+
+  if (typeof arg2 === 'boolean')
+    useSync = arg2;
+  else if (typeof arg3 === 'boolean')
+    useSync = arg3;
+  else if (typeof arg4 === 'boolean')
+    useSync = arg4;
+  else
+    useSync = false;
 
   var thisKeyChain = this;
   return SyncPromise.resolve()
@@ -27424,7 +27868,7 @@ AesAlgorithm.decryptPromise = function(keyBits, encryptedData, params, useSync)
  * params.getAlgorithmType() and other params as needed such as
  * params.getInitialVector().
  * @return {Blob} The decrypted data.
- * @throws {Error} If decryptPromise doesn't return a SyncPromise which is
+ * @throws Error If decryptPromise doesn't return a SyncPromise which is
  * already fulfilled.
  */
 AesAlgorithm.decrypt = function(keyBits, encryptedData, params)
@@ -27499,7 +27943,7 @@ AesAlgorithm.encryptPromise = function(keyBits, plainData, params, useSync)
  * params.getAlgorithmType() and other params as needed such as
  * params.getInitialVector().
  * @return {Blob} The encrypted data.
- * @throws {Error} If encryptPromise doesn't return a SyncPromise which is
+ * @throws Error If encryptPromise doesn't return a SyncPromise which is
  * already fulfilled.
  */
 AesAlgorithm.encrypt = function(keyBits, plainData, params)
@@ -27769,7 +28213,7 @@ Encryptor.encryptDataPromise = function
  * @param {Name} keyName The key name for the EncryptedContent.
  * @param {Blob} key The encryption key value.
  * @param {EncryptParams} params The parameters for encryption.
- * @throws {Error} If encryptPromise doesn't return a SyncPromise which is
+ * @throws Error If encryptPromise doesn't return a SyncPromise which is
  * already fulfilled.
  */
 Encryptor.encryptData = function(data, payload, keyName, key, params)
@@ -27962,7 +28406,7 @@ RsaAlgorithm.generateKeyPromise = function(params, useSync)
  * @param {RsaKeyParams} params The key params with the key size (in bits).
  * @return {DecryptKey} The new decrypt key (containing a PKCS8-encoded private
  * key).
- * @throws {Error} If generateKeyPromise doesn't return a SyncPromise which is
+ * @throws Error If generateKeyPromise doesn't return a SyncPromise which is
  * already fulfilled.
  */
 RsaAlgorithm.generateKey = function(params)
@@ -28072,7 +28516,7 @@ RsaAlgorithm.decryptPromise = function(keyBits, encryptedData, params, useSync)
  * @param {EncryptParams} params This decrypts according to
  * params.getAlgorithmType().
  * @return {Blob} The decrypted data.
- * @throws {Error} If decryptPromise doesn't return a SyncPromise which is
+ * @throws Error If decryptPromise doesn't return a SyncPromise which is
  * already fulfilled.
  */
 RsaAlgorithm.decrypt = function(keyBits, encryptedData, params)
@@ -28146,7 +28590,7 @@ RsaAlgorithm.encryptPromise = function(keyBits, plainData, params, useSync)
  * @param {EncryptParams} params This encrypts according to
  * params.getAlgorithmType().
  * @return {Blob} The encrypted data.
- * @throws {Error} If encryptPromise doesn't return a SyncPromise which is
+ * @throws Error If encryptPromise doesn't return a SyncPromise which is
  * already fulfilled.
  */
 RsaAlgorithm.encrypt = function(keyBits, plainData, params)
@@ -30446,7 +30890,7 @@ Producer.prototype.produce = function
     .then(function(contentKey) {
       // Produce data.
       var dataName = new Name(thisProducer.namespace_);
-      dataName.append(Schedule.toIsoString(Producer.getRoundedTimeSlot_(timeSlot)));
+      dataName.append(Schedule.toIsoString(timeSlot));
 
       data.setName(dataName);
       var params = new EncryptParams(EncryptAlgorithmType.AesCbc, 16);
@@ -33509,6 +33953,532 @@ CommandInterestGenerator.prototype.generate = function
   });
 };
 /**
+ * Copyright (C) 2016 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+var LOG = require('../log.js').Log.LOG;
+
+/**
+ * An InterestFilterTable is an internal class to hold a list of entries with
+ * an interest Filter and its OnInterestCallback.
+ * @constructor
+ */
+var InterestFilterTable = function InterestFilterTable()
+{
+  this.table_ = []; // of Entry
+};
+
+exports.InterestFilterTable = InterestFilterTable;
+
+/**
+ * InterestFilterTable.Entry holds an interestFilterId, an InterestFilter and
+ * the OnInterestCallback with its related Face.
+ * Create a new Entry with the given values.
+ * @param {number} interestFilterId The ID from getNextEntryId().
+ * @param {InterestFilter} filter The InterestFilter for this entry.
+ * @param {function} onInterest The callback to call.
+ * @param {Face} face The face on which was called registerPrefix or
+ * setInterestFilter which is passed to the onInterest callback.
+ * @constructor
+ */
+InterestFilterTable.Entry = function InterestFilterTableEntry
+  (interestFilterId, filter, onInterest, face)
+{
+  this.interestFilterId_ = interestFilterId;
+  this.filter_ = filter;
+  this.onInterest_ = onInterest;
+  this.face_ = face;
+};
+
+/**
+ * Get the interestFilterId given to the constructor.
+ * @returns {number} The interestFilterId.
+ */
+InterestFilterTable.Entry.prototype.getInterestFilterId = function()
+{
+  return this.interestFilterId_;
+};
+
+/**
+ * Get the InterestFilter given to the constructor.
+ * @returns {InterestFilter} The InterestFilter.
+ */
+InterestFilterTable.Entry.prototype.getFilter = function()
+{
+  return this.filter_;
+};
+
+/**
+ * Get the onInterest callback given to the constructor.
+ * @returns {function} The onInterest callback.
+ */
+InterestFilterTable.Entry.prototype.getOnInterest = function()
+{
+  return this.onInterest_;
+};
+
+/**
+ * Get the Face given to the constructor.
+ * @returns {Face} The Face.
+ */
+InterestFilterTable.Entry.prototype.getFace = function()
+{
+  return this.face_;
+};
+
+/**
+ * Add a new entry to the table.
+ * @param {number} interestFilterId The ID from Node.getNextEntryId().
+ * @param {InterestFilter} filter The InterestFilter for this entry.
+ * @param {function} onInterest The callback to call.
+ * @param {Face} face The face on which was called registerPrefix or
+ * setInterestFilter which is passed to the onInterest callback.
+ */
+InterestFilterTable.prototype.setInterestFilter = function
+  (interestFilterId, filter, onInterest, face)
+{
+  this.table_.push(new InterestFilterTable.Entry
+    (interestFilterId, filter, onInterest, face));
+};
+
+/**
+ * Find all entries from the interest filter table where the interest conforms
+ * to the entry's filter, and add to the matchedFilters list.
+ * @param {Interest} interest The interest which may match the filter in
+ * multiple entries.
+ * @param {Array<InterestFilterTable.Entry>} matchedFilters Add each matching
+ * InterestFilterTable.Entry from the interest filter table.  The caller should
+ * pass in an empty array.
+ */
+InterestFilterTable.prototype.getMatchedFilters = function
+  (interest, matchedFilters)
+{
+  for (var i = 0; i < this.table_.length; ++i) {
+    var entry = this.table_[i];
+    if (entry.getFilter().doesMatch(interest.getName()))
+      matchedFilters.push(entry);
+  }
+};
+
+/**
+ * Remove the interest filter entry which has the interestFilterId from the
+ * interest filter table. This does not affect another interest filter with a
+ * different interestFilterId, even if it has the same prefix name. If there is
+ * no entry with the interestFilterId, do nothing.
+ * @param {number} interestFilterId The ID returned from setInterestFilter.
+ */
+InterestFilterTable.prototype.unsetInterestFilter = function(interestFilterId)
+{
+  // Go backwards through the list so we can erase entries.
+  // Remove all entries even though interestFilterId should be unique.
+  var count = 0;
+  for (var i = this.table_.length - 1; i >= 0; --i) {
+    if (this.table_[i].getInterestFilterId() == interestFilterId) {
+      ++count;
+      this.table_.splice(i, 1);
+    }
+  }
+
+  if (count === 0)
+    if (LOG > 0) console.log
+      ("unsetInterestFilter: Didn't find interestFilterId " + interestFilterId);
+};
+/**
+ * Copyright (C) 2016 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+var NdnCommon = require('../util/ndn-common.js').NdnCommon;
+var LOG = require('../log.js').Log.LOG;
+
+/**
+ * A PendingInterestTable is an internal class to hold a list of pending
+ * interests with their callbacks.
+ * @constructor
+ */
+var PendingInterestTable = function PendingInterestTable()
+{
+  this.table_ = []; // of Entry
+  this.removeRequests_ = []; // of number
+};
+
+exports.PendingInterestTable = PendingInterestTable;
+
+/**
+ * PendingInterestTable.Entry holds the callbacks and other fields for an entry
+ * in the pending interest table.
+ * Create a new Entry with the given fields. Note: You should not call this
+ * directly but call PendingInterestTable.add.
+ * @constructor
+ */
+PendingInterestTable.Entry = function PendingInterestTableEntry
+  (pendingInterestId, interest, onData, onTimeout)
+{
+  this.pendingInterestId_ = pendingInterestId;
+  this.interest_ = interest;
+  this.onData_ = onData;
+  this.onTimeout_ = onTimeout;
+  this.timerId_ = -1;
+};
+
+/**
+ * Get the pendingInterestId given to the constructor.
+ * @returns {number} The pendingInterestId.
+ */
+PendingInterestTable.Entry.prototype.getPendingInterestId = function()
+{
+  return this.pendingInterestId_;
+};
+
+/**
+ * Get the interest given to the constructor (from Face.expressInterest).
+ * @returns {Interest} The interest. NOTE: You must not change the interest
+ * object - if you need to change it then make a copy.
+ */
+PendingInterestTable.Entry.prototype.getInterest = function()
+{
+  return this.interest_;
+};
+
+/**
+ * Get the OnData callback given to the constructor.
+ * @returns {function} The OnData callback.
+ */
+PendingInterestTable.Entry.prototype.getOnData = function()
+{
+  return this.onData_;
+};
+
+/**
+* Call onTimeout_ (if defined). This ignores exceptions from the call to
+* onTimeout_.
+*/
+PendingInterestTable.Entry.prototype.callTimeout = function()
+{
+  if (this.onTimeout_) {
+    try {
+      this.onTimeout_(this.interest_);
+    } catch (ex) {
+      console.log("Error in onTimeout: " + NdnCommon.getErrorWithStackTrace(ex));
+    }
+  }
+};
+
+/**
+ * Call setTimeout(callback, milliseconds) and remember the timer ID. If the
+ * timer ID has already been set on a prevous call, do nothing.
+ */
+PendingInterestTable.Entry.prototype.setTimeout = function(callback, milliseconds)
+{
+  if (this.timerId_ !== -1)
+    // Already set a timeout.
+    return;
+  this.timerId_ = setTimeout(callback, milliseconds);
+};
+
+/**
+ * Clear the timeout timer and reset the timer ID.
+ */
+PendingInterestTable.Entry.prototype.clearTimeout = function()
+{
+  if (this.timerId_ !== -1) {
+    clearTimeout(this.timerId_);
+    this.timerId_ = -1;
+  }
+};
+
+/**
+ * Add a new entry to the pending interest table. Also set a timer to call the
+ * timeout. However, if removePendingInterest was already called with the
+ * pendingInterestId, don't add an entry and return null.
+ * @param {number} pendingInterestId
+ * @param {Interest} interestCopy
+ * @param {function} onData
+ * @param {function} onTimeout
+ * @returns {PendingInterestTable.Entry} The new PendingInterestTable.Entry, or
+ * null if removePendingInterest was already called with the pendingInterestId.
+ */
+PendingInterestTable.prototype.add = function
+  (pendingInterestId, interestCopy, onData, onTimeout)
+{
+  var removeRequestIndex = this.removeRequests_.indexOf(pendingInterestId);
+  if (removeRequestIndex >= 0) {
+    // removePendingInterest was called with the pendingInterestId returned by
+    //   expressInterest before we got here, so don't add a PIT entry.
+    this.removeRequests_.splice(removeRequestIndex, 1);
+    return null;
+  }
+
+  var entry = new PendingInterestTable.Entry
+    (pendingInterestId, interestCopy, onData, onTimeout);
+  this.table_.push(entry);
+
+  // Set interest timer.
+  var timeoutMilliseconds = (interestCopy.getInterestLifetimeMilliseconds() || 4000);
+  var thisTable = this;
+  var timeoutCallback = function() {
+    if (LOG > 1) console.log("Interest time out: " + interestCopy.getName().toUri());
+
+    // Remove the entry from the table.
+    var index = thisTable.table_.indexOf(entry);
+    if (index >= 0)
+      thisTable.table_.splice(index, 1);
+
+    entry.callTimeout();
+  };
+
+  entry.setTimeout(timeoutCallback, timeoutMilliseconds);
+  return entry;
+};
+
+/**
+ * Find all entries from the pending interest table where the name conforms to
+ * the entry's interest selectors, remove the entries from the table, and add to
+ * the entries list.
+ * @param {Name} name The name to find the interest for (from the incoming data
+ * packet).
+ * @param {Array<Face.PendingInterest>} entries Add matching
+ * PendingInterestTable.Entry from the pending interest table. The caller should
+ * pass in an empty array.
+ */
+PendingInterestTable.prototype.extractEntriesForExpressedInterest = function
+  (name, entries)
+{
+  // Go backwards through the list so we can erase entries.
+  for (var i = this.table_.length - 1; i >= 0; --i) {
+    var entry = this.table_[i];
+    if (entry.getInterest().matchesName(name)) {
+      entry.clearTimeout();
+      entries.push(entry);
+      this.table_.splice(i, 1);
+    }
+  }
+};
+
+/**
+ * Remove the pending interest entry with the pendingInterestId from the pending
+ * interest table. This does not affect another pending interest with a
+ * different pendingInterestId, even if it has the same interest name.
+ * If there is no entry with the pendingInterestId, do nothing.
+ * @param {number} pendingInterestId The ID returned from expressInterest.
+ */
+PendingInterestTable.prototype.removePendingInterest = function
+  (pendingInterestId)
+{
+  if (pendingInterestId == null)
+    return;
+
+  // Go backwards through the list so we can erase entries.
+  // Remove all entries even though pendingInterestId should be unique.
+  var count = 0;
+  for (var i = this.table_.length - 1; i >= 0; --i) {
+    var entry = this.table_[i];
+    if (entry.getPendingInterestId() == pendingInterestId) {
+      entry.clearTimeout();
+      this.table_.splice(i, 1);
+      ++count;
+    }
+  }
+
+  if (count === 0)
+    if (LOG > 0) console.log
+      ("removePendingInterest: Didn't find pendingInterestId " + pendingInterestId);
+
+  if (count === 0) {
+    // The pendingInterestId was not found. Perhaps this has been called before
+    //   the callback in expressInterest can add to the PIT. Add this
+    //   removal request which will be checked before adding to the PIT.
+    if (this.removeRequests_.indexOf(pendingInterestId) < 0)
+      // Not already requested, so add the request.
+      this.removeRequests_.push(pendingInterestId);
+  }
+};
+/**
+ * Copyright (C) 2016 Regents of the University of California.
+ * @author: Jeff Thompson <jefft0@remap.ucla.edu>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * A copy of the GNU Lesser General Public License is in the file COPYING.
+ */
+
+var LOG = require('../log.js').Log.LOG;
+
+/**
+ * A RegisteredPrefixTable is an internal class to hold a list of registered
+ * prefixes with information necessary to remove the registration later.
+ * @param {InterestFilterTable} interestFilterTable See removeRegisteredPrefix(),
+ * which may call interestFilterTable.unsetInterestFilter().
+ * @constructor
+ */
+var RegisteredPrefixTable = function RegisteredPrefixTable(interestFilterTable)
+{
+  this.interestFilterTable_ = interestFilterTable;
+  this.table_ = []; // of Entry
+  this.removeRequests_ = []; // of number
+};
+
+exports.RegisteredPrefixTable = RegisteredPrefixTable;
+
+/**
+ * Add a new entry to the table. However, if removeRegisteredPrefix was already
+ * called with the registeredPrefixId, don't add an entry and return false.
+ * @param {number} registeredPrefixId The ID from Node.getNextEntryId().
+ * @param {Name} prefix The name prefix.
+ * @param {number} relatedInterestFilterId (optional) The related
+ * interestFilterId for the filter set in the same registerPrefix operation. If
+ * omitted, set to 0.
+ * return {boolean} True if added an entry, false if removeRegisteredPrefix was
+ * already called with the registeredPrefixId.
+ */
+RegisteredPrefixTable.prototype.add = function
+  (registeredPrefixId, prefix, relatedInterestFilterId)
+{
+  var removeRequestIndex = this.removeRequests_.indexOf(registeredPrefixId);
+  if (removeRequestIndex >= 0) {
+    // removeRegisteredPrefix was called with the registeredPrefixId returned by
+    //   registerPrefix before we got here, so don't add a registeredPrefixTable
+    //   entry.
+    this.removeRequests_.splice(removeRequestIndex, 1);
+    return false;
+  }
+
+  this.table_.push(new RegisteredPrefixTable._Entry
+    (registeredPrefixId, prefix, relatedInterestFilterId));
+  return true;
+};
+
+/**
+ * Remove the registered prefix entry with the registeredPrefixId from the
+ * registered prefix table. This does not affect another registered prefix with
+ * a different registeredPrefixId, even if it has the same prefix name. If an
+ * interest filter was automatically created by registerPrefix, also call
+ * interestFilterTable_.unsetInterestFilter to remove it.
+ * If there is no entry with the registeredPrefixId, do nothing.
+ * @param {number} registeredPrefixId The ID returned from registerPrefix.
+ */
+RegisteredPrefixTable.prototype.removeRegisteredPrefix = function
+  (registeredPrefixId)
+{
+  // Go backwards through the list so we can erase entries.
+  // Remove all entries even though registeredPrefixId should be unique.
+  var count = 0;
+  for (var i = this.table_.length - 1; i >= 0; --i) {
+    var entry = this.table_[i];
+    if (entry.getRegisteredPrefixId() == registeredPrefixId) {
+      ++count;
+
+      if (entry.getRelatedInterestFilterId() > 0)
+        // Remove the related interest filter.
+        this.interestFilterTable_.unsetInterestFilter
+          (entry.getRelatedInterestFilterId());
+
+      this.table_.splice(i, 1);
+    }
+  }
+
+  if (count === 0)
+    if (LOG > 0) console.log
+      ("removeRegisteredPrefix: Didn't find registeredPrefixId " + registeredPrefixId);
+
+  if (count === 0) {
+    // The registeredPrefixId was not found. Perhaps this has been called before
+    //   the callback in registerPrefix can add to the registeredPrefixTable. Add
+    //   this removal request which will be checked before adding to the
+    //   registeredPrefixTable.
+    if (this.removeRequests_.indexOf(registeredPrefixId) < 0)
+      // Not already requested, so add the request.
+      this.removeRequests_.push(registeredPrefixId);
+  }
+};
+
+/**
+ * RegisteredPrefixTable._Entry holds a registeredPrefixId and information
+ * necessary to remove the registration later. It optionally holds a related
+ * interestFilterId if the InterestFilter was set in the same registerPrefix
+ * operation.
+ * Create a RegisteredPrefixTable.Entry with the given values.
+ * @param {number} registeredPrefixId The ID from Node.getNextEntryId().
+ * @param {Name} prefix The name prefix.
+ * @param {number} relatedInterestFilterId (optional) The related
+ * interestFilterId for the filter set in the same registerPrefix operation. If
+ * omitted, set to 0.
+ * @constructor
+ */
+RegisteredPrefixTable._Entry = function RegisteredPrefixTableEntry
+  (registeredPrefixId, prefix, relatedInterestFilterId)
+{
+  this.registeredPrefixId_ = registeredPrefixId;
+  this.prefix_ = prefix;
+  this.relatedInterestFilterId_ = relatedInterestFilterId;
+};
+
+/**
+ * Get the registeredPrefixId given to the constructor.
+ * @returns {number} The registeredPrefixId.
+ */
+RegisteredPrefixTable._Entry.prototype.getRegisteredPrefixId = function()
+{
+  return this.registeredPrefixId;
+};
+
+/**
+ * Get the name prefix given to the constructor.
+ * @returns {Name} The name prefix.
+ */
+RegisteredPrefixTable._Entry.prototype.getPrefix = function()
+{
+  return this.prefix;
+};
+
+/**
+ * Get the related interestFilterId given to the constructor.
+ * @returns {number} The related interestFilterId.
+ */
+RegisteredPrefixTable._Entry.prototype.getRelatedInterestFilterId = function()
+{
+  return this.relatedInterestFilterId;
+};
+/**
  * This class represents the top-level object for communicating with an NDN host.
  * Copyright (C) 2013-2016 Regents of the University of California.
  * @author: Meki Cherkaoui, Jeff Thompson <jefft0@remap.ucla.edu>, Wentao Shang
@@ -33545,6 +34515,9 @@ var TcpTransport = require('./transport/tcp-transport.js').TcpTransport;
 var UnixTransport = require('./transport/unix-transport.js').UnixTransport;
 var CommandInterestGenerator = require('./util/command-interest-generator.js').CommandInterestGenerator;
 var NdnCommon = require('./util/ndn-common.js').NdnCommon;
+var InterestFilterTable = require('./impl/interest-filter-table.js').InterestFilterTable;
+var PendingInterestTable = require('./impl/pending-interest-table.js').PendingInterestTable;
+var RegisteredPrefixTable = require('./impl/registered-prefix-table.js').RegisteredPrefixTable;
 var fs = require('fs');
 var LOG = require('./log.js').Log.LOG;
 
@@ -33672,11 +34645,9 @@ var Face = function Face(transportOrSettings, connectionInfo)
   this.commandInterestGenerator = new CommandInterestGenerator();
   this.timeoutPrefix = new Name("/local/timeout");
 
-  this.pendingInterestTable = new Array();  // of Face.PendingInterest
-  this.pitRemoveRequests = new Array();     // of number
-  this.registeredPrefixTable = new Array(); // of Face.RegisteredPrefix
-  this.registeredPrefixRemoveRequests = new Array(); // of number
-  this.interestFilterTable = new Array();   // of Face.InterestFilterEntry
+  this.pendingInterestTable_ = new PendingInterestTable();
+  this.interestFilterTable_ = new InterestFilterTable();
+  this.registeredPrefixTable_ = new RegisteredPrefixTable(this.interestFilterTable_);
   this.lastEntryId = 0;
 };
 
@@ -33759,140 +34730,6 @@ Face.prototype.close = function()
 Face.prototype.getNextEntryId = function()
 {
   return ++this.lastEntryId;
-};
-
-/**
- * A PendingInterestTable is an internal class to hold a list of pending
- * interests with their callbacks.
- * @constructor
- */
-Face.PendingInterest = function FacePendingInterest
-  (pendingInterestId, interest, onData, onTimeout)
-{
-  this.pendingInterestId = pendingInterestId;
-  this.interest = interest;
-  this.onData = onData;
-  this.onTimeout = onTimeout;
-  this.timerID = -1;
-};
-
-/**
- * Find all entries from this.pendingInterestTable where the name conforms to the entry's
- * interest selectors, remove the entries from the table, cancel their timeout
- * timers and return them.
- * @param {Name} name The name to find the interest for (from the incoming data
- * packet).
- * @returns {Array<Face.PendingInterest>} The matching entries from this.pendingInterestTable, or [] if
- * none are found.
- */
-Face.prototype.extractEntriesForExpressedInterest = function(name)
-{
-  var result = [];
-
-  // Go backwards through the list so we can erase entries.
-  for (var i = this.pendingInterestTable.length - 1; i >= 0; --i) {
-    var entry = this.pendingInterestTable[i];
-    if (entry.interest.matchesName(name)) {
-      // Cancel the timeout timer.
-      clearTimeout(entry.timerID);
-
-      result.push(entry);
-      this.pendingInterestTable.splice(i, 1);
-    }
-  }
-
-  return result;
-};
-
-/**
- * A RegisteredPrefix holds a registeredPrefixId and information necessary to
- * remove the registration later. It optionally holds a related interestFilterId
- * if the InterestFilter was set in the same registerPrefix operation.
- * @param {number} registeredPrefixId A unique ID for this entry, which you
- * should get with getNextEntryId().
- * @param {Name} prefix The name prefix.
- * @param {number} relatedInterestFilterId (optional) The related
- * interestFilterId for the filter set in the same registerPrefix operation. If
- * omitted, set to 0.
- * @constructor
- */
-Face.RegisteredPrefix = function FaceRegisteredPrefix
-  (registeredPrefixId, prefix, relatedInterestFilterId)
-{
-  this.registeredPrefixId = registeredPrefixId;
-  this.prefix = prefix;
-  this.relatedInterestFilterId = relatedInterestFilterId;
-};
-
-/**
- * Get the registeredPrefixId given to the constructor.
- * @returns {number} The registeredPrefixId.
- */
-Face.RegisteredPrefix.prototype.getRegisteredPrefixId = function()
-{
-  return this.registeredPrefixId;
-};
-
-/**
- * Get the name prefix given to the constructor.
- * @returns {Name} The name prefix.
- */
-Face.RegisteredPrefix.prototype.getPrefix = function()
-{
-  return this.prefix;
-};
-
-/**
- * Get the related interestFilterId given to the constructor.
- * @returns {number} The related interestFilterId.
- */
-Face.RegisteredPrefix.prototype.getRelatedInterestFilterId = function()
-{
-  return this.relatedInterestFilterId;
-};
-
-/**
- * An InterestFilterEntry holds an interestFilterId, an InterestFilter and the
- * OnInterest callback with its related Face.
- * Create a new InterestFilterEntry with the given values.
- * @param {number} interestFilterId The ID from getNextEntryId().
- * @param {InterestFilter} filter The InterestFilter for this entry.
- * @param {function} onInterest The callback to call.
- * @constructor
- */
-Face.InterestFilterEntry = function FaceInterestFilterEntry
-  (interestFilterId, filter, onInterest)
-{
-  this.interestFilterId = interestFilterId;
-  this.filter = filter;
-  this.onInterest = onInterest;
-};
-
-/**
- * Get the interestFilterId given to the constructor.
- * @returns {number} The interestFilterId.
- */
-Face.InterestFilterEntry.prototype.getInterestFilterId = function()
-{
-  return this.interestFilterId;
-};
-
-/**
- * Get the InterestFilter given to the constructor.
- * @returns {InterestFilter} The InterestFilter.
- */
-Face.InterestFilterEntry.prototype.getFilter = function()
-{
-  return this.filter;
-};
-
-/**
- * Get the onInterest callback given to the constructor.
- * @returns {function} The onInterest callback.
- */
-Face.InterestFilterEntry.prototype.getOnInterest = function()
-{
-  return this.onInterest;
 };
 
 /**
@@ -34074,49 +34911,21 @@ Face.prototype.reconnectAndExpressInterest = function
 Face.prototype.expressInterestHelper = function
   (pendingInterestId, interest, onData, onTimeout, wireFormat)
 {
-  var binaryInterest = interest.wireEncode(wireFormat);
-  if (binaryInterest.size() > Face.getMaxNdnPacketSize())
-    throw new Error
-      ("The encoded interest size exceeds the maximum limit getMaxNdnPacketSize()");
-
-  var removeRequestIndex = removeRequestIndex = this.pitRemoveRequests.indexOf
-    (pendingInterestId);
-  if (removeRequestIndex >= 0)
-    // removePendingInterest was called with the pendingInterestId returned by
-    //   expressInterest before we got here, so don't add a PIT entry.
-    this.pitRemoveRequests.splice(removeRequestIndex, 1);
-  else {
-    var pitEntry = new Face.PendingInterest
-      (pendingInterestId, interest, onData, onTimeout);
-    this.pendingInterestTable.push(pitEntry);
-
-    // Set interest timer.
-    var timeoutMilliseconds = (interest.getInterestLifetimeMilliseconds() || 4000);
-    var thisFace = this;
-    var timeoutCallback = function() {
-      if (LOG > 1) console.log("Interest time out: " + interest.getName().toUri());
-
-      // Remove PIT entry from thisFace.pendingInterestTable.
-      var index = thisFace.pendingInterestTable.indexOf(pitEntry);
-      if (index >= 0)
-        thisFace.pendingInterestTable.splice(index, 1);
-
-      // Call onTimeout.
-      if (pitEntry.onTimeout) {
-        try {
-          pitEntry.onTimeout(pitEntry.interest);
-        } catch (ex) {
-          console.log("Error in onTimeout: " + NdnCommon.getErrorWithStackTrace(ex));
-        }
-      }
-    };
-
-    pitEntry.timerID = setTimeout(timeoutCallback, timeoutMilliseconds);
-  }
+  var pitEntry = this.pendingInterestTable_.add
+    (pendingInterestId, interest, onData, onTimeout);
+  if (pitEntry == null)
+    // removePendingInterest was already called with the pendingInterestId.
+    return;
 
   // Special case: For timeoutPrefix we don't actually send the interest.
-  if (!this.timeoutPrefix.match(interest.getName()))
+  if (!this.timeoutPrefix.match(interest.getName())) {
+    var binaryInterest = interest.wireEncode(wireFormat);
+    if (binaryInterest.size() > Face.getMaxNdnPacketSize())
+      throw new Error
+        ("The encoded interest size exceeds the maximum limit getMaxNdnPacketSize()");
+
     this.transport.send(binaryInterest.buf());
+  }
 };
 
 /**
@@ -34128,35 +34937,7 @@ Face.prototype.expressInterestHelper = function
  */
 Face.prototype.removePendingInterest = function(pendingInterestId)
 {
-  if (pendingInterestId == null)
-    return;
-
-  // Go backwards through the list so we can erase entries.
-  // Remove all entries even though pendingInterestId should be unique.
-  var count = 0;
-  for (var i = this.pendingInterestTable.length - 1; i >= 0; --i) {
-    var entry = this.pendingInterestTable[i];
-    if (entry.pendingInterestId == pendingInterestId) {
-      // Cancel the timeout timer.
-      clearTimeout(entry.timerID);
-
-      this.pendingInterestTable.splice(i, 1);
-      ++count;
-    }
-  }
-
-  if (count == 0)
-    if (LOG > 0) console.log
-      ("removePendingInterest: Didn't find pendingInterestId " + pendingInterestId);
-
-  if (count == 0) {
-    // The pendingInterestId was not found. Perhaps this has been called before
-    //   the callback in expressInterest can add to the PIT. Add this
-    //   removal request which will be checked before adding to the PIT.
-    if (this.pitRemoveRequests.indexOf(pendingInterestId) < 0)
-      // Not already requested, so add the request.
-      this.pitRemoveRequests.push(pendingInterestId);
-  }
+  this.pendingInterestTable_.removePendingInterest(pendingInterestId);
 };
 
 /**
@@ -34430,18 +35211,6 @@ Face.prototype.nfdRegisterPrefix = function
   (registeredPrefixId, prefix, onInterest, flags, onRegisterFailed,
    onRegisterSuccess, commandKeyChain, commandCertificateName, wireFormat)
 {
-  var removeRequestIndex = -1;
-  if (removeRequestIndex != null)
-    removeRequestIndex = this.registeredPrefixRemoveRequests.indexOf
-      (registeredPrefixId);
-  if (removeRequestIndex >= 0) {
-    // removeRegisteredPrefix was called with the registeredPrefixId returned by
-    //   registerPrefix before we got here, so don't add a registeredPrefixTable
-    //   entry.
-    this.registeredPrefixRemoveRequests.splice(removeRequestIndex, 1);
-    return;
-  }
-
   if (commandKeyChain == null)
       throw new Error
         ("registerPrefix: The command KeyChain has not been set. You must call setCommandSigningInfo.");
@@ -34481,8 +35250,10 @@ Face.prototype.nfdRegisterPrefix = function
           interestFilterId = thisFace.setInterestFilter
             (new InterestFilter(prefix), onInterest);
 
-        thisFace.registeredPrefixTable.push
-          (new Face.RegisteredPrefix(registeredPrefixId, prefix, interestFilterId));
+        if (!thisFace.registeredPrefixTable_.add
+            (registeredPrefixId, prefix, interestFilterId))
+          // removeRegisteredPrefix was already called with the registeredPrefixId.
+          return;
       }
 
       // Send the registration interest.
@@ -34520,35 +35291,7 @@ Face.prototype.nfdRegisterPrefix = function
  */
 Face.prototype.removeRegisteredPrefix = function(registeredPrefixId)
 {
-  // Go backwards through the list so we can erase entries.
-  // Remove all entries even though registeredPrefixId should be unique.
-  var count = 0;
-  for (var i = this.registeredPrefixTable.length - 1; i >= 0; --i) {
-    var entry = this.registeredPrefixTable[i];
-    if (entry.getRegisteredPrefixId() == registeredPrefixId) {
-      ++count;
-
-      if (entry.getRelatedInterestFilterId() > 0)
-        // Remove the related interest filter.
-        this.unsetInterestFilter(entry.getRelatedInterestFilterId());
-
-      this.registeredPrefixTable.splice(i, 1);
-    }
-  }
-
-  if (count == 0)
-    if (LOG > 0) console.log
-      ("removeRegisteredPrefix: Didn't find registeredPrefixId " + registeredPrefixId);
-
-  if (count == 0) {
-    // The registeredPrefixId was not found. Perhaps this has been called before
-    //   the callback in registerPrefix can add to the registeredPrefixTable. Add
-    //   this removal request which will be checked before adding to the
-    //   registeredPrefixTable.
-    if (this.registeredPrefixRemoveRequests.indexOf(registeredPrefixId) < 0)
-      // Not already requested, so add the request.
-      this.registeredPrefixRemoveRequests.push(registeredPrefixId);
-  }
+  this.registeredPrefixTable_.removeRegisteredPrefix(registeredPrefixId);
 };
 
 /**
@@ -34574,18 +35317,9 @@ Face.prototype.removeRegisteredPrefix = function(registeredPrefixId)
  */
 Face.prototype.setInterestFilter = function(filterOrPrefix, onInterest)
 {
-  var filter;
-  if (typeof filterOrPrefix === 'object' && filterOrPrefix instanceof InterestFilter)
-    filter = filterOrPrefix;
-  else
-    // Assume it is a prefix Name.
-    filter = new InterestFilter(filterOrPrefix);
-
   var interestFilterId = this.getNextEntryId();
-
-  this.interestFilterTable.push(new Face.InterestFilterEntry
-    (interestFilterId, filter, onInterest));
-
+  this.interestFilterTable_.setInterestFilter
+    (interestFilterId, new InterestFilter(filterOrPrefix), onInterest, this);
   return interestFilterId;
 };
 
@@ -34598,20 +35332,7 @@ Face.prototype.setInterestFilter = function(filterOrPrefix, onInterest)
  */
 Face.prototype.unsetInterestFilter = function(interestFilterId)
 {
-  // Go backwards through the list so we can erase entries.
-  // Remove all entries even though interestFilterId should be unique.
-  var count = 0;
-  for (var i = this.interestFilterTable.length - 1; i >= 0; --i) {
-    if (this.interestFilterTable[i].getInterestFilterId() == interestFilterId) {
-      ++count;
-
-      this.interestFilterTable.splice(i, 1);
-    }
-  }
-
-  if (count == 0)
-    if (LOG > 0) console.log
-      ("unsetInterestFilter: Didn't find interestFilterId " + interestFilterId);
+  this.interestFilterTable_.unsetInterestFilter(interestFilterId);
 };
 
 /**
@@ -34695,30 +35416,32 @@ Face.prototype.onReceivedElement = function(element)
     if (LOG > 3) console.log('Interest packet received.');
 
     // Call all interest filter callbacks which match.
-    for (var i = 0; i < this.interestFilterTable.length; ++i) {
-      var entry = this.interestFilterTable[i];
-      if (entry.getFilter().doesMatch(interest.getName())) {
-        if (LOG > 3)
-          console.log("Found interest filter for " + interest.getName().toUri());
-        try {
-          entry.getOnInterest()
-            (entry.getFilter().getPrefix(), interest, this,
-             entry.getInterestFilterId(), entry.getFilter());
-        } catch (ex) {
-          console.log("Error in onInterest: " + NdnCommon.getErrorWithStackTrace(ex));
-        }
+    matchedFilters = [];
+    this.interestFilterTable_.getMatchedFilters(interest, matchedFilters);
+    for (var i = 0; i < matchedFilters.length; ++i) {
+      var entry = matchedFilters[i];
+      if (LOG > 3)
+        console.log("Found interest filter for " + interest.getName().toUri());
+      try {
+        entry.getOnInterest()
+          (entry.getFilter().getPrefix(), interest, this,
+           entry.getInterestFilterId(), entry.getFilter());
+      } catch (ex) {
+        console.log("Error in onInterest: " + NdnCommon.getErrorWithStackTrace(ex));
       }
     }
   }
   else if (data !== null) {
     if (LOG > 3) console.log('Data packet received.');
 
-    var pendingInterests = this.extractEntriesForExpressedInterest(data.getName());
+    var pendingInterests = [];
+    this.pendingInterestTable_.extractEntriesForExpressedInterest
+      (data.getName(), pendingInterests);
     // Process each matching PIT entry (if any).
     for (var i = 0; i < pendingInterests.length; ++i) {
       var pendingInterest = pendingInterests[i];
       try {
-        pendingInterest.onData(pendingInterest.interest, data);
+        pendingInterest.getOnData()(pendingInterest.getInterest(), data);
       } catch (ex) {
         console.log("Error in onData: " + NdnCommon.getErrorWithStackTrace(ex));
       }
