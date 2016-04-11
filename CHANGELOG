@@ -1,8 +1,9 @@
-Interim changes since ChronoChat-js v0.3 (2016-03-20)
+Interim changes since ChronoChat-js v0.3 (2016-04-11)
 -----------------------------------------------------
 
 Changes
 * Update to use crypto.subtle Data packet signing.
+* http://redmine.named-data.net/issues/3583 Option to use the Micro Forwarder if available.
 
 ChronoChat-js v0.3 (2015-08-08)
 -----------------------------------------------------

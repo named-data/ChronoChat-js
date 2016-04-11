@@ -139,9 +139,21 @@ var DEFAULT_RSA_PRIVATE_KEY_DER = new Buffer([
 ]);
 
 var chronoChat;
+var microForwarderTransport;
 
 $(document).ready(function(){
     $("#chat").hide();
+    $("#microForwarder").hide();
+    microForwarderTransport = new MicroForwarderTransport(function(obj) {
+      var haveMicroForwarder = (obj.type == "faces/list");
+      if (haveMicroForwarder)
+        $("#microForwarder").show();
+    });
+    // Check if the Micro Forwarder is enabled.
+    setTimeout(function() {
+      microForwarderTransport.sendObject({ type: "faces/list" });
+    }, 300);
+
     $("#login").click(function(){
   var screenName = document.getElementById('name').value;
   var hubPrefix = document.getElementById('hubPrefix').value;
@@ -153,7 +165,12 @@ $(document).ready(function(){
     return;
   }
 
-  var face = new Face({host: hostName});
+  var face
+  if ($('input[name="face"]:checked').val() === "microForwarder")
+    face = new Face(microForwarderTransport,
+                    new MicroForwarderTransport.ConnectionInfo());
+  else
+    face = new Face({host: hostName});
 
   var identityStorage = new MemoryIdentityStorage();
   var privateKeyStorage = new MemoryPrivateKeyStorage();
@@ -211,7 +228,8 @@ function checkKey(event) {
     <br /><br />
     chatroom: <input type="text" id="chatroom" value="ndnchat">
     <br /><br />
-    wshub: <input type="text" id="hub" style = "width:235px" value="memoria.ndn.ucla.edu">
+    <input type="radio" name="face" value="webSocket" checked> wshub: <input type="text" id="hub" style = "width:235px" value="memoria.ndn.ucla.edu"><br/>
+    <div id="microForwarder"><input type="radio" name="face" value="microForwarder"> Micro Forwarder</div>
   </div>
   <button id="login">login</button>
 </div>
