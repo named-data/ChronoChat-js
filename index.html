@@ -144,7 +144,8 @@ var microForwarderTransport;
 $(document).ready(function(){
     $("#chat").hide();
     $("#microForwarder").hide();
-    microForwarderTransport = new MicroForwarderTransport(function(obj) {
+    microForwarderTransport = new MicroForwarderTransport();
+    microForwarderTransport.setOnReceivedObject(function(obj) {
       var haveMicroForwarder = (obj.type == "faces/list");
       if (haveMicroForwarder)
         $("#microForwarder").show();
