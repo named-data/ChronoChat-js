@@ -7,7 +7,7 @@ Get Started
 -----------
 ChronoChat-js does not require any installation. Just open the file: index.html in a browser, input user name, hub prefix and chatroom name, and then start chatting.
 
-You can also try the online demo at http://named-data.net/apps/live/chat/ .  (Try opening two browser tabs with different user names.)
+You can also try the online demo at http://named-data.github.io/ChronoChat-js/ .  (Try opening two browser tabs with different user names.)
 
 ChronoSync
 ----------
